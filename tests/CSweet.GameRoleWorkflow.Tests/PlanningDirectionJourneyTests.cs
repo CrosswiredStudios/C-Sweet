@@ -34,8 +34,9 @@ public sealed class PlanningDirectionJourneyTests
         var cycleData = new { WorkstreamId = project, TeamId = team, TeamRevision = 1, BoardId = board,
             ProfileDigest = new string('a', 64), ApprovedPackageId = Guid.NewGuid(), ApprovedPackageVersion = 1,
             ApprovedPackageDigest = new string('b', 64), LifecyclePhase = "concept", TargetMilestoneKey = "prototype", PlanningFingerprint = new string('c', 64) };
-        var technicalCycleType = type.Assembly.GetType("CrosswiredStudios.VideoGame.Contracts.GameProductionPlanningCycleV1")!;
-        var producerCycleType = typeof(ProducerAgent).Assembly.GetType(technicalCycleType.FullName!)!;
+        // Both agents now share the planning-cycle type from the CSweet.Agent.SDK.VideoGame.Contracts package.
+        var technicalCycleType = typeof(global::CSweet.Agent.SDK.VideoGame.Contracts.GameProductionPlanningCycleV1);
+        var producerCycleType = technicalCycleType;
         var cycleJson = JsonSerializer.Serialize(cycleData);
         var technicalCycle = JsonSerializer.Deserialize(cycleJson, technicalCycleType)!;
         var producerCycle = JsonSerializer.Deserialize(cycleJson, producerCycleType)!;
