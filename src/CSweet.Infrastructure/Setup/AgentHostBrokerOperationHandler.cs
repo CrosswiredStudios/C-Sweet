@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using CSweet.AgentBroker;
 using Microsoft.Extensions.Logging;
 
@@ -55,12 +56,14 @@ public sealed class AgentHostBrokerOperationHandler(
         BrokerOperationContext request,
         CancellationToken cancellationToken)
     {
-        if (!string.Equals(request.Purpose, "mcp.runtime", StringComparison.Ordinal))
+        var git = string.Equals(request.Purpose, "git.runtime", StringComparison.Ordinal);
+        if ((!git && (!string.Equals(request.Purpose, "mcp.runtime", StringComparison.Ordinal) || request.Path != "/mcp")) ||
+            git && !IsGitRequest(request.Method, request.Path))
             throw new UnauthorizedAccessException("The requested broker purpose is not available through AgentHost.");
         if (_observedWorkloads.TryAdd(request.WorkloadId, 0))
         {
             logger.LogInformation(
-                "Received the first authenticated MCP broker request for workload {WorkloadId}, installation {InstallationId}.",
+                "Received the first authenticated runtime broker request for workload {WorkloadId}, installation {InstallationId}.",
                 request.WorkloadId,
                 request.InstallationId);
         }
@@ -78,7 +81,7 @@ public sealed class AgentHostBrokerOperationHandler(
                 message.Content?.Headers.TryAddWithoutValidation(header.Key, header.Value);
         }
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(ResolveTimeoutSeconds(request.Body)));
+        timeout.CancelAfter(TimeSpan.FromSeconds(git ? options.TimeoutSeconds : ResolveTimeoutSeconds(request.Body)));
         HttpResponseMessage response;
         try
         {
@@ -126,6 +129,14 @@ public sealed class AgentHostBrokerOperationHandler(
             return new BrokerOperationResult((int)response.StatusCode, headers, body);
         }
     }
+
+    private static bool IsGitRequest(string method, string path) => Regex.IsMatch(path,
+        @"\A/git/workspaces/[0-9a-fA-F-]{36}/[1-9][0-9]{0,18}/" + (method switch
+        {
+            "GET" => @"info/refs\?service=git-(upload|receive)-pack\z",
+            "POST" => @"git-(upload|receive)-pack\z",
+            _ => @"(?!)"
+        }), RegexOptions.CultureInvariant);
 
     internal int ResolveTimeoutSeconds(ReadOnlyMemory<byte> body)
     {

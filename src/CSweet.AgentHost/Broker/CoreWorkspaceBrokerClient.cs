@@ -5,10 +5,27 @@ namespace CSweet.AgentHost.Broker;
 
 /// <summary>
 /// AgentHost can ask Core to materialize an already-authorized workspace, but receives no provider
-/// coordinates, installation identifiers, Git credentials, archive bytes, or Docker authority.
+/// coordinates, provider installation identifiers, Git credentials, or Docker authority.
 /// </summary>
 public sealed class CoreWorkspaceBrokerClient(HttpClient http) : ITrustedGitHostClient
 {
+    public async Task<AgentBrokerWorkspaceGitResult> GitAsync(TrustedWorkspaceOperationRequest request,
+        string service, bool advertise, byte[] body, CancellationToken ct)
+    {
+        using var message = new HttpRequestMessage(HttpMethod.Post, "agent-broker/v2/workspaces/git");
+        message.Content = JsonContent.Create(new AgentBrokerWorkspaceGitRequest(
+            new(request.OrganizationId, request.RepositoryId, request.WorkspaceId, request.WorkItemId,
+                request.AssignmentRevision, request.WorkspaceKey, request.IdempotencyKey,
+                service == "git-receive-pack" ? "publish" : "snapshot-pull"), service, advertise, body));
+        using var response = await http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, ct);
+        await WorkspaceOperationErrors.EnsureSuccessAsync(response, "Core", "git", ct);
+        // byte[] JSON uses base64; bound the encoded envelope before deserializing it.
+        await response.Content.LoadIntoBufferAsync(4L * ((AgentWorkspaceGitEndpoints.MaximumBodyBytes + 2) / 3) + 1024, ct);
+        var result = await response.Content.ReadFromJsonAsync<AgentBrokerWorkspaceGitResult>(ct)
+            ?? throw new InvalidOperationException("Core returned no workspace Git response.");
+        return result;
+    }
+
     public async Task<CSweet.Agent.SDK.GitWorkspaceSyncResult> SyncAsync(TrustedWorkspaceOperationRequest request, string direction, byte[]? archive, CancellationToken ct)
     {
         using var response = await http.PostAsJsonAsync("agent-broker/v2/workspaces/operate",

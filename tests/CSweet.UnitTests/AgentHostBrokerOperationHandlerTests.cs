@@ -8,6 +8,62 @@ namespace CSweet.UnitTests;
 
 public sealed class AgentHostBrokerOperationHandlerTests
 {
+    [Theory]
+    [InlineData("GET", "info/refs?service=git-upload-pack")]
+    [InlineData("GET", "info/refs?service=git-receive-pack")]
+    [InlineData("POST", "git-upload-pack")]
+    [InlineData("POST", "git-receive-pack")]
+    public async Task GitPurposeForwardsBinaryBodiesAndProtocolContentTypes(string method, string suffix)
+    {
+        byte[] body = [0, 255, 1, 13, 10];
+        var path = $"/git/workspaces/{Guid.NewGuid():D}/1/{suffix}";
+        var transport = new StubHttpMessageHandler(request =>
+        {
+            Assert.Equal(path, request.RequestUri!.PathAndQuery);
+            Assert.Equal(method, request.Method.Method);
+            Assert.Equal(body, request.Content!.ReadAsByteArrayAsync().GetAwaiter().GetResult());
+            Assert.Equal("Bearer session-token", request.Headers.Authorization!.ToString());
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(body) };
+            response.Content.Headers.ContentType = new("application/x-git-receive-pack-result");
+            return response;
+        });
+        using var client = new HttpClient(transport) { BaseAddress = new("http://agenthost/") };
+        var handler = new AgentHostBrokerOperationHandler(new StubHttpClientFactory(client), new(),
+            NullLogger<AgentHostBrokerOperationHandler>.Instance);
+        var result = await handler.HandleAsync(new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid().ToString("N"),
+            "git.runtime", method, path, new Dictionary<string, string> { ["Authorization"] = "Bearer session-token",
+                ["Content-Type"] = "application/x-git-receive-pack-request" }, body), default);
+        Assert.Equal(body, result.Body.ToArray());
+        Assert.Equal("application/x-git-receive-pack-result", result.Headers["Content-Type"]);
+    }
+
+    [Theory]
+    [InlineData("POST", "/mcp")]
+    [InlineData("GET", "https://example.com/git/workspaces/anything")]
+    [InlineData("POST", "/git/workspaces/../mcp")]
+    [InlineData("POST", "/git/workspaces/%2e%2e/mcp")]
+    [InlineData("GET", "/git/workspaces/00000000-0000-0000-0000-000000000000/1/info/refs?service=git-upload-pack&extra=x")]
+    [InlineData("PUT", "/git/workspaces/00000000-0000-0000-0000-000000000000/1/git-receive-pack")]
+    public async Task GitPurposeCannotForwardOutsideSmartHttpRoutes(string method, string path)
+    {
+        using var client = new HttpClient(new StubHttpMessageHandler(_ => throw new Exception("Must not forward")));
+        var handler = new AgentHostBrokerOperationHandler(new StubHttpClientFactory(client), new(),
+            NullLogger<AgentHostBrokerOperationHandler>.Instance);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => handler.HandleAsync(new(Guid.NewGuid(), Guid.NewGuid(),
+            Guid.NewGuid().ToString("N"), "git.runtime", method, path, new Dictionary<string, string>(), ReadOnlyMemory<byte>.Empty), default));
+    }
+
+    [Fact]
+    public async Task McpPurposeCannotBeUsedToReachGitRoutes()
+    {
+        using var client = new HttpClient(new StubHttpMessageHandler(_ => throw new Exception("Must not forward")));
+        var handler = new AgentHostBrokerOperationHandler(new StubHttpClientFactory(client), new(),
+            NullLogger<AgentHostBrokerOperationHandler>.Instance);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => handler.HandleAsync(new(Guid.NewGuid(), Guid.NewGuid(),
+            Guid.NewGuid().ToString("N"), "mcp.runtime", "GET", $"/git/workspaces/{Guid.NewGuid():D}/1/info/refs?service=git-upload-pack",
+            new Dictionary<string, string>(), ReadOnlyMemory<byte>.Empty), default));
+    }
+
     [Fact]
     public async Task WorkClaimSurvivesBeyondShortControlTimeout()
     {

@@ -8,6 +8,9 @@ namespace CSweet.AgentHost.Broker;
 /// </summary>
 public interface ITrustedGitHostClient
 {
+    Task<CSweet.TrustedServices.AgentBrokerWorkspaceGitResult> GitAsync(TrustedWorkspaceOperationRequest request,
+        string service, bool advertise, byte[] body, CancellationToken ct) =>
+        throw new InvalidOperationException("Workspace Git access is unavailable.");
     Task<GitWorkspaceSyncResult> SyncAsync(TrustedWorkspaceOperationRequest request, string direction, byte[]? archive, CancellationToken ct) =>
         throw new InvalidOperationException("Workspace snapshot transfer is unavailable.");
     Task CreatePersonalRepositoryAsync(CSweet.TrustedServices.AgentBrokerPersonalRepositoryRequest request, CancellationToken ct) =>

@@ -77,7 +77,7 @@ public sealed class ExecutionBrokerSessionRunner(
             workload.BrokerLease.ProtocolVersion,
             workload.BrokerLease.BootToken,
             workload.BrokerLease.ExpiresAt,
-            new HashSet<string>(StringComparer.Ordinal) { "mcp.runtime" },
+            new HashSet<string>(StringComparer.Ordinal) { "mcp.runtime", "git.runtime" },
             brokerLimits.MaximumRequestCount,
             brokerLimits.MaximumRequestBodyBytes,
             brokerLimits.MaximumResponseBodyBytes,

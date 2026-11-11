@@ -6,6 +6,22 @@ namespace CSweet.UnitTests;
 
 public sealed class GitWorkspaceCapabilityHandlerTests
 {
+    [Theory]
+    [InlineData("git-upload-pack", GitWorkspaceCapabilities.Publish)]
+    [InlineData("git-receive-pack", GitWorkspaceCapabilities.Prepare)]
+    [InlineData("git-upload-pack", GitWorkspaceCapabilities.Sync)]
+    [InlineData("git-receive-pack", GitWorkspaceCapabilities.Sync)]
+    public async Task GitRequiresTheMatchingReadOrWriteCapabilityBeforeDatabaseAccess(string service, string granted)
+    {
+        var handler = new GitWorkspaceCapabilityHandler(null!, new UnavailableTrustedGitHostClient(), null!, null!, WorkspaceSyncTestOptions.Value);
+        var session = new AgentSession("session", "developer", Guid.NewGuid().ToString(), Guid.NewGuid().ToString(),
+            Guid.NewGuid().ToString(), Guid.NewGuid().ToString(),
+            new AuthorizedAgentGrant(new HashSet<string>(), new HashSet<string>(), new HashSet<string> { granted }, 1));
+        var error = await Assert.ThrowsAsync<UnauthorizedAccessException>(() => handler.GitAsync(session, Guid.NewGuid(), 1,
+            service, true, [], default));
+        Assert.Contains("no authority", error.Message);
+    }
+
     [Fact]
     public async Task Assigned_history_requires_the_inspection_grant_before_database_or_host_access()
     {

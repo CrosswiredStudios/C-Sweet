@@ -47,6 +47,13 @@ public static class AgentWorkspaceBrokerEndpoints
             catch (Exception error) when (WorkspaceOperationErrors.IsExpected(error))
             { return WorkspaceOperationErrors.Result(error, logger); }
         }).AllowAnonymous();
+        endpoints.MapPost("/agent-broker/v2/workspaces/git", async (AgentBrokerWorkspaceGitRequest request,
+            IAgentWorkspaceBroker broker, ILogger<AgentWorkspaceBroker> logger, CancellationToken ct) =>
+        {
+            try { return Results.Ok(await broker.GitAsync(request, ct)); }
+            catch (Exception error) when (WorkspaceOperationErrors.IsExpected(error))
+            { return WorkspaceOperationErrors.Result(error, logger); }
+        }).AllowAnonymous(); // AgentBrokerAuthenticationMiddleware authenticates this service-to-service route.
         endpoints.MapPost("/agent-broker/v2/workspaces/locks", async (AgentBrokerWorkspaceLockRequest request, IAgentWorkspaceBroker broker, CancellationToken ct) =>
         {
             try { return Results.Ok(await broker.LocksAsync(request, ct)); }

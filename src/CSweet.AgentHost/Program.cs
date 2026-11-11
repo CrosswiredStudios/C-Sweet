@@ -129,7 +129,8 @@ else
 {
     builder.Services.AddSingleton<ITrustedGitHostClient, UnavailableTrustedGitHostClient>();
 }
-builder.Services.AddScoped<IPlatformCapabilityHandler, GitWorkspaceCapabilityHandler>();
+builder.Services.AddScoped<GitWorkspaceCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler>(services => services.GetRequiredService<GitWorkspaceCapabilityHandler>());
 builder.Services.AddScoped<IPlatformCapabilityHandler, TaskDeliveryCapabilityHandler>();
 builder.Services.AddScoped<ProjectCapabilityPolicy>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, ProjectIntakeCapabilityHandler>();
@@ -151,20 +152,22 @@ var app = builder.Build();
 
 app.Use(async (context, next) =>
 {
-    if (context.Request.Path == "/mcp" && HttpMethods.IsPost(context.Request.Method))
+    if ((context.Request.Path == "/mcp" && HttpMethods.IsPost(context.Request.Method)) ||
+        context.Request.Path.StartsWithSegments("/git/workspaces"))
         await McpIngressPolicy.AuthenticateAsync(context,
             context.RequestServices.GetRequiredService<McpAgentSessionService>());
     await next(context);
 });
 app.UseRateLimiter();
 app.MapCSweetMcpGateway();
+app.MapAgentWorkspaceGitEndpoints();
 app.MapHealthChecks("/health");
 app.MapGet("/", () => Results.Ok(new
 {
     service = "CSweet.AgentHost",
     status = "ok",
     protocol = "csweet-plugin-v2",
-    agentRuntime = "mcp-only"
+    agentRuntime = "mcp-and-workspace-git"
 }));
 
 app.Run();

@@ -385,6 +385,7 @@ public sealed partial class AgentWorkspaceBrokerTests
         public Task<InternalGitHttpResponse> ExchangeInternalGitAsync(InternalGitHttpRequest request, CancellationToken cancellationToken = default)
         {
             GitRequest = request;
+            if (NativeStore is not null) return NativeStore.ExchangeAsync(request, cancellationToken);
             return Task.FromResult(new InternalGitHttpResponse($"application/x-{request.Service}-result", [9]));
         }
         public Task<InternalGitLockResult> InternalLocksAsync(InternalGitLockRequest request, CancellationToken cancellationToken = default) => NativeStore!.LocksAsync(request, cancellationToken);
