@@ -233,6 +233,13 @@ app.MapPost("/internal/v3/workspaces/apply", async (InternalGitSnapshotOperation
     catch (Exception error) when (WorkspaceOperationErrors.IsExpected(error))
     { return WorkspaceOperationErrors.Result(error, logger); }
 }).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(850L * 1024 * 1024));
+app.MapPost("/internal/v3/workspaces/publish-pushed", async (InternalGitPushedPublication request,
+    InternalGitRepositoryStore store, ILogger<InternalGitRepositoryStore> logger, CancellationToken ct) =>
+{
+    try { return Results.Ok(await store.PublishPushedAsync(request, ct)); }
+    catch (Exception error) when (WorkspaceOperationErrors.IsExpected(error))
+    { return WorkspaceOperationErrors.Result(error, logger); }
+});
 app.MapPost("/internal/v3/merge", async (InternalGitMergeRequest request, InternalGitRepositoryStore store, CancellationToken ct) =>
 {
     try { return Results.Ok(await store.MergeInternalAsync(request, ct)); }

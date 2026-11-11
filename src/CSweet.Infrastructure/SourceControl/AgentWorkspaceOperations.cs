@@ -11,7 +11,8 @@ public sealed partial class AgentWorkspaceBroker
         string publicBaseUrl, CancellationToken cancellationToken = default)
     {
         if (request.Operation is not ("inspect" or "publish" or "refresh" or "cleanup" or "snapshot-pull" or "snapshot-push") ||
-            string.IsNullOrWhiteSpace(request.IdempotencyKey) || request.IdempotencyKey.Length > 160)
+            string.IsNullOrWhiteSpace(request.IdempotencyKey) || request.IdempotencyKey.Length > 160 ||
+            request.PushedCommitSha is not null && request.Operation != "publish")
             throw new ArgumentException("Invalid workspace operation.");
         var workspace = await AuthorizeWorkspaceOperationAsync(request, cancellationToken);
         if (request.HistoryOffset is < 0 or > 10000 || request.HistoryLimit is < 1 or > 100 ||
@@ -33,6 +34,21 @@ public sealed partial class AgentWorkspaceBroker
             await using var input = new MemoryStream(request.Archive, writable: false);
             await volumes.ImportAsync(lease, input, cancellationToken: cancellationToken);
             return new("Uploaded", workspace.BaseCommitSha, [], "");
+        }
+        if (request.PushedCommitSha is { } pushedCommit)
+        {
+            // Git delivery: the commits are already on the work branch, so no snapshot is read.
+            if (repository.Connection!.Provider != SourceControlProvider.InternalGit)
+                throw new InvalidOperationException("Publishing a pushed commit is available for internal repositories only.");
+            var pushed = await gitHost.PublishInternalPushedAsync(new(workspace.OrganizationId, workspace.RepositoryId, workspace.Id,
+                workspace.BaseCommitSha, workspace.BranchName,
+                string.IsNullOrWhiteSpace(workspace.IntegrationTargetBranch) ? repository.DefaultBranch : workspace.IntegrationTargetBranch,
+                request.IdempotencyKey, pushedCommit, lockOwner), cancellationToken);
+            var review = pushed.Status == "Published"
+                ? $"{publicBaseUrl.TrimEnd('/')}/organizations/{workspace.OrganizationId:D}/source-control/{repository.Id:D}?reference={Uri.EscapeDataString("refs/heads/" + workspace.BranchName)}"
+                : null;
+            return new(pushed.Status, pushed.BaseSha, pushed.ChangedFiles, pushed.DiffSummary, pushed.CommitSha, workspace.BranchName, review,
+                Provider: repository.Connection.Provider.ToString());
         }
         WorkspaceVolumeExport export;
         try { export = await volumes.ExportAsync(lease, cancellationToken); }

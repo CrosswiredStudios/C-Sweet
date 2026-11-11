@@ -34,6 +34,45 @@ public sealed partial class AgentWorkspaceBrokerTests
         Assert.Null(host.Operation); Assert.Null(volumes.Lease);
     }
 
+    [Fact]
+    public async Task PublishingAPushedCommitUsesTheWorkspaceBranchAndBaseAndReadsNoSnapshot()
+    {
+        await using var db = CreateDb();
+        var request = await SeedOperationAsync(db, "publish");
+        var host = new FakeHost(); var volumes = new FakeVolumes();
+        var pushed = new string('c', 40);
+
+        var result = await new AgentWorkspaceBroker(db, host, volumes, WorkspaceSyncTestOptions.Value)
+            .ExecuteAsync(request with { PushedCommitSha = pushed }, "http://localhost");
+
+        var workspace = await db.SourceControlWorkspaces.AsNoTracking().SingleAsync();
+        var publication = host.PushedPublication!;
+        Assert.Equal(("Published", pushed, workspace.BranchName), (result.Status, result.CommitSha, result.Branch));
+        Assert.Contains(Uri.EscapeDataString("refs/heads/" + workspace.BranchName), result.ReviewUrl);
+        Assert.Equal((workspace.OrganizationId, workspace.RepositoryId, workspace.Id), (publication.OrganizationId, publication.RepositoryId, publication.WorkspaceId));
+        Assert.Equal((new string('a', 40), workspace.BranchName, pushed, request.IdempotencyKey),
+            (publication.BaseSha, publication.Branch, publication.PushedSha, publication.IdempotencyKey));
+        Assert.Equal((await db.CoreOrganizationUsers.AsNoTracking().SingleAsync()).Id, publication.LockOwnerId);
+        Assert.Null(host.Operation); Assert.Null(volumes.Lease);
+    }
+
+    [Theory]
+    [InlineData("inspect")]
+    [InlineData("refresh")]
+    [InlineData("cleanup")]
+    [InlineData("snapshot-pull")]
+    public async Task APushedCommitIsAcceptedOnlyForPublication(string operation)
+    {
+        await using var db = CreateDb();
+        var request = await SeedOperationAsync(db, operation);
+        var host = new FakeHost(); var volumes = new FakeVolumes();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => new AgentWorkspaceBroker(db, host, volumes, WorkspaceSyncTestOptions.Value)
+            .ExecuteAsync(request with { PushedCommitSha = new string('c', 40) }, "http://localhost"));
+
+        Assert.Null(host.PushedPublication); Assert.Null(volumes.Lease);
+    }
+
     [Theory]
     [InlineData("git-receive-pack", "snapshot-pull")]
     [InlineData("git-upload-pack", "publish")]

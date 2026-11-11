@@ -401,6 +401,12 @@ public sealed partial class AgentWorkspaceBrokerTests
             return Task.FromResult(new GitHubSnapshotResult(new(request.Workspace.Operation == "publish" ? "Published" : "Modified", request.Workspace.BaseSha,
                 new string('b', 40), ["README.md"], "1 file changed", null), "https://github.com/private-owner/private-repository/pull/7"));
         }
+        public InternalGitPushedPublication? PushedPublication { get; private set; }
+        public Task<InternalGitSnapshotResult> PublishInternalPushedAsync(InternalGitPushedPublication request, CancellationToken cancellationToken = default)
+        {
+            PushedPublication = request;
+            return Task.FromResult(new InternalGitSnapshotResult("Published", request.BaseSha, request.PushedSha, ["README.md"], "1 file changed"));
+        }
         public InternalGitSnapshotOperation? Operation { get; private set; }
         public bool CleanAtLatest { get; set; }
         public string? LatestSha { get; set; }

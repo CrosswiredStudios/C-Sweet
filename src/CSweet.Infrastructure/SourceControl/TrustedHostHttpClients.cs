@@ -66,6 +66,8 @@ public sealed class TrustedSourceControlHostClient(
 
     public Task<InternalGitSnapshotResult> ApplyInternalSnapshotAsync(InternalGitSnapshotOperation request, CancellationToken cancellationToken = default) =>
         SendInternalAsync<InternalGitSnapshotOperation, InternalGitSnapshotResult>("internal/v3/workspaces/apply", request, cancellationToken);
+    public Task<InternalGitSnapshotResult> PublishInternalPushedAsync(InternalGitPushedPublication request, CancellationToken cancellationToken = default) =>
+        SendInternalAsync<InternalGitPushedPublication, InternalGitSnapshotResult>("internal/v3/workspaces/publish-pushed", request, cancellationToken);
     public Task<InternalGitMergeResult> MergeInternalAsync(InternalGitMergeRequest request, CancellationToken cancellationToken = default) =>
         SendInternalAsync<InternalGitMergeRequest, InternalGitMergeResult>("internal/v3/merge", request, cancellationToken);
     private async Task<TResponse> SendInternalAsync<TRequest, TResponse>(string path, TRequest request, CancellationToken ct)

@@ -33,6 +33,9 @@ public sealed record InternalGitRefRequest(string Operation, string Ref, string 
 public sealed record InternalGitSnapshotOperation(Guid OrganizationId, Guid RepositoryId, Guid WorkspaceId,
     string Operation, string BaseSha, string Branch, string DefaultBranch, string IdempotencyKey,
     byte[] Archive, string ArchiveManifestSha, int FileCount, long TotalBytes, string? CommitMessage = null, bool AllowLfs = true, Guid? LockOwnerId = null);
+/// <summary>Publish commits an agent already pushed to its work branch. No commit is created.</summary>
+public sealed record InternalGitPushedPublication(Guid OrganizationId, Guid RepositoryId, Guid WorkspaceId,
+    string BaseSha, string Branch, string DefaultBranch, string IdempotencyKey, string PushedSha, Guid? LockOwnerId = null);
 public sealed record InternalGitSnapshotResult(string Status, string BaseSha, string? CommitSha,
     IReadOnlyList<string> ChangedFiles, string DiffSummary, string? LatestTargetSha = null);
 public sealed record InternalGitMergeRequest(Guid OrganizationId, Guid RepositoryId, Guid PublicationId,

@@ -108,6 +108,8 @@ public sealed record AgentBrokerWorkspaceOperationRequest(Guid OrganizationId, G
     public bool IncludeHistory { get; init; }
     public int HistoryOffset { get; init; }
     public int HistoryLimit { get; init; } = 20;
+    /// <summary>For publish: the commit the agent pushed to its work branch. Null publishes the uploaded snapshot.</summary>
+    public string? PushedCommitSha { get; init; }
 }
 public sealed record AgentBrokerWorkspaceOperationResult(string Status, string BaseSha,
     IReadOnlyList<string> ChangedFiles, string DiffSummary, string? CommitSha = null, string? Branch = null,

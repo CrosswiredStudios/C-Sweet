@@ -124,7 +124,8 @@ public sealed class CoreWorkspaceBrokerClient(HttpClient http) : ITrustedGitHost
 
     public async Task<TrustedWorkspacePublication> PublishAsync(TrustedWorkspacePublishRequest request, CancellationToken ct)
     {
-        var result = await ExecuteAsync(request.Workspace, "publish", ct, request.CommitMessage, title: request.ProposedChangeTitle, body: request.ProposedChangeBody);
+        var result = await ExecuteAsync(request.Workspace, "publish", ct, request.CommitMessage, title: request.ProposedChangeTitle, body: request.ProposedChangeBody,
+            pushedCommitSha: request.PushedCommitSha);
         if (result.Status == "Locked") throw new InvalidOperationException(result.DiffSummary);
         return new(result.Provider, CSweet.Agent.SDK.GitDeliveryKinds.PullRequest, result.Branch!, result.CommitSha!,
             new Uri(result.ReviewUrl!, UriKind.Absolute), result.ChangedFiles, result.DiffSummary);
@@ -137,13 +138,15 @@ public sealed class CoreWorkspaceBrokerClient(HttpClient http) : ITrustedGitHost
     }
 
     private async Task<AgentBrokerWorkspaceOperationResult> ExecuteAsync(TrustedWorkspaceOperationRequest request,
-        string operation, CancellationToken ct, string? message = null, bool retain = true, string? title = null, string? body = null)
+        string operation, CancellationToken ct, string? message = null, bool retain = true, string? title = null, string? body = null,
+        string? pushedCommitSha = null)
     {
         using var response = await http.PostAsJsonAsync("agent-broker/v2/workspaces/operate",
             new AgentBrokerWorkspaceOperationRequest(request.OrganizationId, request.RepositoryId, request.WorkspaceId,
                 request.WorkItemId, request.AssignmentRevision, request.WorkspaceKey, request.IdempotencyKey, operation, message, retain, title, body)
             {
-                IncludeHistory = request.IncludeHistory, HistoryOffset = request.HistoryOffset, HistoryLimit = request.HistoryLimit
+                IncludeHistory = request.IncludeHistory, HistoryOffset = request.HistoryOffset, HistoryLimit = request.HistoryLimit,
+                PushedCommitSha = pushedCommitSha
             }, ct);
         await WorkspaceOperationErrors.EnsureSuccessAsync(response, "Core", operation, ct);
         return await response.Content.ReadFromJsonAsync<AgentBrokerWorkspaceOperationResult>(ct)

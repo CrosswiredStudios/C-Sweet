@@ -79,7 +79,8 @@ public sealed record TrustedWorkspacePublishRequest(
     string CommitMessage,
     string ProposedChangeTitle,
     string ProposedChangeBody,
-    IReadOnlyList<GitValidationResult> Validations);
+    IReadOnlyList<GitValidationResult> Validations,
+    string? PushedCommitSha = null);
 
 public sealed record TrustedWorkspacePublication(
     string Provider,

@@ -78,6 +78,52 @@ public sealed class AgentGitPushRuleTests
     }
 
     [Fact]
+    public async Task PushedCommitsPublishWithoutANewCommitAndOnlyAtTheNamedTip()
+    {
+        await using var fixture = await Fixture.StartAsync();
+        var clone = Path.Combine(fixture.Root, "clone");
+        var target = "work:" + Fixture.Branch;
+        await fixture.GitOkAsync("clone", fixture.Url, clone);
+        await fixture.GitOkAsync("-C", clone, "checkout", "-b", "work");
+        var request = new InternalGitPushedPublication(fixture.Business, fixture.Repository, Guid.NewGuid(),
+            fixture.Base, Fixture.Branch, "main", "publish-1", fixture.Base);
+
+        var missing = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Store.PublishPushedAsync(request));
+        Assert.Contains("has not been pushed", missing.Message);
+        await fixture.GitOkAsync("-C", clone, "push", "origin", target);
+        var empty = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Store.PublishPushedAsync(request));
+        Assert.Contains("no commits to publish", empty.Message);
+
+        await fixture.CommitFileAsync(clone, "one.txt", "one");
+        await fixture.GitOkAsync("-C", clone, "push", "origin", target);
+        var first = (await fixture.GitAsync("-C", clone, "rev-parse", "HEAD")).Output.Trim();
+        var stale = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Store.PublishPushedAsync(request));
+        Assert.Contains("not at the commit named", stale.Message);
+
+        var published = await fixture.Store.PublishPushedAsync(request with { PushedSha = first });
+        Assert.Equal(("Published", first), (published.Status, published.CommitSha));
+        Assert.Equal(new[] { "one.txt" }, published.ChangedFiles);
+        Assert.StartsWith("Review base: " + fixture.Base, published.DiffSummary);
+        await fixture.GitOkAsync("-C", clone, "fetch", "origin");
+        Assert.Equal(first, (await fixture.GitAsync("-C", clone, "rev-parse", "origin/" + Fixture.Branch)).Output.Trim());
+        Assert.Equal(first, (await fixture.Store.PublishPushedAsync(request with { PushedSha = first })).CommitSha);
+
+        await fixture.CommitFileAsync(clone, "two.txt", "two");
+        await fixture.GitOkAsync("-C", clone, "push", "origin", target);
+        var second = (await fixture.GitAsync("-C", clone, "rev-parse", "HEAD")).Output.Trim();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Store.PublishPushedAsync(request with { PushedSha = first }));
+        var reused = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Store.PublishPushedAsync(request with { PushedSha = second }));
+        Assert.Contains("idempotency key", reused.Message);
+        var next = await fixture.Store.PublishPushedAsync(request with { PushedSha = second, IdempotencyKey = "publish-2" });
+        Assert.Equal(second, next.CommitSha);
+        Assert.Equal(new[] { "one.txt", "two.txt" }, next.ChangedFiles.Order().ToArray());
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Store.PublishPushedAsync(request with { Branch = "main", PushedSha = second }));
+        await Assert.ThrowsAsync<ArgumentException>(() => fixture.Store.PublishPushedAsync(request with { PushedSha = "not-a-sha" }));
+        await Assert.ThrowsAsync<ArgumentException>(() => fixture.Store.PublishPushedAsync(request with { IdempotencyKey = "" }));
+    }
+
+    [Fact]
     public async Task AgentModeRequiresABranchABaseCommitAndABlobLimit()
     {
         await using var fixture = await Fixture.StartAsync();

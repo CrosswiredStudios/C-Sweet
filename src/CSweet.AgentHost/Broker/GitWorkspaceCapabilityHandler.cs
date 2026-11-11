@@ -560,6 +560,8 @@ public sealed partial class GitWorkspaceCapabilityHandler(
         var validations = (input.Validations ?? []).Take(100).ToList();
         if (validations.Count == 0 || validations.Any(x => !x.Succeeded || x.ExitCode != 0))
             throw new InvalidOperationException("Publication requires successful validation evidence.");
+        // Git delivery names the commit the agent pushed; snapshot delivery leaves it null.
+        var pushedCommitSha = input.PushedCommitSha is null ? null : ValidateCommitSha(input.PushedCommitSha);
 
         var context = await RequireWorkspaceContextAsync(
             organizationId, installationId, input.WorkspaceId,
@@ -570,9 +572,12 @@ public sealed partial class GitWorkspaceCapabilityHandler(
                 input.CommitMessage,
                 input.ProposedChangeTitle,
                 input.ProposedChangeBody,
-                validations),
+                validations,
+                pushedCommitSha),
             cancellationToken);
         var commitSha = ValidateCommitSha(result.CommitSha);
+        if (pushedCommitSha is not null && !FixedTimeEquals(commitSha, pushedCommitSha))
+            throw new InvalidOperationException("GitHost published a commit other than the one the agent pushed.");
         if (!string.Equals(result.BranchName, context.Workspace.BranchName, StringComparison.Ordinal))
             throw new InvalidOperationException("GitHost returned a non-authorized branch.");
         if (result.DeliveryKind == GitDeliveryKinds.PullRequest && result.PullRequestUrl is null)
@@ -1116,7 +1121,14 @@ public sealed partial class GitWorkspaceCapabilityHandler(
                 : GitDeliveryKinds.BranchOnly,
             workspace.BaseCommitSha,
             workspace.Status.ToString(),
-            resumed);
+            resumed)
+        {
+            // Only internal repositories serve Git to a runtime. Without a branch name the SDK
+            // keeps using snapshots, so a GitHub-connected workspace is unaffected.
+            BranchName = context.Repository.Connection?.Provider is SourceControlProvider.InternalGit
+                ? workspace.BranchName
+                : null
+        };
 
     private static string AgentWorkspacePath(SourceControlWorkspace workspace) =>
         $"/workspace/{workspace.WorkItemId:N}/{workspace.AssignmentRevision}";

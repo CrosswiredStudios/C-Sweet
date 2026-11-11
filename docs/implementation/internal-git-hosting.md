@@ -218,6 +218,23 @@ Headquarters now exposes this through `AgentWorkspaceGitEndpoints` at `/git/work
 
 Tests: `AgentGitPushRuleTests` drives a native Git client against `ExchangeAsync` in agent mode; `AgentWorkspaceBrokerTests` covers `GitAsync` authorization. Its tests in `AgentWorkspaceBrokerTests.GitEntryPoint.cs` exercise the session-authenticated AgentHost route through the signed Core endpoint, current grants/assignment/membership checks, Core revalidation, runtime fencing, protocol validation and decompression limits, plus native Git clone/push and hook rejection propagation. `AgentHostBrokerOperationHandlerTests` covers the `git.runtime` forwarding allow-list and binary responses.
 
+## Publishing pushed commits (2026-11-10)
+
+An agent that delivered with git publishes by naming the commit it pushed (`PublishGitWorkspaceRequest.PushedCommitSha`, SDK 5.18.0). AgentHost validates the value and passes it through Core (`AgentBrokerWorkspaceOperationRequest.PushedCommitSha`) to GitHost (`POST /internal/v3/workspaces/publish-pushed`, `InternalGitRepositoryStore.PublishPushedAsync`). Core reads no workspace snapshot on this path. It is available for internal repositories only, and only for the `publish` operation; QA still cannot publish.
+
+`PublishPushedAsync` creates no commit. It accepts the request only when:
+
+- the work branch exists and its tip is exactly the named commit;
+- the named commit is not the assigned base commit and descends from it;
+- the branch is neither the integration target nor a managed integration branch;
+- no file lock held by someone else covers a changed path (otherwise the result is `Locked`).
+
+It then records the publication receipt under `refs/csweet/publications/` in one ref transaction that also verifies the branch tip, so a push that lands during publication makes the transaction fail instead of being published. Repeating the request with the same idempotency key and commit returns the same result; the same key with a different commit is refused. The review diff is computed against the merge base of the integration target and the assigned base, as for a snapshot. The prepare result names the work branch (`GitWorkspaceResult.BranchName`) for internal repositories so the SDK can push to it.
+
+Not covered: the author of a pushed commit is not checked or rewritten; the commit message in the publish request is unused on this path; a workspace that pushed with git cannot afterwards publish by snapshot, because snapshot publication requires the branch tip to be the base.
+
+Tests: `AgentGitPushRuleTests.PushedCommitsPublishWithoutANewCommitAndOnlyAtTheNamedTip`, `AgentWorkspaceBrokerTests` (`PublishingAPushedCommit...`, `APushedCommitIsAcceptedOnlyForPublication`).
+
 ## Remaining implementation
 
 - Empty personal-account repository creation without an approved template and guided provider migration remain outstanding. Managed personal-account creation from approved templates and GitHub LFS asset transfer are implemented with automated provider-boundary tests; live account verification is deferred at the user’s request.

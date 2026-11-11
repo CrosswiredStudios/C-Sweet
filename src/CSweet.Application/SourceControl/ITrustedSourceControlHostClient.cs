@@ -34,6 +34,8 @@ public interface ITrustedSourceControlHostClient
     Task DeleteInternalBackupAsync(InternalGitBackupRequest request, CancellationToken ct = default) => throw new InvalidOperationException("Backup deletion is unavailable.");
     Task<InternalGitLfsTransferResult> TransferInternalLfsAsync(InternalGitLfsTransfer request, CancellationToken ct = default) => throw new InvalidOperationException("LFS client transfer is unavailable.");
     Task<InternalGitHttpResponse> ExchangeInternalGitAsync(InternalGitHttpRequest request, CancellationToken ct = default) => throw new InvalidOperationException("Git client transport is unavailable.");
+    Task<InternalGitSnapshotResult> PublishInternalPushedAsync(InternalGitPushedPublication request,
+        CancellationToken cancellationToken = default) => throw new InvalidOperationException("Publication of pushed commits is unavailable.");
     Task<InternalGitSnapshotResult> ApplyInternalSnapshotAsync(InternalGitSnapshotOperation request,
         CancellationToken cancellationToken = default) => throw new InvalidOperationException("Internal publication is unavailable.");
     Task<InternalGitMergeResult> MergeInternalAsync(InternalGitMergeRequest request,
