@@ -158,6 +158,10 @@ public static class McpGatewayEndpoints
                     await WriteAuditAsync(audit, session, method, "Completed", null, cancellationToken);
                 return result;
             }
+            catch (Exception exception) when (LogRejectedWorkRequest(loggerFactory, method, http, exception))
+            {
+                throw; // Unreachable: the filter only logs.
+            }
             catch (UnauthorizedAccessException exception)
             {
                 return RpcError(id, -32003, exception.Message, StatusCodes.Status403Forbidden);
@@ -618,6 +622,24 @@ public static class McpGatewayEndpoints
             string.IsNullOrWhiteSpace(code) || code.Length > 64 || !code.All(char.IsLetter)) return null;
         var snake = string.Concat(code.Select((c, i) => i > 0 && char.IsUpper(c) ? "_" + char.ToLowerInvariant(c) : char.ToLowerInvariant(c).ToString()));
         return "platform.capability." + snake;
+    }
+
+    /// <summary>
+    /// Logs a rejected work-protocol request (claim, renew, progress, complete, fail, inference)
+    /// before it is turned into an RPC error. The agent often treats these as best-effort, so without
+    /// this record the first failure in a chain is invisible. Always returns false so the exception
+    /// continues to its normal handler.
+    /// </summary>
+    internal static bool LogRejectedWorkRequest(ILoggerFactory loggerFactory, string method, HttpContext http, Exception exception)
+    {
+        if (!method.StartsWith("csweet/work/", StringComparison.Ordinal) &&
+            !method.StartsWith("csweet/llm/", StringComparison.Ordinal) ||
+            exception is OperationCanceledException && http.RequestAborted.IsCancellationRequested)
+            return false;
+        loggerFactory.CreateLogger("CSweet.AgentHost.Broker.McpGateway").LogWarning(
+            "The MCP gateway rejected '{Method}' for session {SessionId}: {ExceptionType}: {Reason}",
+            method, http.Request.Headers["Mcp-Session-Id"].FirstOrDefault(), exception.GetType().Name, exception.Message);
+        return false;
     }
 
     internal const string ContractViolationCode = "platform.contract_violation";

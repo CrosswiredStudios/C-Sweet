@@ -4,6 +4,11 @@ Date: 2026-10-26. Status updated 2026-10-28: modular service and managed host co
 refresh and primary revocation are implemented with protocol 0.3.0. General managed execution,
 distributed cleanup and production acceptance remain incomplete. See [implementation progress](managed-connection-service-progress.md).
 
+For the companion app, QR phone enrollment and outbound managed/self-hosted relay, use the
+separate [mobile connectivity implementation plan](mobile-connectivity/README.md). This
+provider/OAuth plan does not implement phone access; its historical version notes are not
+the current mobile protocol baseline.
+
 ## Outcome
 
 A customer installs a plugin, clicks **Connect account**, signs in on the provider's own website,

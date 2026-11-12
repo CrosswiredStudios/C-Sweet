@@ -97,9 +97,41 @@ public sealed partial class AgentWorkInboxTests
         await inbox.AppendProgressAsync(session, work.Id, claim.Attempt, claim.LeaseToken, 1001, Json("{}"), default);
         attempt.LastProgressSequence = 4095; await db.SaveChangesAsync();
         await inbox.AppendProgressAsync(session, work.Id, claim.Attempt, claim.LeaseToken, 4096, Json("{}"), default);
+        // Past the retention bound the report still succeeds and confirms the attempt; only the record is dropped.
+        await inbox.AppendProgressAsync(session, work.Id, claim.Attempt, claim.LeaseToken, 4097, Json("{}"), default);
+        Assert.Equal(4097, attempt.LastProgressSequence);
+        Assert.Equal(2, await db.AgentWorkProgress.CountAsync());
+        Assert.DoesNotContain(await db.AgentWorkProgress.Select(x => x.Sequence).ToListAsync(), x => x > 4096);
+    }
+
+    [Fact]
+    public async Task A_lost_or_resent_progress_report_never_blocks_later_reports()
+    {
+        // QFN Games, 2026-11-11: one lost report made every later report fail with
+        // "strictly monotonic without gaps", the next model call failed and the ticket was blocked.
+        await using var db = CreateDb();
+        var now = DateTimeOffset.UtcNow;
+        var installation = Installation(now); var runtime = Runtime(installation, now);
+        db.AddRange(installation, runtime); await db.SaveChangesAsync();
+        var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), TimeProvider.System);
+        var session = Session(installation, runtime);
+        var work = await inbox.EnqueueAsync(installation.BusinessId, installation.Id, AgentWorkKind.Capability,
+            "example.execute.v1", Json("{}"), "progress-gap", now.AddHours(1));
+        var claim = await inbox.ClaimAsync(session, default);
+        Assert.NotNull(claim);
+
+        await inbox.AppendProgressAsync(session, work.Id, claim.Attempt, claim.LeaseToken, 1, Json("""{"n":1}"""), default);
+        // Report 2 was lost; 3 is still accepted.
+        await inbox.AppendProgressAsync(session, work.Id, claim.Attempt, claim.LeaseToken, 3, Json("""{"n":3}"""), default);
+        // A resend of an accepted report succeeds without a second record.
+        await inbox.AppendProgressAsync(session, work.Id, claim.Attempt, claim.LeaseToken, 3, Json("""{"n":3}"""), default);
+        await inbox.AppendProgressAsync(session, work.Id, claim.Attempt, claim.LeaseToken, 2, Json("""{"n":2}"""), default);
+        await inbox.AppendProgressAsync(session, work.Id, claim.Attempt, claim.LeaseToken, 4, Json("""{"n":4}"""), default);
+
+        Assert.Equal(new long[] { 1, 3, 4 }, await db.AgentWorkProgress.OrderBy(x => x.Sequence).Select(x => x.Sequence).ToArrayAsync());
+        Assert.Equal(4, (await db.AgentWorkAttempts.SingleAsync()).LastProgressSequence);
         await Assert.ThrowsAsync<InvalidOperationException>(() => inbox.AppendProgressAsync(
-            session, work.Id, claim.Attempt, claim.LeaseToken, 4097, Json("{}"), default));
-        Assert.Equal(4096, attempt.LastProgressSequence);
+            session, work.Id, claim.Attempt, claim.LeaseToken, 0, Json("{}"), default));
     }
 
     [Theory]
@@ -475,9 +507,10 @@ public sealed partial class AgentWorkInboxTests
         await inbox.AppendProgressAsync(
             session, item.Id, claimed.Attempt, claimed.LeaseToken, 1,
             Json("""{"stage":"one"}"""), CancellationToken.None);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => inbox.AppendProgressAsync(
+        // A gap after a lost report is accepted; progress never blocks work.
+        await inbox.AppendProgressAsync(
             session, item.Id, claimed.Attempt, claimed.LeaseToken, 3,
-            Json("""{"stage":"gap"}"""), CancellationToken.None));
+            Json("""{"stage":"gap"}"""), CancellationToken.None);
 
         var success = new AgentWorkCompletion(true, Json("""{"ok":true}"""), null);
         await inbox.CompleteAsync(

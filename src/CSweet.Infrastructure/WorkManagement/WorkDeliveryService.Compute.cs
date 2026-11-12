@@ -58,6 +58,39 @@ public sealed partial class WorkDeliveryService
         }
     }
 
+    /// <summary>The SDK's build-readiness finding for a candidate with no runnable entry point.</summary>
+    internal const string NoRunnablePackage = "The candidate needs a root Dockerfile compatible with available cached images, or a dependency-free static index.html. Ask the Developer to supply a runnable test package.";
+
+    /// <summary>
+    /// True when a Code task under the execution declares runnable browser output (browser smoke) or predates
+    /// verification declarations. False only when every Code task explicitly declares no browser evidence, such as a
+    /// dependency pin or a document. Derived here from the tasks' own planning, never from an agent's claim.
+    /// QFN Games, 2026-11-12: a dependency-pin increment was asked for a runnable test package and stalled.
+    /// </summary>
+    internal async Task<bool> RunnableOutputInScopeAsync(WorkDeliveryPlan plan, WorkDeliveryExecution execution, CancellationToken ct)
+    {
+        var scopes = Scopes(plan);
+        var root = scopes.SingleOrDefault(x => x.Scope == execution.Scope && x.ItemId == execution.WorkItemId);
+        if (root is null) return true;
+        var tasks = new HashSet<Guid>(); var seen = new HashSet<Guid>();
+        void Collect(WorkDeliveryScopeSnapshot scope)
+        {
+            foreach (var id in scope.ChildIds)
+            {
+                if (!seen.Add(id)) continue;
+                var child = scopes.FirstOrDefault(x => x.TicketWorkflow?.TicketId == id);
+                if (child is null) tasks.Add(id); else Collect(child);
+            }
+        }
+        Collect(root);
+        var rows = await db.CoreWorkTasks.AsNoTracking().Where(x => x.OrganizationId == plan.OrganizationId && tasks.Contains(x.Id))
+            .Select(x => new { x.PlanningSpecificationJson, x.DeliverySpecificationJson }).ToListAsync(ct);
+        var code = rows.Select(x => (Planning: x.PlanningSpecificationJson is { } planning ? Decode<WorkItemPlanningSpecification>(planning) : null,
+                Delivery: x.DeliverySpecificationJson is { } delivery ? Decode<WorkItemDeliverySpecification>(delivery) : null))
+            .Where(x => (x.Delivery?.DeliveryKind ?? x.Planning?.DeliveryKind) == "Code").ToArray();
+        return code.Length == 0 || code.Any(x => !WorkItemVerifications.IsDeclared(x.Planning) || WorkItemVerifications.BrowserSmoke(x.Planning) is not null);
+    }
+
     internal async Task ValidateReadinessAsync(WorkDeliveryPlan plan, WorkDeliveryExecution execution,
         WorkStageExecution stage, WorkDeliveryReviewResult review, CancellationToken ct)
     {
@@ -67,6 +100,10 @@ public sealed partial class WorkDeliveryService
             if (review.ComputeTests.Count != 0) throw new InvalidOperationException("Compute evidence cannot replace agreed certified packaging.");
             await ValidateBuildIdentitiesAsync(plan, execution, review.BuildIds, true, ct); return;
         }
+        // Nothing runnable is in scope when every Code task declared no browser evidence; there is no application
+        // to start, so readiness carries no test link. Technical review and QA still assess every criterion.
+        if (review.BuildIds.Count == 0 && review.ComputeTests.Count == 0 && !await RunnableOutputInScopeAsync(plan, execution, ct))
+            return;
         var candidate = Candidate(execution)!;
         if (review.BuildIds.Count != 0 || review.ComputeTests.Count != candidate.Repositories.Count ||
             review.ComputeTests.Select(x => x.RepositoryId).Distinct().Count() != review.ComputeTests.Count)

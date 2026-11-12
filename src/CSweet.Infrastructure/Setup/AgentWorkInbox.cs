@@ -611,20 +611,31 @@ public sealed partial class AgentWorkInbox(
         var bytes = JsonSerializer.SerializeToUtf8Bytes(value);
         if (bytes.Length > MaximumProgressBytes)
             throw new InvalidOperationException($"Progress values may not exceed {MaximumProgressBytes} bytes.");
+        if (sequence < 1)
+            throw new InvalidOperationException("Progress sequence numbers start at 1.");
         var attempt = await GetActiveAttemptAsync(
             session, workId, attemptNumber, leaseToken, cancellationToken);
-        if (sequence != attempt.LastProgressSequence + 1)
-            throw new InvalidOperationException("Progress sequence numbers must be strictly monotonic without gaps.");
-        if (sequence > MaximumProgressRecordsPerWork)
-            throw new InvalidOperationException(
-                $"Work items may not emit more than {MaximumProgressRecordsPerWork} progress records.");
+        // Progress is telemetry and must never block work. A report at or below the last accepted
+        // number was already recorded (the agent resent it after losing the reply), so it succeeds
+        // without a second record. A higher number is accepted even after a gap: a report the agent
+        // lost must not make every later report fail. QFN Games, 2026-11-11: one lost report made
+        // the next model call fail on "strictly monotonic without gaps" and blocked the ticket.
+        if (sequence <= attempt.LastProgressSequence)
+            return;
         attempt.LastProgressSequence = sequence;
+        attempt.LastConfirmedAt = timeProvider.GetUtcNow();
+        attempt.LeaseExpiresAt = attempt.LastConfirmedAt.Value.Add(LeaseDuration);
         if (value.ValueKind == JsonValueKind.Object && value.TryGetProperty("kind", out var kind) && kind.GetString() == "workspace-tool" &&
             value.TryGetProperty("phase", out var phase) && phase.GetString() == "started" && value.TryGetProperty("commandDigest", out var digest) &&
             digest.ValueKind == JsonValueKind.String && digest.GetString() is { Length: 64 } operationDigest && operationDigest.All(Uri.IsHexDigit))
             attempt.LastOperationDigest = operationDigest;
-        attempt.LastConfirmedAt = timeProvider.GetUtcNow();
-        attempt.LeaseExpiresAt = attempt.LastConfirmedAt.Value.Add(LeaseDuration);
+        if (sequence > MaximumProgressRecordsPerWork)
+        {
+            // Past the retention bound the report still confirms the attempt is alive; only the
+            // record is dropped, so a long attempt never fails on its own telemetry.
+            await db.SaveChangesAsync(cancellationToken);
+            return;
+        }
         db.AgentWorkProgress.Add(new AgentWorkProgress
         {
             Id = Guid.NewGuid(),

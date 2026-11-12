@@ -177,12 +177,17 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
             (await IsLegacyComputeCursorFailureAsync(plan, execution, ct) || await IsLegacyMissingDependencyFailureAsync(plan, execution, ct) ||
              await IsInterruptedManagedRestoreAsync(plan, execution, ct) || await IsTruncatedComputeValidationAsync(plan, execution, ct) ||
              await IsFailedProvisionCleanupAsync(plan, execution, ct));
+        // A "no runnable test package" rejection of an increment whose Code tasks all declared no browser evidence is
+        // a gate defect, not a game defect; the release manager or owner may re-run acceptance without remediation.
+        var noRunnableOutputCorrection = !legacyComputeCorrection && request.Resolutions.Count == 0 &&
+            (member.Id == plan.ManagerOrganizationUserId || member.PermissionLevel == OrganizationPermissionLevel.Owner) &&
+            await IsNoRunnableOutputRejectionAsync(plan, execution, ct);
         var ownerProcessingRecovery = member.PermissionLevel == OrganizationPermissionLevel.Owner && request.Resolutions.Count == 0 &&
             execution.CurrentStageKey is "technical-review" or "manager-review" &&
             (execution.BlockedReason?.StartsWith("agent-failure:v1;code=agent.invalid_operation;", StringComparison.Ordinal) == true ||
              execution.BlockedReason == "The prior runtime lease expired.") &&
             !plan.Findings.Any(x => x.Status == "Open");
-        if (member.Id != plan.ManagerOrganizationUserId && !ownerProcessingRecovery && !legacyComputeCorrection)
+        if (member.Id != plan.ManagerOrganizationUserId && !ownerProcessingRecovery && !legacyComputeCorrection && !noRunnableOutputCorrection)
             throw new UnauthorizedAccessException("Only the release manager may recover delivery; an authorized owner may restart a failed review processor without resolving findings or granting acceptance.");
         if (plan.Status != "Active" || execution.Revision != request.ExpectedRevision || execution.Status is not ("Blocked" or "PartiallyPromoted"))
             throw new DbUpdateConcurrencyException("Recovery requires the current stopped execution.");
@@ -198,6 +203,22 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
                     "This historical processing failure does not establish a game defect or pass any criterion. Fresh build readiness, QA, technical review and manager acceptance remain mandatory. " + request.Reason;
                 finding.ResolvedByOrganizationUserId = member.Id; finding.ResolvedAt = clock.GetUtcNow();
             }
+        }
+        if (noRunnableOutputCorrection)
+        {
+            await RequireCandidateCurrentAsync(plan, execution, ct);
+            foreach (var finding in plan.Findings.Where(f => f.Status == "Open" && f.ExecutionId == execution.Id))
+            {
+                finding.Status = "Superseded";
+                finding.ResolutionEvidence = "Every Code task in this increment declares no browser evidence, so build readiness has no application to start. " +
+                    "The rejection asked for a runnable test package outside the accepted scope; it is not a game defect and passes no criterion. " +
+                    "Build readiness, technical review, QA and manager acceptance run again. " + request.Reason;
+                finding.ResolvedByOrganizationUserId = member.Id; finding.ResolvedAt = clock.GetUtcNow();
+            }
+            plan.CorrectionsJson = Encode(Corrections(plan).Select(c => c.ExecutionId == execution.Id && c.Status != "Completed" &&
+                c.FindingIds.All(id => plan.Findings.Any(f => f.Id == id && f.Status != "Open"))
+                    ? c with { Status = "Completed", Revision = c.Revision + 1, WaitingReason = "Superseded: the finding was outside the increment's declared scope; acceptance runs again." }
+                    : c).ToArray());
         }
         foreach (var resolution in request.Resolutions)
         {

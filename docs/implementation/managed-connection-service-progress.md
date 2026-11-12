@@ -1,5 +1,9 @@
 # Managed connection service implementation progress
 
+For the separately planned companion-phone feature, use the
+[mobile connectivity plan and progress register](mobile-connectivity/README.md).
+The provider/OAuth evidence below does not establish mobile relay or pairing support.
+
 Updated 28 October 2026 Pacific. The sibling `CSweet.ConnectionService` repository implements
 managed account consent/import and native host integration using protocol package **0.3.0**.
 The protocol is packed locally but not published. The conversational agent is unchanged.

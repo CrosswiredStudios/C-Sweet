@@ -6,6 +6,11 @@ Local implementation based on the PR44/PR45 stack. Protocol package 0.4.0 is req
 
 `/service-info` is a bounded capability probe. OAuth account setup/resource import is the pilot capability. Mobile pairing and general remote provider actions are disabled regardless of remote claims. The MAUI shell is not a pairing client.
 
+The separate [mobile connectivity plan](mobile-connectivity/README.md) defines future phone
+pairing, outbound relay access and managed/self-hosted mobile service operation. It proposes
+mobile-specific settings and credentials; provider deployment/owner pairing here does not
+enroll phones or grant remote business access. Its implementation remains pending.
+
 `ConnectionServiceAdministrationEndpoints` requires the Identity application session, revalidates the security stamp and current database administrator role, and requires antiforgery validation for every write. The actor is obtained from the current session, never submitted by the browser. `ConnectionServiceOwnerGateway` exposes typed operations only and signs them using a separate protected owner registration. Backend signatures attest that the bound server checked its user; they are not independent human approval or protection from compromise of that server.
 
 An operator must configure a separate absolute `CSweet:ConnectionServiceOwner:RegistrationPath` under protected application storage and preserve the existing Data Protection key ring. In Settings select SelfHosted and the exact HTTPS service origin, then explicitly prepare owner binding. This creates a separate local protected key and returns public bootstrap details. Review those details at the service machine and use its local `--owner-admin` command. Customer enrollment alone never grants service administration. Service-owned grants name the bound installation/user GUID, explicit capabilities and tenant scope. Global credential/package administration requires explicit global scope. The UI bootstrap proposes global authority and clearly labels it; the local operator can reduce it before applying.

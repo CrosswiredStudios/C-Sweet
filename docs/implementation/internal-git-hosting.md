@@ -224,6 +224,8 @@ Git delivery is off by default. Setting `CSweet:SourceControl:WorkspaceSync:Agen
 
 Inspection of a pushed commit: `InspectGitWorkspaceRequest.PushedCommitSha` travels to Core's `inspect` operation, which asks GitHost to verify the commit (`PublishPushedAsync` with `VerifyOnly`) and reports the files changed since the base and a `--stat` summary, as snapshot inspection does. No snapshot is read.
 
+It also needs an Office that relays Git requests and a runtime image that contains git: Office 0.15.0 or later. Against an older Office the clone fails; SDK 5.22.2 and later then fall back to the snapshot for that workspace and write a `csweet.git.fallback` line to standard error, so the assignment still completes. Earlier SDK versions fail the assignment instead.
+
 Not supported in Git delivery yet: refreshing a workspace onto a newer base (`RefreshAsync`). Personal work uses it, which is why personal workspaces never receive a branch name.
 
 ## Git checkpoints (2026-11-10)

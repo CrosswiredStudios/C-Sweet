@@ -45,6 +45,12 @@ one-click account connections with a central vault and optional customer-owned c
 [Google registration checklist](../deployment/google-youtube-connection-setup.md) separates operator
 registration, development testing and production review from ordinary customer consent.
 
+[C-Sweet mobile product and implementation handbook](mobile-connectivity/README.md) covers the
+standalone phone client, Enterprise landing and switching, shared and private identity, device
+management, and the official or self-hosted relay. Eight issue-oriented phase guides connect
+screen designs to workflow acceptance. Limited pilots precede general release with functional
+parity for authorized running-Headquarters workflows. Runtime delivery is pending.
+
 [Managed provider execution](managed-provider-execution.md) maps service-owned read/media relay,
 Core approval and attachment provenance, native account authority and staged adoption boundaries.
 

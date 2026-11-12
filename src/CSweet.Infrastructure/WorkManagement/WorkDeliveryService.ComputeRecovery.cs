@@ -17,6 +17,16 @@ public sealed partial class WorkDeliveryService
     internal const string FailedProvisionCursor = "The test environment generation changed without a matching retained operation; inspect current operations before rerunning.";
     internal const string UndispatchedLocalLink = "No current provider-verified local test URL was returned.";
 
+    internal async Task<bool> IsNoRunnableOutputRejectionAsync(WorkDeliveryPlan plan, WorkDeliveryExecution execution, CancellationToken ct)
+    {
+        if (execution.ScopeRevision != plan.ScopeRevision || execution.Status != "Blocked" || execution.CurrentStageKey != "build-readiness" ||
+            !IsComputeTest(plan, execution) || Candidate(execution) is not { } candidate) return false;
+        var open = plan.Findings.Where(f => f.Status == "Open").ToArray();
+        if (open.Length == 0 || open.Any(f => f.ExecutionId != execution.Id || f.CandidateDigest != candidate.Digest || f.Summary != NoRunnablePackage))
+            return false;
+        return !await RunnableOutputInScopeAsync(plan, execution, ct);
+    }
+
     internal async Task<bool> IsFailedProvisionCleanupAsync(WorkDeliveryPlan plan, WorkDeliveryExecution execution, CancellationToken ct)
     {
         if (execution.ScopeRevision != plan.ScopeRevision || execution.Status != "Blocked" || execution.CurrentStageKey != "build-readiness" ||

@@ -64,6 +64,9 @@ public sealed partial class WorkDeliveryService
             throw new InvalidOperationException("A bound correction cannot be retargeted; preserve its durable work identity.");
         var status = "NeedsPlanning";
         var retainedWait = request.FollowUpPlanId is null && request.RemediationTaskIds is null && !string.IsNullOrWhiteSpace(request.WaitingReason);
+        // An unchanged wait is not a change: writing it would bump the revision and wake the manager to write it again.
+        if (retainedWait && request.SourceItemId is null && request.WaitingReason == correction.WaitingReason && correction.Status == "NeedsPlanning")
+            return Response(plan);
         if (retainedWait) { /* Preserve linked work while recording a current actionable wait, including a cancelled/blocked follow-up. */ }
         else if (followUpId is { } followUp)
         {

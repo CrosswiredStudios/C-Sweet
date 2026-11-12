@@ -36,6 +36,79 @@ public sealed class DeliveryComputeGenerationTests
         throw new InvalidOperationException("Release readiness not reached");
     }
 
+    // QFN Games, 2026-11-12: a dependency-pin increment whose tasks all declared no browser evidence was asked for a
+    // runnable test package; the finding had no owner and the next sprint never started.
+    private static async Task DeclareBrowserEvidence(HierarchicalDeliveryServiceTests.Fixture f, bool none)
+    {
+        foreach (var task in (await f.Db.CoreWorkTasks.Where(t => t.PlanningSpecificationJson != null && t.DeliverySpecificationJson != null).ToListAsync())
+                     .Where(t => JsonSerializer.Deserialize<WorkItemDeliverySpecification>(t.DeliverySpecificationJson!, Json)?.DeliveryKind == "Code"))
+        {
+            var planning = JsonSerializer.Deserialize<WorkItemPlanningSpecification>(task.PlanningSpecificationJson!, Json)!;
+            task.PlanningSpecificationJson = Encode(planning with { Verifications = none ? [] : null });
+        }
+        await f.Db.SaveChangesAsync();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Readiness_without_a_test_link_is_accepted_only_when_every_code_task_declared_no_browser_evidence(bool declaredNone)
+    {
+        await using var f=await HierarchicalDeliveryServiceTests.Fixture.Create(false);var ready=await ReachReadiness(f);
+        await DeclareBrowserEvidence(f, declaredNone);
+        var review=f.Review(ready);
+        review=review with {Result=review.Result with {Approved=true,Summary="No test application to start",ComputeTests=[],BuildIds=[]}};
+        if (declaredNone)
+        {
+            await f.Service.CompleteReviewAsync(f.Org,f.Technical.Id,review);
+            Assert.Contains((await f.Read()).Executions.Single(e=>e.Id==ready.Id).Stages,s=>s.StageKey=="build-readiness"&&s.LastOutcomeCode=="approved");
+        }
+        else
+            await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Service.CompleteReviewAsync(f.Org,f.Technical.Id,review));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Manager_reruns_acceptance_after_a_no_runnable_package_rejection_only_when_nothing_runnable_was_declared(bool declaredNone)
+    {
+        await using var f=await HierarchicalDeliveryServiceTests.Fixture.Create(false);var ready=await ReachReadiness(f);
+        await DeclareBrowserEvidence(f, declaredNone);
+        var rejection=f.Review(ready);
+        rejection=rejection with {Result=rejection.Result with {Approved=false,Summary=WorkDeliveryService.NoRunnablePackage,
+            Criteria=[new("Requirement works",false,WorkDeliveryService.NoRunnablePackage)],Findings=[WorkDeliveryService.NoRunnablePackage]}};
+        await f.Service.CompleteReviewAsync(f.Org,f.Technical.Id,rejection);
+        var plan=await f.Read();var blocked=plan.Executions.Single(e=>e.Id==ready.Id);
+        Assert.Equal("Blocked",blocked.Status);Assert.Single(plan.Corrections);
+        var request=new RecoverWorkDeliveryRequest(plan.Id,blocked.Id,blocked.Revision,"no-runnable","Nothing runnable is in scope");
+        if (!declaredNone)
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Service.RecoverAsync(f.Org,f.Manager.Id,request));
+            return;
+        }
+        var recovered=await f.Service.RecoverAsync(f.Org,f.Manager.Id,request);
+        Assert.All(recovered.Findings,x=>Assert.Equal("Superseded",x.Status));
+        Assert.Equal("Completed",Assert.Single(recovered.Corrections).Status);
+        Assert.NotEqual("Blocked",recovered.Executions.Single(e=>e.Id==ready.Id).Status);
+        await f.Service.PulseAsync();
+        Assert.Equal("build-readiness",(await f.Read()).Executions.Single(e=>e.Id==ready.Id).CurrentStageKey);
+    }
+
+    [Fact]
+    public async Task An_unchanged_correction_wait_is_not_written_again()
+    {
+        await using var f=await HierarchicalDeliveryServiceTests.Fixture.Create(false);var ready=await ReachReadiness(f);
+        var rejection=f.Review(ready);
+        rejection=rejection with {Result=rejection.Result with {Approved=false,Summary="A real defect",Criteria=[new("Requirement works",false,"Broken")],Findings=["A real defect"]}};
+        await f.Service.CompleteReviewAsync(f.Org,f.Technical.Id,rejection);
+        var plan=await f.Read();var correction=Assert.Single(plan.Corrections);
+        plan=await f.Service.CoordinateCorrectionAsync(f.Org,f.Manager.Id,new(plan.Id,correction.Id,correction.Revision,"wait-1",WaitingReason:"Needs planning"));
+        var saved=Assert.Single(plan.Corrections);
+        var again=await f.Service.CoordinateCorrectionAsync(f.Org,f.Manager.Id,new(plan.Id,saved.Id,saved.Revision,"wait-2",WaitingReason:"Needs planning"));
+        Assert.Equal(saved.Revision,Assert.Single(again.Corrections).Revision);
+        Assert.Equal(plan.Revision,again.Revision);
+    }
+
     [Fact]
     public async Task Manager_or_owner_can_retry_failed_validation_without_importing_acceptance_or_error_specific_rules()
     {
