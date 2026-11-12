@@ -17,7 +17,8 @@ public sealed class AgentDefinitionService(
     IModelCatalogClient? modelCatalog = null,
     ILogger<AgentDefinitionService>? logger = null,
     IAgentInstallationService? installationService = null,
-    PrebuiltBundleInstallService? prebuiltInstallService = null) : IAgentDefinitionService
+    PrebuiltBundleInstallService? prebuiltInstallService = null,
+    IAgentImportPreviewService? previewService = null) : IAgentDefinitionService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -171,6 +172,28 @@ public sealed class AgentDefinitionService(
         return ToResponse(definition, package);
     }
 
+    // The release may have been published after this commit was imported (its workflow was still running).
+    // Look again for the bundle of this exact commit and version before falling back to a source build.
+    private async Task RefreshReleaseProvenanceAsync(AgentPackageVersion package, CancellationToken cancellationToken)
+    {
+        if (previewService is null || package.ReleaseAssetUrl is not null) return;
+        var source = await db.AgentPackageSources.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == package.PackageSourceId, cancellationToken);
+        if (source is null || source.SourceType == "PluginBundle") return;
+        try
+        {
+            var preview = await previewService.PreviewAsync(
+                new PreviewAgentImportRequest(source.RepositoryUrl, $"v{package.Version}"), cancellationToken);
+            // Only a release whose tag is this package's commit can supply its bundle.
+            if (preview.ImportId == package.Id) await db.Entry(package).ReloadAsync(cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger?.LogInformation(exception, "No published release bundle was found for {AgentId} {Version}; building from source.",
+                package.AgentId, package.Version);
+        }
+    }
+
     private async Task<bool> TryInstallPrebuiltReleaseAsync(
         AgentPackageVersion package,
         CancellationToken cancellationToken)
@@ -233,7 +256,10 @@ public sealed class AgentDefinitionService(
             throw new AgentInstallationException("The selected package is not an update for this agent definition.");
         }
 
-        if (SemanticVersionComparer.Compare(nextPackage.Version, currentPackage.Version) <= 0)
+        // The same version may replace one whose build failed: a repair from its published release bundle or a
+        // newer commit of that version. A version that built is only replaced by a newer one.
+        var versionComparison = SemanticVersionComparer.Compare(nextPackage.Version, currentPackage.Version);
+        if (versionComparison < 0 || versionComparison == 0 && currentPackage.Status != AgentPackageVersionStatus.Failed)
             throw new AgentInstallationException("The selected package version is not newer than the installed definition.");
 
         if (nextPackage.Status is not (
@@ -274,6 +300,7 @@ public sealed class AgentDefinitionService(
         {
             nextPackage.Status = AgentPackageVersionStatus.Approved;
             await db.SaveChangesAsync(cancellationToken);
+            await RefreshReleaseProvenanceAsync(nextPackage, cancellationToken);
             if (!await TryInstallPrebuiltReleaseAsync(nextPackage, cancellationToken))
                 await buildService.QueueAsync(nextPackage.Id, cancellationToken);
         }
@@ -453,6 +480,7 @@ public sealed class AgentDefinitionService(
             ?? throw new AgentInstallationException("The agent definition was not found.");
         var package = definition.PackageVersion
             ?? throw new AgentInstallationException("The agent definition package was not found.");
+        await RefreshReleaseProvenanceAsync(package, cancellationToken);
         if (await TryInstallPrebuiltReleaseAsync(package, cancellationToken))
         {
             // The prebuilt install marked the package Built and signed; refresh the

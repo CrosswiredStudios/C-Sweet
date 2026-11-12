@@ -174,6 +174,65 @@ public sealed class AgentUpdateServiceTests
         Assert.Equal(expected, result.UpdateApproach);
     }
 
+    [Theory]
+    [InlineData(AgentPackageVersionStatus.Failed, "release", true, "PrebuiltRelease")]
+    [InlineData(AgentPackageVersionStatus.Failed, "newer-commit", true, "SourceBuild")]
+    [InlineData(AgentPackageVersionStatus.Failed, "same-commit", false, null)]
+    [InlineData(AgentPackageVersionStatus.Built, "release", false, null)]
+    public async Task CheckDefinitionsAsync_OffersTheSameVersionOnlyToRepairAFailedBuild(
+        AgentPackageVersionStatus status, string available, bool repair, string? approach)
+    {
+        await using var dbContext = CreateDbContext();
+        var source = new AgentPackageSource
+        {
+            Id = Guid.NewGuid(), RepositoryUrl = "https://github.com/example/research-agent",
+            RepositoryOwner = "example", RepositoryName = "research-agent", DefaultBranch = "main"
+        };
+        var package = new AgentPackageVersion
+        {
+            Id = Guid.NewGuid(), PackageSourceId = source.Id, PackageSource = source, Status = status,
+            AgentId = "com.example.research-agent", AgentName = "Research Agent", Version = "1.2.3",
+            CommitSha = new string('1', 40), ManifestDigest = new string('a', 64), ManifestJson = "{}",
+            PublisherId = "com.example", PublisherName = "Example", RuntimeType = "dotnet-project"
+        };
+        var definition = new AgentDefinition
+        {
+            Id = Guid.NewGuid(), PackageSourceId = source.Id, AgentId = package.AgentId,
+            PackageVersionId = package.Id, PackageVersion = package, CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        dbContext.AddRange(source, package, definition);
+        await dbContext.SaveChangesAsync();
+        var head = CreatePreview("1.2.3") with { ImportId = available == "same-commit" ? package.Id : Guid.NewGuid() };
+        var release = CreatePreview("1.2.3") with { PackageSourceMode = "PrebuiltRelease" };
+        var previews = new RoutingPreviewService(request => request.Ref is null ? head
+            : available == "release" ? release : throw new InvalidOperationException("No such tag."));
+        var service = new AgentUpdateService(dbContext, previews, NullLogger<AgentUpdateService>.Instance, new NotesRepository("missing"));
+
+        var result = Assert.Single(await service.CheckDefinitionsAsync());
+
+        Assert.Equal(repair, result.UpdateAvailable);
+        Assert.Equal(repair, result.IsRepair);
+        if (repair)
+        {
+            Assert.Equal(available == "release" ? release.ImportId : head.ImportId, result.AvailablePackageVersionId);
+            Assert.Equal("1.2.3", result.AvailableVersion);
+            Assert.Equal(approach, result.UpdateApproach);
+        }
+        Assert.Equal(status == AgentPackageVersionStatus.Failed ? new[] { "v1.2.3" } : Array.Empty<string>(),
+            previews.Refs.Where(x => x is not null).Select(x => x!).ToArray());
+    }
+
+    private sealed class RoutingPreviewService(Func<PreviewAgentImportRequest, AgentImportPreviewResponse> respond) : IAgentImportPreviewService
+    {
+        public List<string?> Refs { get; } = [];
+        public Task<AgentImportPreviewResponse> PreviewAsync(PreviewAgentImportRequest request, CancellationToken cancellationToken = default)
+        {
+            Refs.Add(request.Ref);
+            return Task.FromResult(respond(request));
+        }
+    }
+
     private static AgentImportPreviewResponse CreatePreview(string version) => new(        Guid.NewGuid(),
         "https://github.com/example/research-agent",
         new string('2', 40),

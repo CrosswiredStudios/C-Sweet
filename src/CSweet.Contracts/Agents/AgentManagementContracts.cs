@@ -57,6 +57,11 @@ public sealed record AgentDefinitionUpdateAvailabilityResponse(
     public string? ReleaseNotesPath { get; init; }
     public string? ReleaseNotesError { get; init; }
     public string UpdateApproach { get; init; } = "SourceBuild";
+    /// <summary>
+    /// True when the offered package has the same version as the installed one, whose build failed: it comes from
+    /// that version's published release bundle (no build) or from a newer commit of the same version.
+    /// </summary>
+    public bool IsRepair { get; init; }
 }
 
 public sealed record UpdateAgentDefinitionRequest(Guid PackageVersionId);

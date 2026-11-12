@@ -159,8 +159,10 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
         await PersistWorkstreamProfileDefinitionsAsync(manifest, profileDefinitions, now, cancellationToken);
         await PersistToolchainAdapterDefinitionsAsync(manifest, toolchainDefinitions, now, cancellationToken);
 
+        // Look for the published release of exactly this manifest version before the repository's latest
+        // release, so a bundle is found even when another release is marked latest.
         var prebuilt = await ResolvePrebuiltReleaseAsync(
-            repository.Owner, repository.Name, request.Ref?.Trim(), cancellationToken);
+            repository.Owner, repository.Name, request.Ref?.Trim(), $"v{manifest.Version}", cancellationToken);
         if (prebuilt is not null &&
             PrebuiltBundleAssets.ParseVersionFromTag(prebuilt.Release.TagName) is { } releaseVersion &&
             SemanticVersionComparer.Compare(releaseVersion, version.Version) == 0)
@@ -461,6 +463,7 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
         string repositoryOwner,
         string repositoryName,
         string? explicitReference,
+        string versionTag,
         CancellationToken cancellationToken)
     {
         GitHubReleaseInfo? release;
@@ -468,6 +471,12 @@ public sealed partial class AgentImportPreviewService : IPluginImportService
         {
             release = string.IsNullOrWhiteSpace(explicitReference) ? null :
                 await _repositoryClient.GetReleaseByTagAsync(repositoryOwner, repositoryName, explicitReference, cancellationToken);
+            if (release is null && !string.Equals(versionTag, explicitReference, StringComparison.Ordinal))
+            {
+                // A prerelease still needs an explicit reference; only a published stable release is taken here.
+                var exact = await _repositoryClient.GetReleaseByTagAsync(repositoryOwner, repositoryName, versionTag, cancellationToken);
+                if (exact is { Draft: false, Prerelease: false }) release = exact;
+            }
             release ??= await _repositoryClient.GetLatestReleaseAsync(repositoryOwner, repositoryName, cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)

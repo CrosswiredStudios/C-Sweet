@@ -61,12 +61,6 @@ public sealed class McpToolCatalog(
     private static readonly JsonElement EmptyInput = Schema("""
         { "type": "object", "properties": {}, "additionalProperties": false }
         """);
-    private static readonly JsonElement ObjectOutput = Schema("""
-        { "type": "object" }
-        """);
-    private static readonly JsonElement ArrayOutput = Schema("""
-        { "type": "array", "items": { "type": "object" } }
-        """);
 
     private static readonly IReadOnlyList<McpToolDescriptor> Tools =
     [
@@ -446,6 +440,9 @@ public sealed class McpToolCatalog(
         }
     }
 
+    /// <summary>Gets every registry tool, for contract tests.</summary>
+    internal static IReadOnlyList<McpToolDescriptor> Registered => Tools;
+
     public IReadOnlyList<McpToolDescriptor> List(IReadOnlySet<string> grantedCapabilities) =>
         Tools.Where(tool => tool.Availability != McpToolAvailability.PlatformOnly &&
                              grantedCapabilities.Contains(tool.Capability))
@@ -463,7 +460,7 @@ public sealed class McpToolCatalog(
                     // responses at the gateway. Validate its supported result shapes instead.
                     capability == CSweetMemoryCapabilities.Query
                         ? Schema("""{"type":["object","array","null"],"items":{"type":"object"}}""")
-                        : ObjectOutput,
+                        : McpToolOutputContracts.Schema(capability),
                     McpToolExecutionPolicy.PlatformOnly,
                     McpToolAvailability.GrantRequired,
                     ModelVisible: false,
@@ -606,23 +603,8 @@ public sealed class McpToolCatalog(
         PlatformCapabilities.ConnectorActionRequest or PlatformCapabilities.ConnectorActionRead or PlatformCapabilities.ConnectorActionCancel => Schema("""
             {"type":"object","properties":{"actionId":{"type":"string","format":"uuid"},"capability":{"type":"string"},"status":{"type":"string","enum":["Prepared","AwaitingApproval","Approved","Executing","Completed","Rejected","RevisionRequested","Cancelled","Blocked","Indeterminate","Expired","Unavailable"]},"updatedAt":{"type":"string","format":"date-time"},"result":{"type":["object","array","string","number","boolean","null"]},"conditionCode":{"type":["string","null"]},"decision":{"type":["object","null"],"properties":{"decision":{"type":"string","enum":["Approve","RequestRevision","Reject"]},"comment":{"type":["string","null"],"maxLength":4000},"decidedAt":{"type":"string","format":"date-time"}},"required":["decision","comment","decidedAt"],"additionalProperties":false}},"required":["actionId","capability","status","updatedAt","result","conditionCode","decision"],"additionalProperties":false}
             """),
-        ResourceCapabilities.Request or ResourceCapabilities.Read or ResourceCapabilities.Decide or
-        ProjectApprovalGovernance.ReadCapability or ProjectApprovalGovernance.DecideCapability or
-        WorkBoardActions.Read or
-        WorkSprintActions.Read or
-        W.WorkDeliveryCapabilities.Read or
-        W.WorkstreamCapabilityNames.GateReadV1 or
-        W.DecisionCapabilityNames.ReadV1 or
-        W.DeliveryEvidenceCapabilityNames.ToolchainCatalogReadV2 or
-        W.DeliveryEvidenceCapabilityNames.BuildReadV2 or
-        W.DeliveryEvidenceCapabilityNames.ValidationReadV2 or
-        W.DeliveryEvidenceCapabilityNames.PreviewReadV2 or
-        W.DeliveryEvidenceCapabilityNames.EvaluationReadV1 or
-        W.DeliveryEvidenceCapabilityNames.ReleaseReadinessReadV1 or
-        SourceControlCapabilities.TeamRepositoryOptions or TaskDeliveryCapabilities.List or
-        ProjectIntakeCapabilities.List or ProjectIntakeCapabilities.AssistanceList or
-        ProjectIntakeCapabilities.Discover => ArrayOutput,
-        _ => ObjectOutput
+        // Every other tool derives its output schema from its declared result type.
+        _ => McpToolOutputContracts.Schema(capability)
     };
 
     private static string OwnerFor(string capability) =>
@@ -981,11 +963,12 @@ public sealed class McpToolCatalog(
               "properties":{
                 "workspaceId":{"type":"string","format":"uuid"},
                 "assignmentRevision":{"type":"integer","minimum":1},
-                "direction":{"type":"string","enum":["pull","push"]},
+                "direction":{"type":"string","enum":["pull","push","checkpoint","resume"]},
                 "idempotencyKey":{"type":"string","minLength":1,"maxLength":160},
                 "archive":{"type":["string","null"]},
                 "commandClass":{"type":["string","null"],"enum":["build","test","restore","analysis",null]},
                 "inputFingerprint":{"type":["string","null"],"pattern":"^[a-fA-F0-9]{64}$"},
+                "pushedCommitSha":{"type":["string","null"],"pattern":"^[a-fA-F0-9]{40}$"},
                 "resumeSummary":{
                   "type":["object","null"],"required":["sourceFingerprint","validations"],
                   "properties":{
@@ -1012,10 +995,10 @@ public sealed class McpToolCatalog(
             {"type":"object","required":["workspaceId","assignmentRevision","idempotencyKey"],"properties":{"workspaceId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         GitWorkspaceCapabilities.Inspect => Schema("""
-            {"type":"object","required":["workspaceId","assignmentRevision"],"properties":{"workspaceId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"includeHistory":{"type":"boolean"},"historyOffset":{"type":"integer","minimum":0,"maximum":10000},"historyLimit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false}
+            {"type":"object","required":["workspaceId","assignmentRevision"],"properties":{"workspaceId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"includeHistory":{"type":"boolean"},"historyOffset":{"type":"integer","minimum":0,"maximum":10000},"historyLimit":{"type":"integer","minimum":1,"maximum":100},"pushedCommitSha":{"type":["string","null"],"pattern":"^[a-fA-F0-9]{40}$"}},"additionalProperties":false}
             """),
         GitWorkspaceCapabilities.Publish => Schema("""
-            {"type":"object","required":["workspaceId","assignmentRevision","commitMessage","proposedChangeTitle","proposedChangeBody","idempotencyKey"],"properties":{"workspaceId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"commitMessage":{"type":"string","minLength":1,"maxLength":512},"proposedChangeTitle":{"type":"string","minLength":1,"maxLength":256},"proposedChangeBody":{"type":"string","maxLength":32768},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"validations":{"type":["array","null"],"maxItems":100,"items":{"type":"object","required":["command","succeeded","exitCode"],"properties":{"command":{"type":"string","minLength":1},"succeeded":{"type":"boolean"},"exitCode":{"type":"integer"},"diagnosticExcerpt":{"type":["string","null"]}},"additionalProperties":false}}},"additionalProperties":false}
+            {"type":"object","required":["workspaceId","assignmentRevision","commitMessage","proposedChangeTitle","proposedChangeBody","idempotencyKey"],"properties":{"workspaceId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"commitMessage":{"type":"string","minLength":1,"maxLength":512},"proposedChangeTitle":{"type":"string","minLength":1,"maxLength":256},"proposedChangeBody":{"type":"string","maxLength":32768},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"validations":{"type":["array","null"],"maxItems":100,"items":{"type":"object","required":["command","succeeded","exitCode"],"properties":{"command":{"type":"string","minLength":1},"succeeded":{"type":"boolean"},"exitCode":{"type":"integer"},"diagnosticExcerpt":{"type":["string","null"]}},"additionalProperties":false}},"pushedCommitSha":{"type":["string","null"],"pattern":"^[a-fA-F0-9]{40}$"}},"additionalProperties":false}
             """),
         GitWorkspaceCapabilities.Cleanup => Schema("""
             {"type":"object","required":["workspaceId","assignmentRevision"],"properties":{"workspaceId":{"type":"string","format":"uuid"},"assignmentRevision":{"type":"integer","minimum":1},"retainOnFailure":{"type":"boolean"}},"additionalProperties":false}
@@ -1087,8 +1070,9 @@ public sealed class McpToolCatalog(
     {
         if (schema.ValueKind != JsonValueKind.Object ||
             !schema.TryGetProperty("type", out var type) ||
-            type.ValueKind != JsonValueKind.String ||
-            type.GetString() is not ("object" or "array"))
+            !(type.ValueKind == JsonValueKind.String && type.GetString() is "object" or "array" ||
+              type.ValueKind == JsonValueKind.Array && type.GetArrayLength() > 0 &&
+              type.EnumerateArray().All(x => x.GetString() is "object" or "array")))
             throw new InvalidOperationException(
                 $"Capability '{capability}' has an invalid output schema. Registry outputs must have an object or array root.");
     }

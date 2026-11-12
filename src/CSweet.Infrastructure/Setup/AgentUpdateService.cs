@@ -117,6 +117,15 @@ public sealed class AgentUpdateService : IAgentUpdateService
                 SemanticVersionComparer.Compare(preview.AgentVersion, current.Version) > 0;
             return ToDefinitionResponse(definition, checkedAt, updateAvailable ? preview : null, null);
         }).ToList();
+        for (var index = 0; index < results.Count; index++)
+        {
+            var current = definitions[index].PackageVersion!;
+            if (results[index].UpdateAvailable || results[index].Error is not null || current.Status != AgentPackageVersionStatus.Failed)
+                continue;
+            var repair = await FindRepairAsync(current, previews.GetValueOrDefault(current.PackageSourceId), cancellationToken);
+            if (repair is not null)
+                results[index] = ToDefinitionResponse(definitions[index], checkedAt, repair, null) with { IsRepair = true };
+        }
         var notesByPackage = new Dictionary<Guid, (string? Text, string? Error)>();
         for (var index = 0; index < results.Count; index++)
         {
@@ -146,6 +155,31 @@ public sealed class AgentUpdateService : IAgentUpdateService
         }
         return results;
     }
+
+    // A failed build of this exact version can be replaced by the same version from its published release bundle
+    // (installed without building) or, failing that, from a newer commit of that version on the default branch.
+    // A version that built is never replaced by the same version.
+    private async Task<AgentImportPreviewResponse?> FindRepairAsync(
+        AgentPackageVersion current, AgentImportPreviewResponse? head, CancellationToken cancellationToken)
+    {
+        var source = current.PackageSource!;
+        try
+        {
+            var tagged = await _previewService.PreviewAsync(
+                new PreviewAgentImportRequest(source.RepositoryUrl, $"v{current.Version}"), cancellationToken);
+            if (SameVersion(tagged, current) && tagged.PackageSourceMode == "PrebuiltRelease")
+                return tagged;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogInformation(exception, "No published release was found for {AgentId} {Version}.", current.AgentId, current.Version);
+        }
+        return head is not null && SameVersion(head, current) && head.ImportId != current.Id ? head : null;
+    }
+
+    private static bool SameVersion(AgentImportPreviewResponse preview, AgentPackageVersion current) =>
+        string.Equals(preview.AgentId, current.AgentId, StringComparison.Ordinal) &&
+        SemanticVersionComparer.Compare(preview.AgentVersion, current.Version) == 0;
 
     private static AgentUpdateAvailabilityResponse ToResponse(
         AgentInstallation installation,

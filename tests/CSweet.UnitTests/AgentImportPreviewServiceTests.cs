@@ -627,6 +627,26 @@ public class AgentImportPreviewServiceTests
         }
         """;
 
+    [Fact]
+    public async Task PreviewAsync_FindsTheStableReleaseOfTheManifestVersionWhenAnotherReleaseIsLatest()
+    {
+        await using var dbContext = CreateDbContext();
+        var exact = new GitHubReleaseInfo("v1.2.3", false, false,
+            [new GitHubReleaseAssetInfo("research-agent-1.2.3-linux-x64.csab",
+                "https://github.com/example/research-agent/releases/download/v1.2.3/agent.csab", 10)]);
+        var latest = new GitHubReleaseInfo("v1.2.2", false, false,
+            [new GitHubReleaseAssetInfo("research-agent-1.2.2-linux-x64.csab",
+                "https://github.com/example/research-agent/releases/download/v1.2.2/agent.csab", 10)]);
+        var service = new AgentImportPreviewService(dbContext,
+            new FakeGitHubAgentRepositoryClient(ValidManifest(), latest, exact), new TestAuditEventWriter());
+
+        var result = await service.PreviewAsync(new PreviewAgentImportRequest("https://github.com/example/research-agent"));
+
+        Assert.Equal("PrebuiltRelease", result.PackageSourceMode);
+        Assert.Equal("v1.2.3", result.ReleaseTag);
+        Assert.Equal(exact.Assets[0].BrowserDownloadUrl, result.ReleaseAssetUrl);
+    }
+
     private sealed class FakeGitHubAgentRepositoryClient : IGitHubAgentRepositoryClient
     {
         public const string CommitSha = "0123456789abcdef0123456789abcdef01234567";

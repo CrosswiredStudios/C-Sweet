@@ -778,6 +778,31 @@ public sealed partial class AgentDefinitionLifecycleTests
         Assert.True(allowed.IsSystemService);
     }
 
+    [Theory]
+    [InlineData(AgentPackageVersionStatus.Failed, true)]
+    [InlineData(AgentPackageVersionStatus.Built, false)]
+    public async Task Update_SameVersionOnlyRepairsAFailedBuild(AgentPackageVersionStatus currentStatus, bool allowed)
+    {
+        await using var db = CreateDb();
+        var current = SeedPackage(db, currentStatus, requiredConfiguration: false);
+        var definition = SeedDefinition(db, current, ActivationMode.OnDemand);
+        var repair = CreateUpdatePackage(current, current.Version);
+        db.AgentPackageVersions.Add(repair);
+        await db.SaveChangesAsync();
+        var builds = new RecordingBuildService(db);
+        var service = new AgentDefinitionService(db, new TestAuditEventWriter(), builds);
+
+        if (!allowed)
+        {
+            await Assert.ThrowsAsync<AgentInstallationException>(() =>
+                service.UpdateAsync(definition.Id, new UpdateAgentDefinitionRequest(repair.Id)));
+            return;
+        }
+        var result = await service.UpdateAsync(definition.Id, new UpdateAgentDefinitionRequest(repair.Id));
+        Assert.Equal(repair.Id, result.PackageVersionId);
+        Assert.Equal(repair.Id, builds.QueuedPackageVersionId);
+    }
+
     private static AgentPackageVersion SeedPackage(
         CSweetDbContext db, AgentPackageVersionStatus status, bool requiredConfiguration)
     {

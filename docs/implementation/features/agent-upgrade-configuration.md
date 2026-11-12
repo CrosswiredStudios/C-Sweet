@@ -82,9 +82,28 @@ provider profile's configured default follows the existing trusted-default rule.
 updates do not certify that a provider is online or that a saved model is currently
 served; actual inference continues to use the runtime's provider error handling.
 
+## Checking for updates, release bundles and repairs
+
+Clicking an installed agent's version checks its repository again (`AgentUpdateService.CheckDefinitionsAsync`).
+
+- **Release bundle lookup.** A preview looks for the published release of exactly the manifest version
+  (tag `v<version>`, stable only; a prerelease still needs an explicit reference) before the repository's
+  latest release. A matching `.csab` bundle is installed without a source build.
+- **Rebuild looks again.** Rebuild and update first re-check, by tag, for a release of the package's own
+  commit and version (`AgentDefinitionService.RefreshReleaseProvenanceAsync`). A release published after
+  the commit was imported (its workflow was still running) is installed instead of building from source.
+  Rebuild never moves to another commit: it rebuilds or reinstalls the recorded one.
+- **Repair of a failed build.** When the installed version's build failed, the check offers the same version
+  as an update (`IsRepair`): from its published release bundle when one exists, otherwise from a newer
+  commit of that version on the default branch. `UpdateAsync` accepts the same version only to replace a
+  failed build; a version that built is only replaced by a newer version. The card shows it as an
+  ordinary update with its approach chip (prebuilt or source build) and release notes.
+
 ## Code and regression coverage
 
-- `src/CSweet.Infrastructure/Setup/AgentDefinitionService.cs`: package update and prebuilt retry.
+- `src/CSweet.Infrastructure/Setup/AgentDefinitionService.cs`: package update, same-version repair, release re-check and prebuilt retry.
+- `src/CSweet.Infrastructure/Setup/AgentUpdateService.cs`: update check and repair offer.
+- `tests/CSweet.UnitTests/AgentUpdateServiceTests.cs`, `AgentDefinitionLifecycleTests.cs`, `AgentImportPreviewServiceTests.cs`: repair offer, same-version update rule, exact-version release lookup.
 - `src/CSweet.Infrastructure/Setup/AgentConfigurationRules.cs`: local readiness and explicit configuration validation.
 - `src/CSweet.Infrastructure/Setup/AgentBuildService.cs`: source-build completion readiness.
 - `src/CSweet.Infrastructure/Setup/AgentInstallationConfigurationService.cs`: configuration saves and activation after repair.

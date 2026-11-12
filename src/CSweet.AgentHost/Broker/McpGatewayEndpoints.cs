@@ -450,28 +450,33 @@ public static class McpGatewayEndpoints
         }
 
         JsonNode? structured = null;
+        string? contractViolation = null;
         if (!terminal.Payload.IsEmpty)
         {
             structured = JsonNode.Parse(terminal.Payload.Span);
             if (tool.OutputSchema is { } outputSchema && structured is not null)
-                ValidateSuccessfulToolOutput(terminal.Succeeded,
+                contractViolation = FindOutputContractViolation(terminal.Succeeded,
                     JsonSerializer.SerializeToElement(structured, JsonOptions), outputSchema);
         }
         await WriteCapabilityAuditAsync(
             audit, session, tool, request, terminal, cancellationToken, startedEventId);
+        if (contractViolation is not null)
+        {
+            // The handler has already committed its effect, so reporting a failure would invite a
+            // retry of work that happened. Return the saved result, tell the agent it must not
+            // retry, and record the platform defect for the operator.
+            logger.LogError(
+                "Platform contract violation: capability {Capability} ({ToolName}) succeeded for agent {AgentId}, installation {InstallationId}, request {RequestId}, but its result does not match the declared output schema: {Violation}. The result was returned to the agent marked {FailureCode}; correct the tool's output declaration.",
+                tool.Capability, tool.Name, session.AgentId, session.InstallationId, request.RequestId,
+                contractViolation, ContractViolationCode);
+            await WriteContractViolationAuditAsync(audit, session, tool, request, contractViolation, startedEventId);
+        }
         return Results.Json(Success(id, new
         {
             content = new[] { new { type = "text", text = GetToolResponseText(terminal, maximumInlineTextBytes) } },
             structuredContent = structured,
             isError = !terminal.Succeeded,
-            _meta = terminal.Succeeded ? null : new
-            {
-                csweet = new
-                {
-                    failureCode = terminal.FailureCode ?? FailureCodeFromPayload(structured) ?? "capability.failed",
-                    retryable = terminal.Retryable == true
-                }
-            }
+            _meta = ResultMetadata(terminal, structured, contractViolation)
         }));
         }
         catch (Exception error)
@@ -615,11 +620,76 @@ public static class McpGatewayEndpoints
         return "platform.capability." + snake;
     }
 
+    internal const string ContractViolationCode = "platform.contract_violation";
+
     internal static void ValidateSuccessfulToolOutput(bool succeeded, JsonElement payload, JsonElement schema)
     {
         // Error envelopes have their own shape; validating them as success hides the real denial.
         if (succeeded) JsonSchemaValidator.Validate(payload, schema);
     }
+
+    /// <summary>Returns why a successful result breaks its declared output schema, or null when it conforms.</summary>
+    internal static string? FindOutputContractViolation(bool succeeded, JsonElement payload, JsonElement schema)
+    {
+        try { ValidateSuccessfulToolOutput(succeeded, payload, schema); return null; }
+        catch (InvalidOperationException error) { return error.Message; }
+    }
+
+    /// <summary>
+    /// Builds the MCP result metadata. A failure carries its code and retry hint. A success whose
+    /// payload breaks the tool's declared output schema is still a success, because the effect is
+    /// committed, but it carries a non-retryable contract-violation marker so the agent continues
+    /// when it can read the result and escalates instead of retrying when it cannot.
+    /// </summary>
+    internal static object? ResultMetadata(CapabilityResult terminal, JsonNode? structured, string? contractViolation) =>
+        !terminal.Succeeded
+            ? new
+            {
+                csweet = new
+                {
+                    failureCode = terminal.FailureCode ?? FailureCodeFromPayload(structured) ?? "capability.failed",
+                    retryable = terminal.Retryable == true
+                }
+            }
+            : contractViolation is null
+                ? null
+                : new
+                {
+                    csweet = new
+                    {
+                        contractViolation = new
+                        {
+                            code = ContractViolationCode,
+                            message = $"The platform saved this result, but it does not match the tool's declared output schema: {contractViolation}",
+                            retryable = false
+                        }
+                    }
+                };
+
+    private static Task<Guid> WriteContractViolationAuditAsync(
+        IAuditEventWriter audit,
+        AgentSession session,
+        McpToolDescriptor tool,
+        RequestCapability request,
+        string violation,
+        Guid? parentEventId) =>
+        audit.AppendAsync(new AuditEventWriteRequest(
+            "platform.capability.contract-violation",
+            "AgentCapability",
+            "Internal",
+            "Failed",
+            RuntimeAuditIdentity.OrganizationId(session),
+            "Capability",
+            Summary: $"{tool.Name} ({tool.Capability}) returned a result that breaks its declared output schema. The agent received the saved result marked non-retryable.",
+            MetadataJson: JsonSerializer.Serialize(new { toolName = tool.Name, tool.Capability, tool.OwningService, violation }, JsonOptions),
+            ExternalRequestId: request.RequestId,
+            CorrelationId: request.RequestId,
+            ParentEventId: parentEventId,
+            Actor: RuntimeAuditIdentity.Actor(session),
+            Target: new AuditTarget("PlatformService", tool.OwningService),
+            ErrorCode: ContractViolationCode,
+            ErrorMessage: violation),
+            CancellationToken.None);
     internal static string GetToolResponseText(CapabilityResult result, int maximumInlineTextBytes = int.MaxValue)
     {
         if (!result.Payload.IsEmpty && result.Payload.Length <= maximumInlineTextBytes)
