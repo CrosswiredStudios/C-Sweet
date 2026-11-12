@@ -57,6 +57,10 @@ The model did what it was told. The contract was wrong.
 - Producer 6.4.2 `ProjectProposalDraft.cs`, `ProjectFoundation.cs`: staffing authority fixed to the
   template, milestone details merged in code, one platform-rejection correction, cached drafts and
   frozen commands healed before dispatch.
+- Director 0.6.9 `GddSemanticValidation`: the model judges semantic coverage and selects
+  supporting evidence; code derives finding codes, disposition and exact revision bindings.
+  The reviewer gets one correction for invalid/unsupported evidence. GDD document layout
+  remains unrestricted, and accepted state is saved only after platform acceptance is confirmed.
 
 ## Not yet applied
 
@@ -65,5 +69,5 @@ The model did what it was told. The contract was wrong.
 - The proposal rules live only in `WorkstreamGovernanceCapabilityHandler.ProposePlanAsync`. Agents
   cannot run them before submitting.
 - The generate, validate, correct-once loop is hand-written per agent. It belongs in the SDK.
-- Director, Technical Director and Creative Director prompts have not been reviewed against this
-  checklist.
+- Other Director, Technical Director and Creative Director JSON prompts still need review
+  against this checklist; the GDD semantic reviewer above covers only that operation.

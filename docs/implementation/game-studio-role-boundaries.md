@@ -46,6 +46,44 @@ Run `scripts/Test-GameStudioWorkflow.ps1` with sibling repository paths. It disa
 
 `CreativeHandoffJourneyTests` executes the actual Marcus and Naomi callbacks using deterministic model responses and an in-memory SDK broker. It covers pending review, acceptance, changes requested, parent resumption and replay.
 
+`CreativeDesignFinalizationJourneyTests` reproduces the November 12 SHATTERCHORD
+GDD revision failure with real Director/Creative Director callbacks and the SDK's
+`AgentRuntimeWorker.ValidateCoordinationResult`. It verifies one successful generation
+correction or an owned finalization blocker, no stale GDD review/acceptance, and a
+subsequent authorized retry using the retained exact revision feedback. The local
+model and persistence substitutes are deterministic; this is not a live provider test.
+
+Director 0.6.9 `ReviewCreativeDesignAsync` reads the latest counterpart turn before
+looking for result evidence, and never returns Continue during finalization. Creative
+Director 4.1.4 `GenerateDesignAsync` accepts arbitrary clear structures, retries only
+empty or truncated generation once, and stores generation evidence separately
+from the submitted draft. Its generation key binds the draft, session revision, package
+version and attempt, so duplicate delivery cannot restart exhausted generation.
+`CreativeDesignRecoveryTests` includes verbatim section excerpts from Naomi's actual
+33,902-character reply: it used `#` sections with `##` subsections under a prompt that
+did not specify heading levels. The old validator required `##` sections.
+The excerpt now passes to independent semantic review without format correction.
+
+[Semantic GDD validation and shared wire contracts](gdd-semantic-validation.md) maps
+`GddSemanticValidation`, typed generation failures and optional contracts 1.1.0.
+`ThirdPartyGddJourneyTests` exercises raw third-party JSON exchanges with equivalent
+prose, tables, reordered outlines and JSON document contents. Real missing coverage
+returns specific findings; layout alone does not block. Exact identities, grants,
+revision digests and finalization remain deterministic.
+
+Update both packages through published releases and Installed Agents. A failed
+finalization retry first records the original semantic blocker; retrying that Blocked
+collaboration then relays the retained feedback for Naomi's fresh bounded pass. These
+changes do not edit live state, approvals or installed payloads.
+
+Verification uses NuGet artifacts rather than sibling SDK, work-contract or memory
+references. Contracts 1.1.0 is supplied by its local packed feed until publication.
+The cross-role suite additionally uses
+`CSweetGameDirectorRepositoryRoot=D:/Repositories/Csweet.Agent.Director.VideoGame`
+for this checkout and `CentralPackageTransitivePinningEnabled=false` to resolve
+the agents' direct dependency versions. See the semantic GDD guide for final test
+counts and package checks. No live provider recovery was run.
+
 `AgentDeliveryJourneyTests` uses real Git, actual Technical Director/QA callbacks and host delivery orchestration. Its Star Collector fixture starts with broken movement, fails an executable QA check, receives reviewed rework, and passes movement, collection, win, restart and boundary checks. The fixture is a real local browser game at `tests/CSweet.DeliveryWorkflow.Tests/Fixtures/StarCollector/index.html`. It is authored test content, not evidence that an unobserved live company autonomously built a game.
 
 Local verification: 20 Creative Director, 254 Director, 450 Producer, 213 Technical Director tests; 165 Chief tests (two optional live-model tests skipped); two cross-role journeys; all 17 host delivery journeys passed, including six transactional PostgreSQL cases. Package versions and runtime self-tests were checked against published SDK 5.5.0. Chromium smoke testing verifies rendering, keyboard movement and restart; executable game rules are checked in the QA journey.

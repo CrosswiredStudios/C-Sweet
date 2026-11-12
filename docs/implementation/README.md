@@ -64,6 +64,9 @@ validation, durable Director waits and idempotent Producer submission recovery.
 
 [Game studio role boundaries](game-studio-role-boundaries.md) defines the Director/Creative/Producer split, exact pitch and creative review gates, SDK interaction primitives, and reproducible concept-to-demo verification.
 
+[Semantic GDD validation](gdd-semantic-validation.md) maps layout-independent planning
+review, optional shared GDD wire contracts, scoped failures and third-party JSON tests.
+
 [Production-brief review and correction](game-studio-production-review.md) maps bounded corrective passes, the stable creative checklist and finding history, compact briefs, and exact source evidence handoffs.
 
 [Prism Break project setup recovery](prism-break-project-setup-recovery.md) documents
