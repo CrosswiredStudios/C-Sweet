@@ -109,6 +109,59 @@ public sealed class DeliveryComputeGenerationTests
         Assert.Equal(plan.Revision,again.Revision);
     }
 
+    // QFN Games, 2026-11-12: the owner moved the blocked increment ticket to a working column to retry it. The move was
+    // accepted and reverted within a second, and nothing re-ran.
+    [Fact]
+    public async Task Moving_a_blocked_delivery_ticket_to_a_working_column_retries_the_check_it_stopped_at()
+    {
+        await using var f=await HierarchicalDeliveryServiceTests.Fixture.Create(false);var ready=await ReachReadiness(f);
+        var rejection=f.Review(ready);
+        await f.Service.CompleteReviewAsync(f.Org,f.Technical.Id,rejection with {Result=rejection.Result with {Approved=false,
+            Summary="Changes requested",Criteria=[new("Requirement works",true,"Evidence")],Findings=["A disputed finding"]}});
+        var plan=await f.Read();var ticket=plan.Scopes.Single(s=>s.Scope=="Release").TicketWorkflow!.TicketId;
+        Assert.Equal("Pending",Assert.Single(plan.Corrections).Status);
+        var refused=await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Service.MoveDeclaredTicketAsync(f.Org,f.Author.Id,ticket,false));
+        Assert.Contains("Retry validation",refused.Message);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>f.Service.MoveDeclaredTicketAsync(f.Org,f.Author.Id,ticket,true));
+        f.Author.PermissionLevel=OrganizationPermissionLevel.Owner;
+        Assert.True(await f.Service.MoveDeclaredTicketAsync(f.Org,f.Author.Id,ticket,true));
+        plan=await f.Read();var execution=plan.Executions.Single(e=>e.Id==ready.Id);
+        Assert.Equal("build-readiness",execution.CurrentStageKey);Assert.NotEqual("Blocked",execution.Status);
+        Assert.All(plan.Findings,x=>Assert.Equal("Superseded",x.Status));
+        Assert.Equal("Completed",Assert.Single(plan.Corrections).Status);
+        Assert.NotEqual(WorkTaskStatus.Blocked,(await f.Db.CoreWorkTasks.AsNoTracking().SingleAsync(t=>t.Id==ticket)).Status);
+        Assert.False(await f.Service.MoveDeclaredTicketAsync(f.Org,f.Author.Id,f.Task.Id,true));
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Service.MoveDeclaredTicketAsync(f.Org,f.Author.Id,ticket,true));
+    }
+
+    // QFN Games, 2026-11-12: after a recovery, the same candidate was rejected again with 21 findings. The completed
+    // correction for the first rejection suppressed a new one, so the manager was never told; the findings were never
+    // posted on the ticket either.
+    [Fact]
+    public async Task A_candidate_rejected_again_after_recovery_hands_off_and_posts_the_new_findings()
+    {
+        await using var f=await HierarchicalDeliveryServiceTests.Fixture.Create(false);var ready=await ReachReadiness(f);
+        await DeclareBrowserEvidence(f,true);
+        var first=f.Review(ready);
+        await f.Service.CompleteReviewAsync(f.Org,f.Technical.Id,first with {Result=first.Result with {Approved=false,Summary=WorkDeliveryService.NoRunnablePackage,
+            Criteria=[new("Requirement works",false,WorkDeliveryService.NoRunnablePackage)],Findings=[WorkDeliveryService.NoRunnablePackage]}});
+        var plan=await f.Read();var blocked=plan.Executions.Single(e=>e.Id==ready.Id);
+        await f.Service.RecoverAsync(f.Org,f.Manager.Id,new(plan.Id,blocked.Id,blocked.Revision,"no-runnable","Nothing runnable is in scope"));
+        await f.Service.PulseAsync();
+        var again=(await f.Read()).Executions.Single(e=>e.Id==ready.Id);
+        Assert.Equal("build-readiness",again.CurrentStageKey);
+        var second=f.Review(again);
+        await f.Service.CompleteReviewAsync(f.Org,f.Technical.Id,second with {Result=second.Result with {Approved=false,Summary="A different defect",
+            Criteria=[new("Requirement works",false,"Broken")],Findings=["A different defect"]}});
+        await f.Service.PulseAsync();
+        plan=await f.Read();
+        Assert.Equal(2,plan.Corrections.Count);
+        var pending=Assert.Single(plan.Corrections,c=>c.Status!="Completed");
+        Assert.Equal([plan.Findings.Single(x=>x.Status=="Open").Id],pending.FindingIds);
+        var comments=await f.Db.WorkItemComments.Where(c=>c.Kind=="delivery-remediation").Select(c=>c.Body).ToListAsync();
+        Assert.Equal(2,comments.Count);Assert.Contains(comments,b=>b.Contains("A different defect"));
+    }
+
     [Fact]
     public async Task Manager_or_owner_can_retry_failed_validation_without_importing_acceptance_or_error_specific_rules()
     {

@@ -91,19 +91,7 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
                 await ValidateCurrentScopeAsync(plan,ct);
                 var stopped=plan.Executions.Where(e=>e.ScopeRevision==plan.ScopeRevision&&e.Status=="Blocked"&&e.AcceptanceJson==null).ToArray();
                 if(stopped.Length==0)throw new InvalidOperationException("There is no failed validation to retry.");
-                foreach(var execution in stopped) {
-                    await RequireCandidateCurrentAsync(plan,execution,ct);
-                    foreach(var finding in plan.Findings.Where(f=>f.ExecutionId==execution.Id&&f.Status=="Open")) {
-                        finding.Status="Superseded";finding.ResolvedAt=clock.GetUtcNow();finding.ResolvedByOrganizationUserId=actor.Id;
-                        finding.ResolutionEvidence="Validation retried by the release manager or owner. The prior failure remains recorded; no criterion is accepted. "+request.Reason;
-                    }
-                    foreach(var stage in execution.Stages.Where(s=>s.Status!=WorkStageExecutionStatus.Completed)) {
-                        stage.Status=WorkStageExecutionStatus.Cancelled;await RevokeDeliveryGrantsAsync(execution,stage,ct);
-                    }
-                    var retryScope=Scopes(plan).Single(s=>s.Scope==execution.Scope&&s.ItemId==execution.WorkItemId);
-                    await CreateReviewAsync(plan,execution,retryScope,execution.CurrentStageKey,ct);
-                    execution.BlockedReason=null;execution.Revision++;
-                }
+                foreach(var execution in stopped) await RetryStoppedValidationAsync(plan,execution,actor,request.Reason,ct);
                 break;
             case "cancel" when plan.Status is not ("Completed" or "Cancelled"):
                 plan.Status = "Cancelled";
@@ -264,6 +252,28 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
             foreach (var stage in execution.Stages.Where(x => x.Status != WorkStageExecutionStatus.Completed))
                 stage.Status = WorkStageExecutionStatus.Cancelled;
         }
+    }
+
+    // Re-runs the stage a stopped execution failed at. Its open findings are superseded (still recorded) and any
+    // correction handed off for them is closed, so the manager is not asked to plan a repair for a retried check.
+    private async Task RetryStoppedValidationAsync(WorkDeliveryPlan plan, WorkDeliveryExecution execution, OrganizationUser actor,
+        string reason, CancellationToken ct)
+    {
+        await RequireCandidateCurrentAsync(plan,execution,ct);
+        foreach(var finding in plan.Findings.Where(f=>f.ExecutionId==execution.Id&&f.Status=="Open")) {
+            finding.Status="Superseded";finding.ResolvedAt=clock.GetUtcNow();finding.ResolvedByOrganizationUserId=actor.Id;
+            finding.ResolutionEvidence="Validation retried by the release manager or owner. The prior failure remains recorded; no criterion is accepted. "+reason;
+        }
+        plan.CorrectionsJson=Encode(Corrections(plan).Select(c=>c.ExecutionId==execution.Id&&c.Status!="Completed"&&!c.FollowUpPlanId.HasValue&&
+            c.FindingIds.All(id=>plan.Findings.Any(f=>f.Id==id&&f.Status!="Open"))
+                ? c with {Status="Completed",Revision=c.Revision+1,WaitingReason="Superseded: the failed check was retried."}
+                : c).ToArray());
+        foreach(var stage in execution.Stages.Where(s=>s.Status!=WorkStageExecutionStatus.Completed)) {
+            stage.Status=WorkStageExecutionStatus.Cancelled;await RevokeDeliveryGrantsAsync(execution,stage,ct);
+        }
+        var retryScope=Scopes(plan).Single(s=>s.Scope==execution.Scope&&s.ItemId==execution.WorkItemId);
+        await CreateReviewAsync(plan,execution,retryScope,execution.CurrentStageKey,ct);
+        execution.BlockedReason=null;execution.Revision++;
     }
 
     internal IQueryable<WorkDeliveryPlan> Load() => db.WorkDeliveryPlans.Include(x => x.Findings).Include(x => x.Executions).ThenInclude(x => x.Stages).ThenInclude(x => x.Attempts)

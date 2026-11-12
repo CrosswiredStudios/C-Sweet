@@ -416,7 +416,8 @@ public sealed partial class WorkDeliveryService
         var itemIds = new[] { ScopeFor(plan, execution).TicketWorkflow!.TicketId };
         foreach (var id in itemIds)
         {
-        var marker = $"delivery-finding:{execution.Id:N}:{Candidate(execution)!.Digest}";
+        // One comment per rejection: a recovered candidate rejected again with different findings gets its own comment.
+        var marker = $"delivery-finding:{execution.Id:N}:{Candidate(execution)!.Digest}:{Digest(string.Join("\n", findings.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)))[..16]}";
         if (await db.WorkItemComments.AnyAsync(x => x.WorkItemId == id && x.Body.Contains(marker), ct)) continue;
         db.WorkItemComments.Add(new() { Id = Guid.NewGuid(), OrganizationId = plan.OrganizationId, WorkItemId = id,
             AuthorKind = GrantSubjectKind.AutomationIdentity, AuthorSubjectId = execution.Id, AuthorDisplayName = "Delivery orchestration",

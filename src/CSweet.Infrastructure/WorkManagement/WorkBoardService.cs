@@ -18,7 +18,8 @@ public sealed partial class WorkBoardService(
     CSweetDbContext db,
     IScopedActionAuthorizationService authorization,
     IAuditEventWriter audit,
-    IWorkOrchestrationService? orchestration = null) : IWorkBoardService
+    IWorkOrchestrationService? orchestration = null,
+    IWorkDeliveryService? delivery = null) : IWorkBoardService
 {
     private static readonly JsonSerializerOptions JsonOptions =
         new(JsonSerializerDefaults.Web);
@@ -621,6 +622,20 @@ public sealed partial class WorkBoardService(
         if (item is null) return null;
         if (item.Revision != request.ExpectedRevision)
             throw new DbUpdateConcurrencyException("The work item changed since it was loaded.");
+        if (delivery is not null && item.TypeKey == CSweet.WorkManagement.Contracts.WorkItemTypeKeys.WorkflowTicketV1)
+        {
+            // A declared delivery ticket's column follows its delivery plan. Moving a blocked one to a ready or
+            // working column retries the check it stopped at, like a sprint card; other moves are refused.
+            var deliveryTarget = await db.WorkBoardColumns.AsNoTracking().SingleOrDefaultAsync(x =>
+                x.Id == request.TargetColumnId && x.BoardId == boardId, cancellationToken);
+            var retry = item.Status is WorkTaskStatus.Blocked or WorkTaskStatus.Failed &&
+                deliveryTarget?.Category is WorkBoardColumnCategory.ToDo or WorkBoardColumnCategory.InProgress;
+            if (await delivery.MoveDeclaredTicketAsync(organizationId, applicationUserId, itemId, retry, cancellationToken))
+            {
+                await db.Entry(item).ReloadAsync(cancellationToken);
+                return (await ResolveCardOwnersAsync(organizationId, boardId, [ToItemResponse(item)], cancellationToken))[0];
+            }
+        }
         if (await db.WorkItemExecutions.AnyAsync(x =>
                 x.WorkItemId == itemId &&
                 (x.SprintExecution!.Status == WorkSprintExecutionStatus.Active ||

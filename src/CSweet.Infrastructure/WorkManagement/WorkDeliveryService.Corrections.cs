@@ -22,7 +22,10 @@ public sealed partial class WorkDeliveryService
             if (candidate is null) continue;
             var findings = plan.Findings.Where(f => f.ExecutionId == execution.Id &&
                 f.CandidateDigest == candidate.Digest && f.Status == "Open").Select(f => f.Id).Order().ToArray();
-            if (findings.Length == 0 || corrections.Any(c => c.ExecutionId == execution.Id && c.CandidateDigest == candidate.Digest)) continue;
+            // A recovered candidate can be rejected again with new findings (QFN Games, 2026-11-12). Only a correction
+            // that already carries one of these open findings counts as handed off; a completed earlier one does not.
+            if (findings.Length == 0 || corrections.Any(c => c.ExecutionId == execution.Id && c.CandidateDigest == candidate.Digest &&
+                    c.FindingIds.Intersect(findings).Any())) continue;
             corrections.Add(new(Guid.NewGuid(), execution.Id, candidate.Digest, execution.BoardId,
                 plan.ManagerOrganizationUserId, "Pending", 1, findings));
         }

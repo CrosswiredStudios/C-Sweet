@@ -14,6 +14,8 @@ public interface IWorkDeliveryService
     Task<WorkDeliveryPlanResponse> AcceptAsync(Guid organizationId, Guid actorId, DecideWorkDeliveryAcceptanceRequest request, CancellationToken ct = default);
     Task<WorkDeliveryPlanResponse> RecoverAsync(Guid organizationId, Guid actorId, RecoverWorkDeliveryRequest request, CancellationToken ct = default);
     Task PulseAsync(CancellationToken ct = default);
+    /// <summary>A person moving a declared delivery ticket on the board: retries its stopped check, or refuses with guidance. False when the item is not a delivery ticket.</summary>
+    Task<bool> MoveDeclaredTicketAsync(Guid organizationId, Guid actorId, Guid ticketId, bool retryRequested, CancellationToken ct = default);
     Task<WorkDeliveryEvidenceResponse> ReadEvidenceAsync(Guid organizationId, Guid actorId, ReadWorkDeliveryEvidenceRequest request, CancellationToken ct = default);
     Task<WorkDeliveryPlanResponse> CompleteReviewAsync(Guid organizationId, Guid actorId, CompleteWorkDeliveryReviewRequest request, CancellationToken ct = default);
     Task<WorkDeliveryPlanResponse> FinalizeTaskAsync(Guid organizationId, Guid actorId, FinalizeWorkItemDeliveryRequest request, CancellationToken ct = default);
