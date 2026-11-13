@@ -10,10 +10,10 @@ The right column specifies the expected evidence. Attach actual run IDs, source 
 
 | ID | Web entry or proposed surface | Phone workflow | Actor, required permission and scope | API or transport dependency | Phase | Required acceptance evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| A-01 | Login / mobile entry (proposed) | Sign in with a C-Sweet account | Account holder, own identity | Browser OIDC/PKCE and scoped return | 2 | Cancelled login returns to entry; valid login shows only own directory. |
+| A-01 | Login / mobile entry (proposed) | Sign in with a C-Sweet account | Account holder, own identity | Browser OIDC/PKCE and scoped return | H3, then 2 | Cancelled login returns to entry; valid login shows only own directory. |
 | A-02 | Create account (proposed) | Register and verify email | New person, own address | Identity and test email delivery | 2 | Verified account with no grants reaches empty chooser. |
 | A-03 | ForgotPassword / ResetPassword | Recover shared sign-in | Account holder, own recovery proof | Identity recovery | 2 | Expired code fails; new credential restores same subject. |
-| A-04 | Mobile entry (proposed) | Sign in as an existing Market customer | Account holder, own identity | Same issuer and account record | 2 | Purchases and roles are those of the original Market ID; no second account is created. |
+| A-04 | Mobile entry (proposed) | Sign in as an existing Market customer | Account holder, own identity | Same issuer and account record | H2–H3 | Purchases and roles are those of the original Market ID; no second account is created. |
 | A-05 | People & access (proposed) | Review and issue member invitation | HQ admin, assignable enterprise/business grants | HQ invite + outbox | 2 | Recipient and exact grants shown before sending. |
 | A-06 | People & access (proposed) | Resend invitation | HQ admin, manage this invitation | Supersede/reissue | 2 | Previous secret stops working. |
 | A-07 | People & access (proposed) | Cancel invitation | HQ admin, manage this invitation | Invitation cancellation | 2 | Cancelled token cannot activate. |
@@ -40,8 +40,10 @@ The right column specifies the expected evidence. Attach actual run IDs, source 
 | A-28 | Settings → C-Sweet account (proposed) | Disconnect Headquarters from C-Sweet | HQ administrator, local password | Installation retirement | 2 | Local sign-in still works; affected members listed before confirming. |
 | A-29 | Notification settings (proposed) | Choose notification categories and quiet hours | Member, own device | Per-device settings at HQ | 5 | Muted category produces no notification; `security` cannot be muted. |
 | A-30 | System notification (proposed) | Open the app from a notification | Member, enrolled device | Content-free wake + normal reads | 5 | Opens the named enterprise and list; asks before discarding an unsent edit elsewhere. |
+| A-31 | My Headquarters | Discover completed installations owned by the signed-in Market account | Initial owner, own account | Setup-complete publication and authenticated directory | H3 | Two completed HQs appear once each. Unfinished, private and other-account installations stay absent. |
+| A-32 | My Headquarters → Connect | Open a live business list at the selected HQ | Current owner and approved device | Enrollment ticket, pinned HQ, current grant and read | H4 | Both phones read the expected HQ over cellular; disconnected and revoked states are distinct. |
 
-First-run hosting choice and linked administrator registration happen in the Headquarters web UI on its host and are specified in [identity and installation linking](identity-and-installation-linking.md), not in this matrix.
+H1 and H2 are host-side setup walkthroughs. H3 and H4 are the first phone acceptance rows. Record each outcome in the [acceptance register](acceptance-and-operations.md).
 
 ## Daily work
 

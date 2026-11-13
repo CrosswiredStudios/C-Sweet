@@ -28,7 +28,7 @@ SIGN IN                        ENTERPRISE HOME                 SWITCH ENTERPRISE
 4. **Select.** Open a sole joined enterprise automatically, present the chooser for multiple on first entry, and restore the last selection on return. Pending invites never auto-enroll the device. Group private profiles by account/deployment; use a second line to distinguish duplicate enterprise names. Mark the current row with a check and an accessible “Current enterprise” label. Show connectivity only when known. Enrolled private profiles are selectable even if shared discovery is unavailable.
 5. **Account actions.** Present **Sign out of this account**, **Remove saved connection** and **Revoke this device at Northstar** separately. Explain scope before confirmation. Sign-out dismisses affected sessions and clears linked local account credentials. Removing a connection forgets local credentials for that profile. Revocation requires an acknowledged Headquarters result, recoverable after connection loss.
 
-First-run screens at Headquarters (hosting choice and linked registration) are drawn in [identity and installation linking](identity-and-installation-linking.md). Notification text, tap behaviour and the notification settings screen are specified in the [push guide](push-notifications.md).
+At first run, HQ shows **Hosted** and **Private**. Hosted offers **Create account** and **Sign in** at the live Marketplace. After setup, a fresh phone opens **My Headquarters** after Market sign-in, lists completed instances, and offers **Connect** on the selected instance. Display pending enrollment or offline status when applicable. See the [hosted walkthroughs](hosted-onboarding.md) and [notification design](push-notifications.md).
 
 ## Operate an enterprise
 

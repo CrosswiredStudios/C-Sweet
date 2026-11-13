@@ -26,9 +26,9 @@ Use a test relay and native client outside production startup. Model an ordered 
 
 Run PN-01 from the [push guide](push-notifications.md): a closed app on a physical iPhone and Android phone receives a content-free push in a Release build. Same stop rule as the transport spike.
 
-### 5. Freeze the first catalog and evidence
+### 5. Freeze the tunnel envelope and evidence
 
-Agree the read, command, receipt, invalidation and error envelopes with the HQ and relay owners. Exercise incompatible majors and missing optional capabilities. Freeze public package contracts only after native stream/key behavior passes on both platforms. Record unresolved compatibility limits and rerun the failed case after any design change.
+Run TS-02 (dispatcher entry on a packaged build). Agree the tunnel request, response, hint and error envelopes with the HQ and relay owners. Exercise incompatible majors and missing optional capabilities. Freeze public package contracts only after native stream/key behavior passes on both platforms. Record unresolved compatibility limits and rerun the failed case after any design change.
 
 ## Acceptance example
 

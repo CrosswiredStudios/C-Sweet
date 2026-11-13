@@ -106,6 +106,8 @@ Sending only `{event id, type, resource reference, revision}` and re-reading is 
 
 ## 4. Decisions needed before Phases 2–7 can be made junior-ready
 
+> Update 2026-11-12: an independent review corrected several statements in this document and the guides written after it; see the decision log. Counts here (26 typed clients, 84 pages) were re-measured as 15 client registrations and 88 pages.
+>
 > Update 2026-11-11: D1, D3 and D5 are decided (multi-user now, shared sign-in and Market now with the hosting choice at install, push from the start). The recommendations in this table for those three were not taken. Current status is in the [decision log](decisions.md).
 
 | # | Decision | Recommendation |

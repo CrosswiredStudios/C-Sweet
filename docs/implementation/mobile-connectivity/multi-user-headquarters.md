@@ -1,6 +1,6 @@
 # Multi-user Headquarters
 
-Date: 2026-11-11. **Proposed design; nothing here is implemented.** Decision D1 in the [decision log](decisions.md): Headquarters becomes multi-user now, before mobile members exist. This guide replaces issue 1 and issue 2 of [Phase 2](phase-2-accounts.md) and uses the issue format from the [Phase 0–1 backlog](junior-backlog-phase-0-1.md).
+Updated 2026-11-12 after independent review (resource ownership, invitation states, existing index, flag lifecycle, audit). **Proposed design; nothing here is implemented.** Decision D1 in the [decision log](decisions.md): Headquarters becomes multi-user now, before mobile members exist. This guide replaces issue 1 and issue 2 of [Phase 2](phase-2-accounts.md) and uses the issue format from the [Phase 0–1 backlog](junior-backlog-phase-0-1.md).
 
 ## Where Headquarters is today
 
@@ -46,7 +46,7 @@ No row means no access: the business does not appear in lists and every route fo
 
 ## How it is enforced
 
-One service, one endpoint filter, one conformance test. Juniors add annotations; they do not write authorization logic.
+Two layers. The endpoint filter is the outer gate: is this person allowed in this business at this level. The **resource ownership** check is the inner gate: does the record being read or changed actually belong to that business. Both are required. The filter alone is not sufficient, as the next section shows.
 
 ```csharp
 // src/CSweet.Application/Security/IBusinessAccessService.cs  (proposed)
@@ -75,11 +75,27 @@ Rules:
 5. Access is evaluated on every request from the database (cached per request only). Removing a row takes effect on the next call. Removing a person's last access or disabling them also rotates their security stamp, which ends cookie sessions and device sessions.
 6. Background work and agents do not pass through this filter; they keep their existing grants.
 
+### Resource ownership
+
+A route such as `GET /api/core/organizations/{organizationId}/users/{id}` passes the business filter for a member of that business. Today its handler then calls `OrganizationUserService.GetAsync(id)`, which loads the record by `id` alone; the delete path does the same. A member of Games could therefore read or delete a Media record by putting a Games ID in the URL and a Media record ID after it.
+
+Rule: every query or command that takes a child ID, a body-supplied target or a batch of IDs must include the authorized business in its lookup (`WHERE Id = @id AND OrganizationId = @organizationId`), or resolve the record's business first and check that. A record in another business is treated as missing. This is a change to service code, and it is required.
+
+Every affected workflow gets a **wrong-child test**: an authorized parent business with an unrelated child ID must return 404 and change nothing. Add the same for body-supplied targets and for each item of a batch.
+
+**Passing an actor is not authorizing.** Several services already receive the caller's ID for attribution. That does not mean they check it.
+
 **The safety net.** `EndpointAccessConformanceTests` *(proposed)* enumerates `EndpointDataSource` and fails if any endpoint lacks one of the five markers. Until every endpoint is annotated the test compares against a checked-in allowlist of not-yet-annotated endpoints; the allowlist may only shrink.
 
 **Real policies in tests.** New integration tests run with a test authentication handler and the production policies. Do not rely on the `Testing` environment's pass-everything policies; they hide exactly the bugs this work must find.
 
-**Feature flag.** `MultiUser:Enabled` (default false). While false, a second account cannot be created and behaviour is unchanged. It is switched on only when the conformance allowlist is empty.
+**Feature flag.** `MultiUser:Enabled`.
+
+| Stage | Value | Effect |
+| --- | --- | --- |
+| Introduced (MU-04) | false | A second account cannot be created. Access rules and ownership checks are still enforced for the administrator, which changes nothing they can do. |
+| Promoted (MU-12) | true by default | Invitations can be created and accepted. Only when the conformance allowlist is empty and every marked folder has wrong-child tests. |
+| Emergency off | false | No new invitations or acceptances. Existing non-administrator members cannot sign in, and their cookie, device and realtime sessions are ended by rotating their security stamps. Their records and access rows are kept. Test this. |
 
 ## Data model
 
@@ -89,20 +105,21 @@ All new tables live in `CSweetDbContext` with a migration per issue.
 | --- | --- | --- |
 | `MemberInvitations` | `Id`, `SecretHash` (SHA-256 of a 256-bit secret), `Email`, `RequiredIssuer` (null = local account), `EnterpriseRole`, `GrantsJson` (list of `organizationId` + level), `InvitedByApplicationUserId`, `CreatedAt`, `ExpiresAt`, `Status`, `AcceptedByApplicationUserId`, `AcceptedAt`, `Revision` | Unique index on `SecretHash`. Default expiry seven days. |
 | `ExternalIdentityLinks` | `Id`, `ApplicationUserId`, `Issuer`, `Subject`, `EmailAtLink`, `LinkedAt` | Unique index on (`Issuer`, `Subject`). Email is display only and never used to match. |
-| `AccessAuditEvents` (or the existing audit table if it fits; check `Security` endpoints first) | actor, action, target person, target business, before, after, time | Written in the same transaction as the change. |
+| Access audit | actor, action, target person, target business, before, after, time | Must commit in the same transaction as the change. The existing `AuditEventWriter` opens its own `DbContext` and transaction, so calling it beside a membership change does not give that guarantee. Write the audit row through the same context as the change, or through the outbox. |
 
-`OrganizationUser` is reused as is. Add a unique filtered index on (`OrganizationId`, `ApplicationUserId`) where `ApplicationUserId` is not null and `EmployeeType` is Human.
+`OrganizationUser` is reused as is. A unique index on (`OrganizationId`, `ApplicationUserId`) where `ApplicationUserId` is not null already exists (`CoreConfigurations.cs`); keep it and add nothing. Because of it, re-inviting a person whose row is inactive or archived must **reactivate that row**, not insert a second one.
 
 **Invitation states**
 
 | State | Event | Guard | Next |
 | --- | --- | --- | --- |
 | Pending | Accept | Secret matches, not expired, caller's identity matches `RequiredIssuer`, inviter can still grant every listed access | Accepted (creates or links the person and the `OrganizationUser` rows in one transaction) |
-| Pending | Accept by the same person again | Already accepted by this `ApplicationUserId` | Accepted (returns the same result; no second row) |
 | Pending | Resend | Caller is an administrator | Superseded; a new Pending row with a new secret |
 | Pending | Cancel | Caller is an administrator | Cancelled |
 | Pending | Clock passes `ExpiresAt` | — | Expired |
-| Accepted, Cancelled, Expired, Superseded | Anything | — | No change; return a fixed error code |
+| Accepted | Accept again by the person who accepted it | Same `ApplicationUserId` | Accepted; returns the original result, creates nothing (recovery after a lost response) |
+| Accepted | Accept by anyone else | — | No change; fixed error code |
+| Cancelled, Expired, Superseded | Anything | — | No change; fixed error code |
 
 ## API
 
@@ -148,11 +165,14 @@ One issue per folder under `src/CSweet.Api` (endpoint file counts in brackets): 
 
 - **Read first.** The level table above, and the folder's rows in `inventory/endpoints.csv`.
 - **Steps for each endpoint.** (1) Decide which of the five markers applies. (2) Add it at the group if all routes agree, otherwise per route. (3) If the route has no `{organizationId}`, write a resolver or mark it for a senior. (4) Remove the endpoint from the allowlist. (5) Add two tests: allowed person succeeds, person without access gets 404 (or 403 for administrator-only routes).
-- **Do not** change service logic, response shapes or route templates in these issues.
-- **Done when.** The folder has no entries left in the allowlist, tests are green, and the reviewer has checked every write route's level against the table.
+- Add the business to the service's lookup wherever the route carries a child ID, a body target or a batch (see "Resource ownership"), and add the wrong-child test. A senior reviews every such service change.
+- **Do not** change response shapes or route templates in these issues.
+- **Split of work.** A senior decides the marker, the level and any resolver for each route and writes them into the issue. A junior applies them and writes the tests.
+- **Done when.** The folder has no entries left in the allowlist, every route with a child ID, body target or batch has a wrong-child test, a normal administrator workflow for the folder still passes, and the reviewer has checked every write route's level against the table.
 
-### MU-06 · Filter cross-business lists — M · Junior + review
+### MU-06 · Filter cross-business lists — M · Senior specifies each list, junior implements
 
+- **Before a junior starts.** For each list a senior writes the contract: what counts and totals mean after filtering, how pagination behaves, whether nested references to other businesses are removed, private-conversation visibility, and what happens when access is removed between pages. Each list comes with a seeded expected response.
 - **Steps.** Find list endpoints that return rows from several businesses (start with `GET /api/core/organizations`, attention and approvals lists, search). Apply `ListAccessibleOrganizationIdsAsync`.
 - **Done when.** The Games-only fixture person never receives a Media ID from any list; a test asserts this per endpoint.
 
@@ -179,7 +199,13 @@ One issue per folder under `src/CSweet.Api` (endpoint file counts in brackets): 
 
 ### MU-11 · Upgrade and last-owner rules — S · Senior-led
 
-- **Done when.** Upgrading an existing single-administrator installation changes nothing visible; the last administrator and the last Owner of a business cannot be removed or demoted; tests cover both.
+- **Done when.** Upgrading an existing single-administrator installation changes nothing visible; the last administrator and the last Owner of a business cannot be removed or demoted, including when two demotions race; tests cover both.
+
+## Open questions
+
+- **MU-Q1.** The level table lets a Contributor decide approvals assigned to them, but the current approvals dashboard rejects anyone below Manager (`ApprovalDashboardService`). Either approvals stay Manager-and-above, or a recipient-scoped approval inbox is built for Contributors. Owner decision.
+- **MU-Q2.** Recovery when the initial administrator is unavailable: root recovery and recovery-code regeneration currently require that one person. Who else may recover an installation?
+- **MU-Q3.** Linked invitations: an invitation is addressed to an email, but identity is bound by issuer and subject. Define the pending-invitation-to-verified-recipient step (and the directory entry for a recipient who has no account yet) before IL-06 and MU-08 fix a schema. Legacy Market accounts must re-prove their mailbox before claiming an email-addressed invitation.
 
 ### MU-12 · Switch on — S · Senior-led
 

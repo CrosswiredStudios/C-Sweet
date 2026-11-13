@@ -6,7 +6,7 @@
 
 ## Detailed guide
 
-Pages reach Headquarters through the [request tunnel and thin shell](tunnel-and-thin-shell.md). Issues TS-01 to TS-10 are the work for this phase, and the phone trial (TS-09) is its milestone. Where the issues below say "compose an enterprise-scoped client" or "bind reads", that now means: start the profile's local proxy, load the web app, and mark the routes it needs.
+Each enterprise's pages load from its own Headquarters into a per-enterprise browser view ([tunnel and thin shell](tunnel-and-thin-shell.md)). Where the issues below say "compose an enterprise-scoped client" or "bind reads", that means: activate that profile's view and bridge, mark the routes it needs, and deliver realtime hints (TS-07). Switching enterprise switches views; one view's results can never reach another. If the prototype failed, the bundled fallback applies.
 
 ## Before starting
 

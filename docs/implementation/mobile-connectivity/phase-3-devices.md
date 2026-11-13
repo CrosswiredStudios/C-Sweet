@@ -6,7 +6,7 @@
 
 ## Before starting
 
-Requires the M0 stream proof and Phase 2 membership. Read `IConnectionModule`, `ConnectionServiceSelectionStore.Probe`, `ConnectionServiceSetupStep` and `ManagedConnections`. Prepare separate connector, relay and phone processes, isolated stores, members with different privileges and working internal certificate trust.
+For [H4](hosted-onboarding.md), use the H3 owner and the M0 stream proof to exercise the official relay and trusted HQ approval. The full private and multi-user phase also requires Phase 2 membership. Read `IConnectionModule`, `ConnectionServiceSelectionStore.Probe`, `ConnectionServiceSetupStep` and `ManagedConnections`. Prepare separate connector, relay and phone processes, isolated stores, members with different privileges and working internal certificate trust.
 
 ## Implementation issues, in order
 
@@ -28,7 +28,7 @@ Implement phone-first, privileged-role confirmation and confirm-every-phone mode
 
 ### 5. Register for push
 
-Build the gateway, relay token store and phone registration (PN-02, PN-03, PN-05, PN-08 in the [push guide](push-notifications.md)). The `security` and `device` categories are delivered in this phase so a waiting phone approval reaches the approver.
+Build the gateway, relay token store and phone registration (PN-02, PN-03, PN-05, PN-08 in the [push guide](push-notifications.md)). Push end to end is its own gate (Phase 3b in [increments](increments.md)) and needs PN-04 and PN-06 as well; until it passes, a waiting phone is approved from a trusted browser session.
 
 ### 6. Test replacement and restart
 

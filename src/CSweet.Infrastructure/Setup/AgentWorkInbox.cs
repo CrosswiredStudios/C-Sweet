@@ -296,10 +296,17 @@ public sealed partial class AgentWorkInbox(
             AgentRuntimeMetrics.Work("dead_lettered", expiredItem.Kind);
         }
 
+        // An attempt also ends when the runtime that held it is gone (terminal). Its heartbeat can never
+        // resume, so waiting out the rest of the work lease only delays the retry: on 2026-11-13 a runtime
+        // retired by an Office lease failure left its ticket idle for three minutes and then blocked.
         var expired = await db.AgentWorkAttempts
             .Include(x => x.AgentWorkItem)
             .Where(x => x.FinishedAt == null &&
-                        x.LeaseExpiresAt <= now &&
+                        (x.LeaseExpiresAt <= now ||
+                         (x.RuntimeInstanceId != session.RuntimeInstanceId && x.RuntimeInstance != null &&
+                             x.RuntimeInstance.Status != AgentRuntimeStatus.Queued && x.RuntimeInstance.Status != AgentRuntimeStatus.Starting &&
+                             x.RuntimeInstance.Status != AgentRuntimeStatus.WaitingForMcpSession && x.RuntimeInstance.Status != AgentRuntimeStatus.Running &&
+                             x.RuntimeInstance.Status != AgentRuntimeStatus.CompletionReported && x.RuntimeInstance.Status != AgentRuntimeStatus.Stopping)) &&
                         x.AgentWorkItem!.OrganizationId == session.OrganizationId &&
                         x.AgentWorkItem.AgentInstallationId == session.AgentInstallationId &&
                         x.AgentWorkItem!.Status == AgentWorkStatus.Leased)
@@ -855,6 +862,8 @@ public sealed partial class AgentWorkInbox(
                 // Fixed explanations only: provider error text and runtime logs may contain secrets.
                 var cause = runtime?.Events.Any(x => x.Reason == AgentRuntimeStartupCleanupService.RestartCleanupReason) == true
                     ? "Cause: control-plane restart cleanup stopped this runtime. Let the replacement runtime claim the retry."
+                    : runtime?.Reason?.StartsWith("The runtime assignment lease expired.", StringComparison.Ordinal) == true
+                        ? "Cause: the Office did not keep this runtime's VM assignment alive, so C-Sweet retired the runtime. This is an infrastructure interruption, not a problem with the work on this ticket."
                     : runtime?.Reason == "Runtime destroy requested."
                         ? "Cause: the control plane cancelled the runtime. The original cancellation trigger was not retained. Check WorkerHost startup and runtime lifecycle events."
                         : runtime?.Status == AgentRuntimeStatus.RuntimeTimedOut

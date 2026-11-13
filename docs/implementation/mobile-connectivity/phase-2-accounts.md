@@ -13,10 +13,10 @@ The five issues below are epics. Take work from the issue lists in these guides,
 | 1 · Headquarters member | [Multi-user Headquarters](multi-user-headquarters.md) MU-01 to MU-07, MU-10 to MU-12 |
 | 2 · Invitations and People & access | Same guide, MU-08 and MU-09 |
 | 3 · C-Sweet account and Market | [Identity and installation linking](identity-and-installation-linking.md) IL-01 to IL-11, IL-13 |
-| 4 · Local accounts and company OIDC | Local accounts: MU-04 and MU-08. Company OIDC: not yet broken down |
+| 4 · Local accounts and company OIDC | Local accounts: MU-04 and MU-08. Company OIDC: not yet broken down; release assignment is open (D9) |
 | 5 · Directory | IL-06 and IL-12 |
 
-Order: MU-01 to MU-03 and IL-01 to IL-02 first, in parallel. No member other than the administrator may be created until MU-12.
+Start owner onboarding with [H1–H4](hosted-onboarding.md). H2 uses the initial administrator, and H3 publishes that owner's completed installation. Begin the separate multi-user rollout with MU-01 to MU-03; creating additional members requires MU-12.
 
 ## Before starting
 
@@ -34,7 +34,7 @@ Add invite/review/resend/cancel/accept and grant edit/removal flows. Keep invita
 
 ### 3. Make Market the C-Sweet account issuer and link at first run
 
-Make Market the issuer: a C-Sweet account is a Market account, so user ID, roles and purchases are untouched and no linking is needed. Send real verification and recovery email. Add the hosting choice to first run at Headquarters; **Connect to C-Sweet** creates the administrator's account by device authorization during registration and registers the installation. The phone uses browser OIDC with PKCE. Recover a pending verification or device code after the user leaves.
+Use the H1–H3 builds to verify first-run Hosted/Private selection, live Market registration and existing-account sign-in, owner publication after setup, and discovery from a fresh phone. Extend the same stable identity binding to invited members. Preserve the recovery path after interrupted approval.
 
 ### 4. Implement local accounts and company OIDC
 
@@ -46,7 +46,7 @@ Implement authenticated self lookup and installation-bound publication/reconcili
 
 ## Acceptance example
 
-Invite Maya to Games only. Accept twice and verify one membership. A second issuer with the same email cannot reuse it. Direct Media requests fail through web and mobile-facing services. Remove Games and verify subsequent reads, writes and events lose access.
+For the initial owner, run the H1–H3 walkthroughs and record H4 separately for the live remote read. For the multi-user rollout, invite Maya to Games only. Accept twice and verify one membership. A second issuer with the same email cannot reuse it. Direct Media requests fail through web and mobile-facing services. Remove Games and verify subsequent reads, writes and events lose access.
 
 ## Verify and hand off
 

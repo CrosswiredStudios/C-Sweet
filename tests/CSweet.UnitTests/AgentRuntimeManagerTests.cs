@@ -257,7 +257,7 @@ public sealed partial class AgentRuntimeManagerTests
     }
 
     [Fact]
-    public async Task OnDemandReconciliation_QueuesReplacementForExpiredLeasedWork()
+    public async Task OnDemandReconciliation_QueuesReplacementForLeasedWorkOnceItsRuntimeIsLostOrItsLeaseExpires()
     {
         await using var db = CreateDb();
         var installation = await SeedAsync(db, due: false);
@@ -265,8 +265,6 @@ public sealed partial class AgentRuntimeManagerTests
         installation.Schedule.NextTickAt = null;
         var now = DateTimeOffset.UtcNow;
         var priorRuntime = RunningInstance(installation.Id, now.AddMinutes(-5));
-        priorRuntime.TransitionTo(AgentRuntimeStatus.Stopping, now.AddMinutes(-2), "Broker session ended.");
-        priorRuntime.TransitionTo(AgentRuntimeStatus.Failed, now.AddMinutes(-2), "Broker session ended.");
         var work = new AgentWorkItem
         {
             Id = Guid.NewGuid(), OrganizationId = installation.BusinessId,
@@ -288,9 +286,12 @@ public sealed partial class AgentRuntimeManagerTests
         await db.SaveChangesAsync();
         var manager = CreateManager(db, new FakeRunner());
 
+        // The runtime holding the lease is alive: nothing to replace.
         Assert.Equal(0, await manager.EnsurePendingOnDemandRuntimesAsync());
 
-        attempt.LeaseExpiresAt = now.AddSeconds(-1);
+        // Once that runtime is gone the work needs a replacement at once, without waiting out the work lease.
+        priorRuntime.TransitionTo(AgentRuntimeStatus.Stopping, now, "Broker session ended.");
+        priorRuntime.TransitionTo(AgentRuntimeStatus.Failed, now, "Broker session ended.");
         await db.SaveChangesAsync();
 
         Assert.Equal(1, await manager.EnsurePendingOnDemandRuntimesAsync());

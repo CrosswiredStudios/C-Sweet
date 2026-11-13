@@ -1,0 +1,43 @@
+# Hosted onboarding and phone access
+
+These four deliveries are the first implementation sequence. Hosted uses the C-Sweet Marketplace for accounts, the directory for discovery, and the official relay for remote access. Headquarters runs on the operator's machine. Private starts with the existing local administrator flow.
+
+Use the same named installation throughout the walkthroughs, for example **Northstar Headquarters**. Record each gate in the [acceptance register](acceptance-and-operations.md). The [identity guide](identity-and-installation-linking.md) specifies the linking protocol.
+
+## H1 · Choose Hosted or Private on first run
+
+**Deliverable.** A Headquarters build whose first registration screen offers **Hosted** and **Private** before asking for credentials. Start with IL-08 and the upgrade case in IL-13. Entering Hosted explains that the account lives on the C-Sweet Marketplace and offers **Create account** and **Sign in**. Private opens the current local form. Review H1 with linking disabled (`Installation:LinkingEnabled` off hides Hosted). Enable linking on designated pilot installations for the H2 live walkthrough before general rollout.
+
+**Owner walkthrough.** Start a fresh installation. Open Hosted, go Back, choose Private, create the local administrator, save recovery codes and enter setup with public network access blocked. Upgrade an already configured installation and sign in normally. Verify no account, installation link or outbound onboarding request is created by viewing the chooser or backing out. Capture the first screen, private completion and upgrade result.
+
+**Implementation checks.** Exercise the real registration guard and first-run middleware. Read hosting choices locally while setup is incomplete. Test keyboard navigation, refresh and direct navigation. An explicit choice is required before contacting Market.
+
+## H2 · Register or sign in at the live Marketplace and finish HQ setup
+
+**Deliverable.** Hosted setup uses the production Market account site at `https://c-sweet.com`. Create account opens Market registration and Sign in opens Market login, each preserving the pending installation approval through authentication and email verification. Market handles the account credentials. HQ shows the confirmed account and installation, provisions its local administrator and recovery method, and continues the normal setup wizard. Use IL-01 through IL-05 and IL-09/10. Take the initial-owner identity link here; general member invitations are separate work.
+
+**Owner walkthrough.** On fresh HQ A choose Hosted → Create account, verify email received in a real mailbox, compare the displayed device code, approve the named HQ, save local recovery codes and finish setup. On fresh HQ B choose Hosted → Sign in with the same existing account. Complete setup and confirm the original Market user ID and entitlements are preserved, with two distinct installation IDs. Repeat a returning-account run with an existing Market session and verify the approval screen identifies the account being used.
+
+**Failure and recovery.** Deny or expire the approval before commit and retry or choose Private. Interrupt setup after the local commit and after remote registration but before acknowledgement. Resume once with the original installation key and verify one local owner, one remote installation per HQ and recoverable local sign-in. A Market outage produces a retryable Hosted state. Switching to Private before commit explicitly cancels the pending attempt.
+
+**Production safety.** The issuer, device-approval page and installation registration are deployed to production disabled. They are enabled only after the full H2 walkthrough has passed on staging, and can be disabled again without affecting existing Market sign-in, purchases or email. A signing-key, database or email migration cannot be undone by a switch, so rehearse those on a copy of production data first, including a legacy account whose email was confirmed without a real message.
+
+**Size.** H2 turns the Marketplace into a sign-in provider (IL-02 to IL-05). It is the largest of the four deliveries.
+
+**Evidence.** Run automated contracts against isolated Market/HQ instances and exercise staging first. For acceptance, record the live origin, released Market revision, HQ build, real confirmation delivery and both walkthrough outcomes using designated test accounts. Redact credentials, codes and tickets. Market's production compose config and deployment guide identify the canonical host; HQ's `Marketplace:BaseUrl` is a catalog setting. Production account login, verification email links and the trusted issuer metadata must agree with the deployed Market identity configuration.
+
+## H3 · Sign in on a phone and see My Headquarters
+
+**Deliverable.** A signed app offers **Sign in with C-Sweet** in the system browser. Use IL-07 and the minimal entry/chooser from the shell backlog. The authenticated directory lookup returns each completed HQ owned by this Market account exactly once with its stable installation ID and display name. Reuse IL-06/12 for the owner projection. A fresh phone can discover these instances without a QR code or manual server address.
+
+**Publication boundary.** On setup completion, persist the setup transition and owner-publication outbox record together. If registration is still pending, reconcile it first. Bind the initial directory row to the installation's authenticated Market owner. Use a revisioned upsert and tombstone, retry after outages, and reconcile completed linked installations on restart. Until a route is ready, show the discovered instance with connection pending or unavailable. The directory uses the authenticated stable account identity; email is the familiar login name and can change.
+
+**Owner walkthrough.** Complete H2, then sign in on clean Android and iOS installs with that account. Open **My Headquarters**, find A and B, and compare their names and installation identities with setup. Another account sees neither HQ. An unfinished HQ stays absent. Finish it while directory publication is interrupted, restore publication and refresh the chooser; exactly one row appears. Sign out and switch accounts on the same phone; the previous list clears. Capture both phones and the account-isolation test.
+
+## H4 · Select an instance and connect over cellular
+
+**Deliverable.** Selecting a discovered HQ obtains a short-lived enrollment ticket scoped to that installation and phone key. The phone verifies the HQ pin, proves its key, completes the configured trusted approval, and opens one authorized, live read, such as the list of businesses. Implement the transport and dispatcher-entry spikes, relay routing, device lifecycle, the request tunnel with one marked route, and the business list rendered by that Headquarters' own web app in the thin shell ([tunnel guide](tunnel-and-thin-shell.md): TS-01 to TS-04, TS-06, TS-10, TS-14 to TS-16). If the TS-13 prototype failed, the business list is a bundled screen instead (TS-F1). Member rollout and push have their own gates.
+
+**Owner walkthrough.** With inbound HQ access closed, turn off phone Wi-Fi and select Northstar. Approve the new owner's phone from a trusted HQ browser session. Confirm the phone shows the same businesses as that HQ. Change a business display name at HQ and refresh the phone to prove current data. Stop the connector; the instance remains discoverable and shows unavailable. Restart, reconnect, then revoke that phone in HQ. Its next read fails while the local browser and the other HQ continue working. Repeat on both platforms.
+
+**Evidence.** Enroll the phone at both H2 installations before the revocation check. Record signed app, HQ and relay versions, cellular topology, selected installation, timed reconnect, and the authorized and denied reads. Exercise wrong-HQ pin, wrong-account enrollment, lost approval acknowledgement and revocation during relay downtime. Capture the directory result separately from HQ's device-grant and read results.

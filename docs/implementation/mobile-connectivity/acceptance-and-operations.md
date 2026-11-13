@@ -7,10 +7,14 @@ and deployed-service acceptance. Do not infer one from another.
 
 ## Progress register
 
-This is the single execution record. M0–M6 track relay and pilot delivery. P1/P2/P4–P7 below cover the additional product outcomes. Phase 0 uses M0, Phase 3 uses M1 and M2. The phase guides describe work and the matrix defines tests; enter actual status, runs and release decisions here. A partial pilot can close M6 while general release remains pending.
+Start by recording each of the four [hosted onboarding walkthroughs](hosted-onboarding.md) below. M0–M6 and P-rows are retired schedule labels kept so existing evidence stays findable; [increments.md](increments.md) maps each to its H-step or phase. New evidence cites the H-step or phase first. P1/P2/P4–P7 record broader product outcomes. An evidence run may cover multiple rows when it actually exercises their checks.
 
 | Package | Status | Required evidence |
 | --- | --- | --- |
+| H1 · First-run choice | Pending | Fresh chooser before credentials, Back, offline Private setup, and existing installation upgrade. |
+| H2 · Hosted setup with live Market | Pending | New registration and real confirmation, returning account login, named installation approval, setup completion, and recovery from interrupted registration. Record the production origin and both installation IDs in redacted evidence. |
+| H3 · My Headquarters | Pending | Same Market account on clean Android and iOS lists both completed HQs, another account sees neither, and retry after directory outage produces one row per installation. |
+| H4 · Connect to selected HQ | Pending | Physical Android and iOS over cellular, trusted device approval, current authorized business list, disconnected instance, reconnect, and denial after revoke. |
 | M0 · Phase 0 baseline/contracts/TLS spike | Source version matched; hardware gate pending | 0.7.0 nuspec and matching source commit in architecture. Attach workflow inventory review, limits and Android/iOS × Windows/Linux stream proof. |
 | M1: standalone relay | Not started | Service HTTP/SignalR isolation, enrollment, quotas and container installation without C-Sweet identity/OAuth. |
 | M2: settings/pairing/device lifecycle | Not started | Migration, local access, invitation races, durable relay registration and revocation tests. |
@@ -22,8 +26,8 @@ This is the single execution record. M0–M6 track relay and pilot delivery. P1/
 | P2 · Phase 2 accounts and membership | Pending | Invitation replay/removal tests, scoped access from web and mobile, local recovery, independent IdP subjects, preserved Market records. |
 | MU · Multi-user Headquarters (Phase 2) | Pending | Empty endpoint-access allowlist, conformance test green with production policies, Games-only member denied Media through every list, route and event, last-owner rules, unchanged upgrade. |
 | IL · Accounts and installation linking (Phase 2) | Pending | Linked first run creating the administrator's C-Sweet account, private first run with zero outbound requests, existing Market customer sign-in with purchases intact, real confirmation email, link and unlink of an existing installation. |
-| TS · Request tunnel and thin-shell trial (Phases 3–4) | Pending | Dispatcher tests (unmarked route, stripped headers, revoked mid-stream), local proxy rejects calls without the secret, per-profile storage isolation, trial table results on both phones and the recorded outcome. |
-| PN · Push notifications (Phases 0, 3, 5) | Pending | Closed-app delivery on both platforms, captured payload free of business identifiers, no wake after revoke, isolated network makes no push connections. |
+| TS · Request tunnel and thin shell | Pending | Prototype table results and outcome (TS-13); dispatcher entry proof on a packaged build (device scheme not claimable from HTTP, cookie writes still need antiforgery); unmarked route and non-manifest file 404; wrong-child denied; per-enterprise storage isolation; hostile-page bridge calls rejected; access removal during an open connection and an in-flight read; chat-send loss-and-recovery proof. |
+| PN · Push notifications (Phase 3) | Pending | Delivery per app state with submission and arrival recorded separately, captured payload free of business identifiers, relay-forged and replayed wakes rejected by the gateway, no new wake after revoke while the phone's other enterprise still receives, isolated network makes no push connections. |
 | P4 · Phase 4 integrated product, builds on M3 | Pending | Shared discovery plus two-HQ real-device sessions, same-name businesses, A→B→A late events and reconnect. |
 | P5 · Phase 5 daily work, builds on M4 | Pending | Daily matrix workflows, same-actor web comparisons, durable command receipts and file cancellation/recovery. |
 | P6 · Phase 6 administration | Pending | Admin/member matrix, real provider returns and file imports, failures and permission changes. |
@@ -63,7 +67,7 @@ Append one evidence row per run, linking all covered workflow IDs. Use the same 
 | Authorization | Same user/resource decisions through web and mobile; private conversations; changed business/chat membership while connected; role downgrade; disabled/locked user; changed security stamp; forbidden reads, events and result receipts; no client-supplied actor authority. |
 | Event recovery | State/outbox rollback together; duplicate/out-of-order hints; no subscribers; dropped invalidation; relay outage without blocking LAN; subscription/read race; dirty resource refresh; no leakage through identifiers/pagination; expired page session; deduplication. |
 | Commands | Lost response before/after domain commit; concurrent same-key requests; changed-body conflict; restart during async work; status read after revocation; obsolete approval revision/options; duplicate approval from web and phone; idempotent chat send/read markers. No duplicate effect or fabricated completion. |
-| Settings/upgrade | Disabled default on existing/fresh installation; setup remains optional; retry/back/resume; OAuth-only service; absent mobile module; remote capability lies; exact allowed origins; private-network opt-in; no provider binding changes on mobile switch. |
+| Settings/upgrade | Fresh chooser before credentials, disabled on Private and upgrades, Hosted explicitly selects Official, local setup survives relay outage, absent mobile module, exact allowed origins, and independent provider bindings. |
 | Lifecycle | Phone revoke at disconnected relay; owner disconnect; key loss; app reinstall; platform backup restores; HQ/relay database restore; delayed old-generation frames; managed-to-self-hosted switch with online/offline phones; pending cleanup remains visible. |
 | Multi-user access | Every endpoint carries an access rule; member without a business row gets 404 for its routes and never sees its IDs in lists; level too low for a write; access removed mid-session; last administrator and last owner protected; invitation state table including concurrent accept and demoted inviter. |
 | Installation linking | Device code expired, denied and replayed; ID token with wrong issuer or audience; crash between local commit and installation registration; private mode makes no outbound request; unlink keeps local sign-in. |
@@ -84,9 +88,7 @@ and self-hosted relay installations. Headquarters has no inbound port mapping; a
 one test uses carrier NAT/mobile data, with relay access only on TCP/443. An emulator
 or phone on the same Wi-Fi does not prove remote connectivity.
 
-1. Fresh install and upgraded install leave mobile off and local setup usable. Choose
-   a relay, enroll it, pair the phone with local user confirmation and view authorized
-   businesses/overview, boards, conversations and approval details.
+1. Run H1–H4 from first launch through Hosted registration or existing-account login to the authorized phone read. Repeat with an upgraded installation and a fresh Private choice. Verify private local setup with public egress blocked and enroll an internal relay only after explicit selection.
 2. Cause real business changes at Headquarters; phone refreshes from hints. Send a chat
    and answer one supported approval; verify one durable effect and normal audit identity.
 3. Switch Wi-Fi to cellular; suspend/resume and force-close/relaunch the app; restart
@@ -103,7 +105,7 @@ or phone on the same Wi-Fi does not prove remote connectivity.
 
 ### Product release exercises
 
-8. Use the same email at two OIDC issuers. Sign up with zero memberships, accept an invitation and reject access to an ungranted business. Link an existing Market customer and verify the same entitlements. Remove membership during an active read/write stream and during directory downtime.
+8. Use the same email at two OIDC issuers. Sign up with zero memberships, accept an invitation and reject access to an ungranted business. Sign in using an existing Market account and verify the same entitlements. Remove membership during an active read/write stream and during directory downtime.
 9. With a public egress block in place from first launch, use an internal relay and internal DNS/TLS. Enroll, authenticate, approve, operate, revoke, replace a lost phone and recover. Repeat with local users and a company IdP. Retain network observations and reproducible internal delivery/recovery steps.
 10. Run each enrollment policy, tighten policy or promote a user while pending, and replay a late approval after denial. Verify duplicate enrollment messages and relay outages cannot bypass HQ checks.
 11. On both phone platforms run the [workflow matrix](workflow-parity.md) as an allowed actor and attempt the relevant denied scope. Include browser return to the wrong active enterprise, interrupted file transfers, stale decisions, keyboard/gesture Back, assistive technology, and restore of the last profile with its HQ offline.

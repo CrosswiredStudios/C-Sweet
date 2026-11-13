@@ -5,13 +5,22 @@ One row per decision. Change a decision by adding a dated note, not by rewriting
 | # | Decision | Status | Outcome |
 | --- | --- | --- | --- |
 | D1 | Who can use Headquarters and the app | **Decided 2026-11-11** | Headquarters becomes multi-user now. Design and issues: [multi-user-headquarters.md](multi-user-headquarters.md). |
-| D2 | How phone pages reach Headquarters | **Decided 2026-11-11, subject to trial** | Build the allowlisted request tunnel, then trial option C (thin shell) on real phones against stated thresholds. Fallback is option A over the same tunnel. Option B is dropped. Design, trial and issues: [tunnel-and-thin-shell.md](tunnel-and-thin-shell.md). |
+| D2 | How phone pages reach Headquarters | **Revised again 2026-11-12** | **Thin shell is the target**: each enterprise's pages come from its own Headquarters, to avoid permanent version skew across about 660 routes. Redesigned after review (no loopback proxy; intercepted GETs at a per-enterprise origin, API calls through the bridge, per-enterprise data stores, contained bridge). A prototype (TS-13) runs alongside H1–H3 and decides how H4 is built. Bundled screens over the same tunnel are the fallback. Option B stays dropped. See [tunnel guide](tunnel-and-thin-shell.md). |
 | D3 | Shared sign-in and Market | **Decided 2026-11-11** | In scope now. Hosting choice (C-Sweet or private) is made at initial install. Choosing C-Sweet creates the administrator's C-Sweet Market account during registration. Design: [identity-and-installation-linking.md](identity-and-installation-linking.md). |
 | D4 | Release bar | Open | With the tunnel, full parity is reachable; the order within Phases 5–6 still needs to be set (approvals, messages, overview and boards first is the recommendation). |
 | D5 | Push notifications | **Decided 2026-11-11** | Part of the first release. Design: [push-notifications.md](push-notifications.md). |
-| D6 | One numbering scheme (M gates or phases) | Open | Recommendation: phases, with M gates as named checkpoints. |
+| D6 | One numbering scheme | **Applied 2026-11-12** | H1–H4, then Phases 2–7. M0–M6 and increment numbers are retired labels; crosswalk in [increments.md](increments.md). |
 
-Design choices made while writing up D3 and D5 that the owner should confirm:
+| D7 | Where the sign-in provider lives | **Open** | The 2026-11-12 edit set the issuer to `https://c-sweet.com`. Once installations and phones trust an issuer address, changing it means re-linking every installation. Alternative: a dedicated account hostname from day one, so the issuer can later move out of the Marketplace. Decide before H2 ships. |
+| D8 | Contributor approvals | **Open** | See MU-Q1 in the multi-user guide. |
+| D9 | Company sign-in for private installs | **Open** | Has a release acceptance requirement but no issues. Assign to a release or break it down. |
+| D10 | Who may supply executable UI to the published app | **Open** | Affects the thin-shell threat model and store review. The design assumes any Headquarters may be hostile, since Headquarters is open source and self-hosted. |
+
+**Independent review · 2026-11-12.** A second model reviewed the plan against source. Its blocking findings were applied to the multi-user, tunnel and push guides on the same day: resource ownership checks, dispatcher entry proof, minimal realtime hints instead of hub forwarding, one write-recovery contract, a push gateway that does not trust the relay, wider restore, and corrected invitation states.
+
+**D3 clarification · 2026-11-12.** First deliver the Hosted/Private chooser. Hosted supports both new registration and existing-account sign-in at the live C-Sweet Marketplace. After setup, signing in to the phone app with that account lists the owner's HQ instances and allows selecting one for device enrollment and connection. Build and accept [H1 through H4](hosted-onboarding.md) in that order.
+
+Design choices recorded for D3 and D5 follow.
 
 - The C-Sweet account **is** the Market account and Market hosts the issuer, instead of a new `CSweet.Identity` repository. This removes the account-linking workflow entirely.
 - Headquarters links by **device authorization**, because Headquarters has no fixed address to redirect back to. **Confirmed 2026-11-11**, with the code carried inside a one-click link and QR code so typing is only a fallback. Using ConnectionService as a sign-in broker was considered and not taken: it would still need polling, a new pre-enrollment protocol and a second service in the sign-in path. ConnectionService is used immediately afterwards for relay and push enrollment.

@@ -4,7 +4,7 @@ Issue-sized work for [Phase 0](phase-0-baseline.md) and [Phase 1](phase-1-shell.
 
 Type and file names marked *(proposed)* do not exist yet. Everything else was checked against the source on 2026-11-11.
 
-> **Changed by decision D2 (2026-11-11).** Enterprise content is now loaded from Headquarters in a browser view, not rendered from bundled pages. In Phase 1 this changes three issues: **P1-03** renders native-shell states only and, for `Enterprise`, a placeholder that TS-07 later replaces with the browser view; **P1-07** is reduced to the shell's own connecting, unreachable and revoked states (Enterprise home itself comes from Headquarters; its five states move to TS-11); **P1-08** builds the native top bar with the enterprise selector only (the business selector stays in the web app's drawer). P1-04 still applies. See [tunnel and thin shell](tunnel-and-thin-shell.md).
+> **Note (2026-11-12, revised).** Decision D2: the thin shell is the target, decided by prototype TS-13. Until TS-13 reports, build the Phase 1 issues that are needed either way (P1-01 to P1-06, P1-09 to P1-14). **P1-03** renders the native-shell states and, for `Enterprise`, a placeholder that TS-15 replaces with the per-enterprise browser view. **P1-07** (Enterprise home) and **P1-08** (drawer business selector) wait: under the thin shell they come from the web app (TS-11), and only the native top bar with the enterprise selector is built in the shell. If TS-13 fails they apply in full. Corrections from review: P0-04's 26 typed clients are 15 registrations in `AddCSweetApiClients`; platform code in `CSweet.Maui` needs a device test target or harness, not `CSweet.UnitTests`.
 
 ## How to work an issue
 

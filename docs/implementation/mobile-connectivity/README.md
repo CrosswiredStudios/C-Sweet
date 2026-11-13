@@ -9,27 +9,27 @@
 | Enterprise | One Headquarters installation. Switching enterprise changes the server, credentials, business list and navigation history. |
 | Business | One organization inside the active Headquarters. Selecting a business changes the focus of the business menu. |
 | Account | C-Sweet account (the same record as a C-Sweet Market account), Headquarters-managed local user, or company OpenID Connect identity. Invitation acceptance links an identity to a Headquarters member. |
-| Linked / Private | The hosting choice made at initial install. A linked Headquarters uses C-Sweet services (account, directory, official relay, push). A private one contacts no C-Sweet host. |
+| Hosted / Private | Hosted links this locally running HQ to Market identity, the directory and the official relay. Private uses local setup. `Linked` is the persisted hosted-mode value. |
 | Member | A person with an account at one Headquarters. An administrator can do everything; other members act only in the businesses they have been given access to. |
 | Device grant | Headquarters authorization for one member and phone key. One phone can hold independent grants for several enterprises. |
 | Relay | The open-source service that carries encrypted traffic. Both endpoints connect outward. An operator can use the official service or run the same service on an internal network or VPN. |
 
-Users install and bootstrap Headquarters on its host. During that first run they choose **Connect to C-Sweet** or **Private Headquarters**; connecting creates the administrator's C-Sweet account as part of registration. Subsequent administration of a running Headquarters belongs in phone parity. Business state and execution stay at Headquarters. The phone packages a native shell (sign-in, pairing, enterprise switching, notifications) and loads each enterprise's pages from its Headquarters through the encrypted channel; it keeps one foreground enterprise active. This thin-shell approach is on trial, with bundled pages as the fallback.
+Users install Headquarters on their host. During first run they choose **Hosted** or **Private**. Hosted opens the live C-Sweet Marketplace to create an account or sign in to an existing one. After setup, signing in to the phone app with that account lists the owner's Headquarters instances. Selecting one starts device enrollment and connection. Each enterprise's pages are loaded from its own Headquarters into a native shell, so pages always match that Headquarters (subject to the prototype; bundled screens are the fallback). Subsequent work expands mobile coverage workflow by workflow.
 
 ## Reading and implementation order
 
-Build order and how each step is tested: [increments](increments.md).
+Start with the [hosted onboarding walkthroughs](hosted-onboarding.md). Deliver the first-run choice, live Marketplace registration and login, phone discovery, then the first remote read. The [increment map](increments.md) connects these gates to engineering issues. The numbered phase guides below own the broader workstreams.
 
-New here? Read the [decision log](decisions.md), then take an issue from the [Phase 0–1 backlog](junior-backlog-phase-0-1.md). The [plan review](plan-review-2026-11-11.md) explains why the decisions were needed.
+The [decision log](decisions.md) records product choices. The [Phase 0–1 backlog](junior-backlog-phase-0-1.md) supplies transport and shell tasks when a delivery needs them.
 
-Three guides hold the design and issue lists for work that spans phases:
+Four guides hold the design and issue lists for work that spans deliveries:
 
 | Guide | Covers | Runs during |
 | --- | --- | --- |
 | [Multi-user Headquarters](multi-user-headquarters.md) | Members, business access levels, endpoint enforcement, invitations, People & access | Phase 2; must finish before any non-administrator can sign in |
-| [C-Sweet accounts and installation linking](identity-and-installation-linking.md) | Market as issuer, hosting choice at install, linked registration, directory | Phase 2 |
-| [Request tunnel and thin shell](tunnel-and-thin-shell.md) | How pages reach Headquarters, route marking, local proxy, web-to-shell bridge, the phone trial and its thresholds | Foundation in Phases 3–4; trial at the Phase 4 milestone |
-| [Push notifications](push-notifications.md) | Gateway, relay tokens, Headquarters notification decisions, phone handling | Spike in Phase 0, relay and phone in Phase 3, categories in Phase 5 |
+| [C-Sweet accounts and installation linking](identity-and-installation-linking.md) | Hosted onboarding, Market registration and existing-account login, owner directory and later member identities | H1–H3 first, then Phase 2 member rollout |
+| [Request tunnel and thin shell](tunnel-and-thin-shell.md) | Loading each Headquarters' web app in the phone, the contained bridge, dispatcher entry, route marking, realtime hints, write recovery, the prototype and the bundled fallback | Prototype and dispatcher proof alongside H1–H3; first use at H4 |
+| [Push notifications](push-notifications.md) | Gateway, wake authorization, Headquarters notification decisions, phone handling | Spike first; end to end in Phase 3 as its own gate |
 
 Start with the [annotated screen designs](ui-design.md), then read [architecture and protocol](architecture.md). Find your workflow in the [parity matrix](workflow-parity.md) and open its phase below. The [acceptance and operations register](acceptance-and-operations.md) owns completion evidence for both the product and relay.
 
@@ -39,7 +39,7 @@ Start with the [annotated screen designs](ui-design.md), then read [architecture
 | [1 · Mobile shell](phase-1-shell.md) | Designs and startup trace; can proceed alongside the spike | Navigate launch and switching states with deterministic fixtures. |
 | [2 · Accounts and membership](phase-2-accounts.md) | Authority and workflow inventory | Invite one person into one of two businesses using shared and private identity. |
 | [3 · Relay and devices](phase-3-devices.md) | Validated transport and membership | Enroll and revoke physical phones under each policy. |
-| [4 · Enterprise home and switching](phase-4-enterprise.md) | Shell, identity and device transport | Operate two real installations from one phone. First integrated product milestone. |
+| [4 · Enterprise home and switching](phase-4-enterprise.md) | Shell, identity and device transport | Operate two real installations from one phone. Verify switching after the H4 single-instance connection. |
 | [5 · Daily operations](phase-5-daily-work.md) | Live Enterprise and canonical reads | Complete and recover messages, decisions, work, calendar and document actions. |
 | [6 · Administration and remaining parity](phase-6-administration.md) | Live sessions and durable writes | Operate remaining features, including files and provider callbacks. |
 | [7 · Release and operations](phase-7-release.md) | Completed workflows and production-shaped installs | Verify parity, compatibility, accessibility and isolated private operation. |
@@ -76,7 +76,9 @@ Keep unfinished edits in memory. If a response is lost, recover its durable resu
 
 Private deployment uses a reachable internal relay and locally trusted TLS on the company network or VPN. Identity, enrollment and recovery can operate entirely inside that network. A self-hosted relay requires no C-Sweet connectivity subscription.
 
-## Delivery sequence
+## Delivery sequence (retired labels)
+
+M0–M6 are kept below as a description of the engineering packages. They are no longer a schedule. The order to build in, and where each package now sits, is in [increments.md](increments.md).
 
 Each work package owns code, migrations, documentation and the matching acceptance
 evidence. Names below are proposed symbols, not claims about existing implementation.
@@ -86,7 +88,7 @@ evidence. Names below are proposed symbols, not claims about existing implementa
 | M0 | Reconcile service/protocol source and packages; freeze mobile module contracts and threat model; validate the inner TLS/native transport spike. | None | Exact baseline recorded; Windows/Linux Headquarters and Android/iOS prove encrypted framing, key use, bounded buffering and disconnect behavior. Stop if the selected runtime cannot support it; revise the design before publishing contracts. |
 | M1 | Add `CSweet.ConnectionService.Mobile` through `IConnectionModule`: relay enrollment, role-bound admission, bounded routing, usage counters and deployment artifact. | M0 | Two isolated Headquarters routes exchange opaque test traffic with their own clients only; standalone self-hosted setup requires no C-Sweet account or OAuth registration. |
 | M2 | Add Headquarters mobile settings, protected identity, outbound connector, pairing invitation/device lifecycle and audit/migrations. | M1 | User confirms and revokes an enrolled device; service outages never block local setup; no inbound listener is added for relay transport. |
-| M3 | Add native transport, logical Headquarters API adapter, authorized read catalog and event invalidations. | M2 | Physical Android and iPhone read authorized data and recover after network/Headquarters/relay restarts; read-only pilot is usable. |
+| M3 | Add native transport, the request tunnel with marked routes, bundled screens and event invalidations. | M2 | Physical Android and iPhone read authorized data and recover after network/Headquarters/relay restarts; read-only pilot is usable. |
 | M4 | Add beta mutations and durable result recovery through canonical application services. | M3 | Lost responses/restarts/retries produce one chat message or decision; changed authority and stale decisions fail closed. |
 | M5 | Complete managed beta metering/entitlements, relay switching, operating runbooks, capacity tests and security acceptance. | M4 | Both hosting modes pass the release matrix; documented outage, backup and quota exercises pass. |
 | M6 | Release app/service/protocol and run a bounded free managed beta. | M5 | Published artifacts are installed normally; approved deployment and monitoring evidence exist. |
@@ -103,7 +105,7 @@ Connections step with distinct **Provider accounts** and **Mobile access** secti
 mobile has its own Disabled/Managed/SelfHosted selection. A mobile relay change must
 not retarget provider credentials or bypass provider cleanup restrictions. An explicit
 reuse-current-service action may copy an origin, then probe and enroll the mobile
-module independently. Do not silently enable mobile for existing installations. A new installation that chooses **Connect to C-Sweet** at first run has explicitly asked for it: its Mobile access starts as Managed and enrolls in the background without blocking setup.
+module independently. Do not silently enable mobile for existing installations. A new installation that chooses **Hosted** at first run has explicitly asked for it: its Mobile access starts as Managed and enrolls in the background without blocking setup.
 
 Keep `ConnectionServiceProbe.MobilePairing` false until the local client, selected
 service module, compatible protocol and enabled installation all support the feature.

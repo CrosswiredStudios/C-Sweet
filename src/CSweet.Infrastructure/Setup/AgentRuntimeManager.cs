@@ -267,8 +267,11 @@ public sealed partial class AgentRuntimeManager(
                     work.AgentInstallationId == x.Id &&
                     work.DeadlineAt > now &&
                     ((work.Status == AgentWorkStatus.Pending && work.AvailableAt <= now) ||
+                     // Leased work whose lease elapsed, or whose runtime is already gone, needs a replacement now.
                      (work.Status == AgentWorkStatus.Leased && work.Attempts.Any(attempt =>
-                         attempt.FinishedAt == null && attempt.LeaseExpiresAt <= now)))) &&
+                         attempt.FinishedAt == null && (attempt.LeaseExpiresAt <= now ||
+                             attempt.RuntimeInstance != null && attempt.RuntimeInstance.Status != AgentRuntimeStatus.Queued &&
+                             !WorkloadActiveStatuses.Contains(attempt.RuntimeInstance.Status)))))) &&
                 !x.RuntimeInstances.Any(runtime => runtime.DeliveryBuildId == null && (
                     runtime.Status == AgentRuntimeStatus.Queued ||
                     WorkloadActiveStatuses.Contains(runtime.Status))))

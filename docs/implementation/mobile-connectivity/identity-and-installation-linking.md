@@ -1,6 +1,6 @@
 # C-Sweet accounts and linking a Headquarters at install
 
-Date: 2026-11-11. **Proposed design; nothing here is implemented.** Decision D3 in the [decision log](decisions.md): shared sign-in is in scope now, the choice between C-Sweet services and private hosting is made at initial install, and choosing C-Sweet services creates the administrator's C-Sweet Market account during registration. This guide replaces issue 3 of [Phase 2](phase-2-accounts.md) and changes the Identity and Market rows in [architecture.md](architecture.md).
+Proposed implementation for D3, updated 2026-11-12. Start with the four [hosted onboarding deliveries](hosted-onboarding.md). This guide specifies the shared account, installation link and directory used by the initial owner and later members.
 
 ## What exists today
 
@@ -15,48 +15,30 @@ Date: 2026-11-11. **Proposed design; nothing here is implemented.** Decision D3 
 
 ## Design in one paragraph
 
-A **C-Sweet account is a Market account**. Market becomes the OpenID Connect issuer for the Market site, the phone app and linked Headquarters installations. Because the account is the same record, existing Market customers keep their ID, roles and purchases with no linking step. On first run Headquarters asks one question: **Connect to C-Sweet** or **Private Headquarters**. Connecting creates (or signs in to) the C-Sweet account, registers the installation with C-Sweet, and turns on the official relay, directory and push. Private keeps everything on the operator's network and behaves as Headquarters does today.
-
-This replaces the earlier proposal of a separate `CSweet.Identity` repository. Trade-off: a Market outage becomes a sign-in outage for new sessions. To keep the option of moving the issuer later, publish it on its own hostname (an account hostname, not the marketplace hostname) from the first release, so clients never need to change.
+A C-Sweet account is a Market account. The live Marketplace handles registration, login, verification and account recovery. Production Market configures `https://c-sweet.com` as its public origin (`CSweet.Market/compose.production.yml`, `Notifications__Smtp__PublicBaseUrl`). Configure the trusted issuer explicitly for this deployment. HQ's catalog URL serves a different purpose. Existing Market customers retain their ID, roles and purchases.
 
 ## First-run flow at Headquarters
 
-```text
-CHOOSE                          CONNECT TO C-SWEET              PRIVATE
-┌───────────────────────────┐   ┌───────────────────────────┐   ┌───────────────────────────┐
-│ How will you run C-Sweet? │   │ 1 Your administrator      │   │ Your administrator        │
-│                           │   │   Name, local password    │   │ Name, email, password     │
-│ ◉ Connect to C-Sweet      │   │ 2 [Continue with C-Sweet] │   │ [Create administrator]    │
-│   Phone app, marketplace  │   │   or open account.…/device│   │                           │
-│   purchases and sign-in   │   │   and enter  WDJB-MJHT    │   │ Phone access can be added │
-│   work out of the box.    │   │   [QR]  Waiting…          │   │ later with your own relay.│
-│ ○ Private Headquarters    │   │ 3 Recovery codes          │   │                           │
-│   Nothing leaves your     │   │                           │   │                           │
-│   network.                │   │ [Use private instead]     │   │                           │
-│ [Continue]                │   │                           │   │                           │
-└───────────────────────────┘   └───────────────────────────┘   └───────────────────────────┘
-```
+1. A fresh HQ opens `/register` at **Hosted** or **Private**. Hosted explains that C-Sweet provides sign-in, discovery and relay service while HQ runs on this machine. Displaying this choice reads only local state.
+2. Hosted offers **Create account** and **Sign in**. Generate a protected installation key and an expiring device-authorization attempt bound to that key and the initiating setup browser. Both actions open the real Market account site with the appropriate entry intent. Preserve the pending approval during registration, email verification, login and a returning user's existing Market session.
+3. At Market the user compares the code displayed by HQ, reviews the installation name and signed-in account, and approves or denies the link. Offer the complete verification URL or QR plus manual code entry. Only Market receives the Market password. HQ polls at the issuer's prescribed interval and handles pending, slow-down, denial and expiry.
+4. On the initiating HQ, validate the issuer, signature, audience, subject, nonce and expiry and show the approved Market identity. Set a separately labeled local recovery password. Atomically create the initial administrator, external identity link, recovery codes, pending installation link and registration outbox record. Deliver recovery codes through the existing save-and-continue screen.
+5. Register at Market with proof of possession of the approved installation key and an installation-scoped grant. Retry a lost response with the same operation identity and key. Market returns the same installation ID. For an existing HQ, attach the identity to the signed-in administrator and preserve the existing local credentials and recovery codes.
+6. Set official mobile enrollment pending and continue the HQ setup wizard. When setup commits complete, persist an owner-directory publication request in that transaction. Publish after Market registration completes using the stable Market owner, installation ID, display name and revision. Relay readiness is reported separately. An offline connector leaves the completed instance discoverable.
 
-1. `/register` gains a first step, the hosting choice. Nothing is contacted until the person presses Continue on **Connect to C-Sweet**.
-2. **Local administrator.** Name and a local password, as today. The local password remains the way to sign in to Headquarters in a browser on the local network, and the way back in if C-Sweet is unreachable.
-3. **C-Sweet account, by device authorization** (RFC 8628). Headquarters asks the issuer for a device code and shows a **Continue with C-Sweet** button and a QR code. Both open the C-Sweet site with the code already filled in, so nothing is typed; the short code is also shown as a fallback for opening the site by hand on another device. The person signs in or creates the account there (email confirmation happens on the C-Sweet site), and approves "Link this Headquarters". Headquarters polls and receives an ID token and an installation-scoped token.
-
-   Why this flow: Headquarters is often reached at a LAN address or a machine name, so no redirect URI can be registered in advance, and the password for the C-Sweet account must never be typed into Headquarters.
-4. Headquarters validates the ID token (issuer, audience, signature, nonce, expiry), then in one transaction creates the initial administrator, an `ExternalIdentityLink` (issuer + subject), the installation link record and the recovery codes.
-5. Headquarters generates an installation key pair, sends the public key with the installation-scoped token to register the installation, and stores the returned installation ID.
-6. Mobile access is set to **Official** and the relay and push enrollment job is queued; Headquarters presents its installation token to ConnectionService for this. Setup continues to `/setup` as today. If relay enrollment fails, setup is not blocked; Settings → Mobile access shows the state.
-
-Failure handling: the device code expires after 15 minutes and the screen offers a new one. **Use private instead** is available throughout. If the person closes the browser after step 4 committed, reopening continues from step 5. If the account's email is not yet confirmed, the C-Sweet site completes confirmation before approving the link.
+Before local registration commits, cancellation or **Use Private** invalidates the pending attempt. After commit, reopen and resume the pending operation. Recheck registration eligibility on commit so competing private and hosted setup attempts cannot create two administrators. On a lost remote acknowledgement reconcile by installation key. A completed HQ can replay its directory publication safely after restart.
 
 **Private.** The current registration form, unchanged. No request is made to any C-Sweet host. Mobile access starts Disabled.
 
-**Existing installations.** After upgrade the mode is Private and nothing changes. Settings → C-Sweet account offers **Connect to C-Sweet**, which runs steps 3–6 for the signed-in administrator.
+**Existing installations.** Upgrade retains private mode and the current login. An administrator can later choose Hosted in Settings and approve a link through the same Market flow.
 
 **Unlinking.** Settings → C-Sweet account → Disconnect asks for the local password, stops directory publication and official relay use, and tells C-Sweet to retire the installation. Local data, local accounts and private relay settings are untouched. Members who only had a C-Sweet sign-in need a local password or a company identity before they can sign in again; the confirmation lists them.
 
 ## Members and the phone
 
-- An administrator invites a person by email ([multi-user guide](multi-user-headquarters.md)). On a linked installation the invitation requires the C-Sweet issuer; the directory shows it to that account after sign-in.
+- The initial owner appears through setup completion and needs no member invitation. Resolve phone and HQ subjects to the same Market account inside the issuer/directory, including when clients receive different pairwise subjects. Return installations for the authenticated caller from `GET /api/me/enterprises`. The phone shows **My Headquarters** with a separate enrollment and connection state for each installation.
+- Selecting an instance obtains a short-lived route ticket scoped to its installation and phone key. HQ verifies the device, current identity and enrollment policy before serving business data.
+- An administrator may subsequently invite additional people through the [multi-user guide](multi-user-headquarters.md).
 - The phone signs in with authorization code + PKCE in the system browser. Scheme and app-link registration are part of issue IL-07.
 - A member's C-Sweet account is linked to their Headquarters person by issuer + subject when they accept the invitation. Email is never used to match.
 - Headquarters web sign-in for members on a linked installation: local password set at acceptance in v1. Signing in to the Headquarters web UI with the C-Sweet account is an open question (IL-Q1).
@@ -69,7 +51,7 @@ Failure handling: the device code expires after 15 minutes and the screen offers
 | --- | --- |
 | `InstallationLink` (single row) | `Mode` (Private, Linked), `Issuer`, `InstallationId`, `InstallationKeyReference` (protected storage, never the key), `LinkedByApplicationUserId`, `LinkedAt`, `State` (PendingRegistration, Active, Retiring, Retired), `Revision` |
 | `ExternalIdentityLinks` | Defined in the multi-user guide; shared with it. |
-| `DeviceAuthorizationAttempts` | `Id`, `DeviceCodeProtected`, `UserCode`, `ExpiresAt`, `Purpose` (InitialRegistration, LinkExisting), `Status`; pruned after 24 hours |
+| `DeviceAuthorizationAttempts` | `Id`, setup-session binding, installation key reference, protected device code, nonce, user code, expiry, purpose and status. Prune terminal attempts after 24 hours. |
 
 **Market**
 
@@ -85,9 +67,9 @@ Registered clients: Market web (confidential), phone app (public, PKCE, custom s
 
 | Where | Route | Purpose |
 | --- | --- | --- |
-| Headquarters | `GET /api/installation/hosting` (anonymous while registration is open) | Current mode and whether C-Sweet is reachable. |
-| Headquarters | `POST /api/auth/register/linked/start` | Validate the local administrator fields, start device authorization, return user code and verification link. |
-| Headquarters | `POST /api/auth/register/linked/poll` | Poll; on success perform step 4 and sign the administrator in. |
+| Headquarters | `GET /api/installation/hosting` | Return local setup choices before first-run completion. Allow this exact bootstrap read through the first-run guard. |
+| Headquarters | `POST /api/auth/register/linked/start` | Start a key-bound attempt for the initiating browser and selected Market account action. |
+| Headquarters | `POST /api/auth/register/linked/poll`, then `…/complete` | Return approval state to the initiating browser. On explicit local completion commit step 4 once and sign the administrator into HQ. |
 | Headquarters | `POST /api/installation/link/start`, `…/poll`, `DELETE /api/installation/link` | Link or unlink an existing installation. Administrator only. |
 | Market | Standard discovery, authorization, token, device authorization, user-info and key endpoints | Issuer. |
 | Market | `/device` page | Enter the user code, sign in or register, approve the named Headquarters. |
@@ -98,13 +80,13 @@ Registered clients: Market web (confidential), phone app (public, PKCE, custom s
 
 ### Market repository
 
-**IL-01 · Send real Identity email — S · Junior + review.** Replace `IdentityNoOpEmailSender` with an adapter over the existing SMTP sender; remove the no-op branch in `RegisterConfirmation.razor`. Done when a new account receives a confirmation email in the test SMTP sink and cannot sign in before confirming.
+**IL-01 · Verify mailbox ownership at Market — Senior-led migration, junior-owned email adapter.** Replace the no-op sender and confirmation-page shortcut. Prove real delivery for new accounts. Reverify legacy mailboxes of uncertain provenance before trusting their email for hosted linking. Preserve the existing Market account and entitlements.
 
 **IL-02 · Spike: issuer library and device flow — M · Senior-led.** Add an OpenID Connect server library to a throwaway copy, confirm authorization code + PKCE and device authorization both work against the existing Identity store, and that existing cookie sign-in to the Market site is unaffected. Record the library and version in the decision log.
 
 **IL-03 · Issuer in Market — L · Senior-led.** Server tables and migration, signing keys with rotation, discovery on the account hostname, the three client registrations, consent screen. Tests: wrong redirect, wrong PKCE verifier, replayed code, expired device code, unconfirmed email.
 
-**IL-04 · Device approval page — M · Junior + review.** `/device`: enter code, sign in or register, show "Link Headquarters *name* to your account?", approve or deny. Rate limit code entry. Tests for unknown, expired and already-used codes.
+**IL-04 · Approve the installation — Senior-led protocol, junior-owned UI.** Resume the same pending approval after either Market registration or existing-account login. Display the account, installation and matching code. Test denial, expiry, switched account, incompatible key and replay.
 
 **IL-05 · Installation registration API — M · Senior-led.** `Installations` table, register with proof of key possession, retire. One account may own several installations.
 
@@ -114,15 +96,15 @@ Registered clients: Market web (confidential), phone app (public, PKCE, custom s
 
 **IL-07 · Phone sign-in launcher — M · Senior-led.** Implement `IMobileSignInLauncher.LaunchSharedSignInAsync` from P1-05 with the system browser, PKCE, state and nonce; register the callback scheme and app links on both platforms.
 
-**IL-08 · Hosting choice step — M · Junior + review.** Add the choice as the first step of `Register.razor` with the three layouts above; add `GET /api/installation/hosting`. Private path must make no outbound request (assert with a handler that fails the test on any call). All strings localized.
+**IL-08 · Hosting choice — Junior + review.** Implement H1 in `Register.razor`, the local bootstrap read and its first-run guard test. Cover Hosted, Private, Back, refresh, existing installations and zero external onboarding calls before opt-in.
 
 **IL-09 · Linked registration — L · Senior-led, juniors take the UI.** `InstallationLink` and `DeviceAuthorizationAttempts`, start and poll endpoints, ID-token validation, the single transaction in step 4, resume after a crash between steps 4 and 5. Tests: expired code, denied approval, token for the wrong audience, second concurrent poll, C-Sweet unreachable (form offers Private).
 
-**IL-10 · Installation key and registration — M · Senior-led.** Key generated and stored through the same protected storage chosen in the M0 spike; registration retried from an outbox.
+**IL-10 · Installation key and registration — Senior-led.** Persist the host key before device authorization. Bind Market approval to it and retry registration from the outbox. Prove one installation after a lost acknowledgement. The phone TLS spike is a dependency for H4 transport.
 
 **IL-11 · Settings → C-Sweet account — M · Junior + review.** Shows mode, linked account email, installation state; Connect and Disconnect with the confirmations described above.
 
-**IL-12 · Directory publication from Headquarters — M · Senior-led.** Outbox entry on every invitation and membership change; bounded reconciliation after an outage; nothing published in Private mode.
+**IL-12 · Directory publication — Senior-led.** Project the initial owner on completed hosted setup, then member invitations, access changes, unlink and removals. Use revisioned outbox publication and bounded reconciliation. Cover completed-before-registration and offline relay. Private installations publish nothing.
 
 **IL-13 · Upgrade test — S · Junior.** An existing database upgrades to Private with no outbound calls and unchanged sign-in.
 
