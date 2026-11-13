@@ -127,6 +127,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     public DbSet<SourceControlMergeAuthorization> SourceControlMergeAuthorizations => Set<SourceControlMergeAuthorization>();
     public DbSet<SourceControlMergeJob> SourceControlMergeJobs => Set<SourceControlMergeJob>();
     public DbSet<PlatformGitHubAppCredential> PlatformGitHubAppCredentials => Set<PlatformGitHubAppCredential>();
+    public DbSet<GitHubCatalogCredential> GitHubCatalogCredentials => Set<GitHubCatalogCredential>();
     public DbSet<PlatformSourceControlSetupSession> PlatformSourceControlSetupSessions => Set<PlatformSourceControlSetupSession>();
 
     // Planning entities

@@ -70,6 +70,7 @@ else
             </MudPaper>
             </MudItem>
         }
+        <MudItem xs="12" md="6"><GitHubCatalogAccessCard Highlight="CatalogAccess" /></MudItem>
         @foreach (var installation in _access?.Installations ?? [])
         {
             <MudItem xs="12" md="6"><GitHubConnectionCard @key="installation.InstallationId" Installation="installation" /></MudItem>
@@ -108,6 +109,7 @@ else
 @code {
     [SupplyParameterFromQuery(Name = "business")] public Guid? BusinessId { get; set; }
     [SupplyParameterFromQuery(Name = "draft")] public Guid? DraftId { get; set; }
+    [SupplyParameterFromQuery(Name = "catalogAccess")] public bool CatalogAccess { get; set; }
     [SupplyParameterFromQuery(Name = "githubSetup")] public string? GitHubSetupResult { get; set; }
     private Guid? _returnDraftId;
     private bool _draftTargetStored;

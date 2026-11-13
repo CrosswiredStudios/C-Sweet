@@ -11906,6 +11906,44 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("GenAiProviderProfiles");
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Setup.GitHubCatalogCredential", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AccountLogin")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("AccountType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("ConfiguredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ConfiguredByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProtectedToken")
+                        .IsRequired()
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)");
+
+                    b.Property<DateTimeOffset?>("TokenExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("VerifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("GitHubCatalogCredentials");
+                });
+
             modelBuilder.Entity("CSweet.Domain.Setup.LlmProviderProfile", b =>
                 {
                     b.Property<Guid>("Id")

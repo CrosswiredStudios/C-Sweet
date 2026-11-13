@@ -304,6 +304,16 @@ public static class DependencyInjection
             client.BaseAddress = new Uri("https://api.github.com/");
             client.DefaultRequestHeaders.UserAgent.ParseAdd("CSweet-Agent-Importer/1.0");
             client.Timeout = TimeSpan.FromSeconds(30);
+        }).AddHttpMessageHandler<GitHubCatalogAuthenticationHandler>();
+        // A token saved in settings is read here, so API and AgentHost both use it without a restart.
+        builder.Services.AddSingleton<IGitHubCatalogCredentialProvider, GitHubCatalogCredentialProvider>();
+        builder.Services.AddTransient<GitHubCatalogAuthenticationHandler>();
+        builder.Services.AddScoped<IGitHubCatalogAccessService, GitHubCatalogAccessService>();
+        builder.Services.AddHttpClient(GitHubCatalogAccessService.HttpClientName, client =>
+        {
+            client.BaseAddress = new Uri("https://api.github.com/");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("CSweet-Agent-Importer/1.0");
+            client.Timeout = TimeSpan.FromSeconds(20);
         });
         builder.Services.AddScoped<IGitHubAgentRepositoryClient>(sp => sp.GetRequiredService<GitHubAgentRepositoryClient>());
         builder.Services.AddScoped<IPluginSourceResolver>(sp => sp.GetRequiredService<GitHubAgentRepositoryClient>());

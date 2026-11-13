@@ -20,6 +20,18 @@ public static class SourceControlEndpoints
         endpoints.MapGet("/api/source-control/storage", async (ITrustedSourceControlHostClient host, CancellationToken ct) =>
             Results.Ok(await host.GetInternalStorageStatusAsync(ct))).RequireAuthorization("SourceControlAdministration");
 
+        // How C-Sweet signs in to GitHub to read the agent and plugin catalog. The token is write-only:
+        // it is never returned, only the account it belongs to and the allowance GitHub reports.
+        var catalog = endpoints.MapGroup("/api/source-control/catalog-access")
+            .RequireAuthorization("SourceControlAdministration");
+        catalog.MapGet("/", async (HttpContext http, CSweet.Infrastructure.Setup.IGitHubCatalogAccessService service, CancellationToken ct) =>
+            await ExecuteAsync(http, _ => service.GetStatusAsync(ct)));
+        catalog.MapPut("/", async (SaveGitHubCatalogAccessRequest request, HttpContext http,
+            CSweet.Infrastructure.Setup.IGitHubCatalogAccessService service, CancellationToken ct) =>
+            await ExecuteAsync(http, userId => service.SaveAsync(userId, request.Token, ct)));
+        catalog.MapDelete("/", async (HttpContext http, CSweet.Infrastructure.Setup.IGitHubCatalogAccessService service, CancellationToken ct) =>
+            await ExecuteAsync(http, _ => service.RemoveAsync(ct)));
+
         var platform = endpoints.MapGroup("/api/source-control/platform-setup")
             .RequireAuthorization("SourceControlAdministration");
 

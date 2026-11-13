@@ -11,7 +11,8 @@ using Microsoft.EntityFrameworkCore;
 namespace CSweet.Infrastructure.Core;
 
 /// <summary>Exact managed approvals and resumable host-owned fulfillment share one durable request.</summary>
-public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<IResourceFulfillmentHandler> handlers, TimeProvider clock)
+public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<IResourceFulfillmentHandler> handlers, TimeProvider clock,
+    CSweet.Infrastructure.Setup.IGitHubCatalogCredentialProvider? catalogCredentials = null)
 {
     public const string StateKind = "resource-fulfillment.v1";
     public const string CommandKind = "resource-fulfillment-command.v1";
@@ -240,6 +241,7 @@ public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<I
             var waiting = state with { Status = "WaitingDependency", ResumeStatus = "Preparing",
                 FailureCode = "resource.catalog_access_unavailable", Condition = error.Message };
             if (waiting != state) Save(row, waiting, "catalog-blocked");
+            if (error.IsRateLimited) await NotifyCatalogSignInNeededAsync(row.OrganizationId, state, error.RetryAt, now, token);
             row.AvailableAt = error.RetryAt > now.AddMinutes(1) ? error.RetryAt : now.AddMinutes(1);
         }
         catch (Exception error) when (error is IOException or HttpRequestException or TimeoutException)
@@ -259,6 +261,33 @@ public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<I
         await db.SaveChangesAsync(token);
         if (transaction is not null) await transaction.CommitAsync(token);
         return true;
+    }
+
+    /// <summary>
+    /// Tells the people in the business that setup is waiting on GitHub's anonymous request allowance and
+    /// where to sign in. Sent at most once a day per business, and never when a credential is configured:
+    /// then the limit is the account's own and signing in again would not help.
+    /// </summary>
+    private async Task NotifyCatalogSignInNeededAsync(Guid organization, ResourceRequestState state, DateTimeOffset? retryAt,
+        DateTimeOffset now, CancellationToken token)
+    {
+        if (catalogCredentials is null || await catalogCredentials.GetTokenAsync(token) is not null) return;
+        var key = $"github-catalog-sign-in:{organization:N}:{now.UtcDateTime:yyyyMMdd}";
+        if (await db.UserNotifications.AnyAsync(x => x.OrganizationId == organization && x.DeduplicationKey == key, token)) return;
+        var people = await db.CoreOrganizationUsers.AsNoTracking().Where(x => x.OrganizationId == organization && x.IsActive &&
+            x.ArchivedAt == null && x.EmployeeType == EmployeeType.Human).OrderBy(x => x.Id).Select(x => x.Id).Take(25).ToListAsync(token);
+        var resume = retryAt is { } at ? $" Setup will try again after {at.UtcDateTime:u}." : " Setup will keep trying.";
+        foreach (var person in people)
+            db.UserNotifications.Add(new CSweet.Domain.Communications.UserNotification
+            {
+                Id = Guid.NewGuid(), OrganizationId = organization, RecipientOrganizationUserId = person,
+                Severity = CSweet.Domain.Communications.NotificationSeverity.Important, Category = "GitHubCatalogSignInNeeded",
+                Title = "Sign in to GitHub to keep setup moving",
+                Body = "C-Sweet downloads agents and build tools from GitHub. Without a GitHub sign-in it may make only 60 requests an hour, " +
+                    $"and that allowance is used up, so a project's build setup is waiting.{resume}\n\n" +
+                    "An administrator can add a GitHub access token in Settings, Source control. That raises the allowance to 5,000 requests an hour.",
+                ActionUri = "/settings/source-control?catalogAccess=true", DeduplicationKey = key, CreatedAt = now
+            });
     }
 
     public async Task<OrganizationUser> ActorAsync(Guid organization, Guid installation, CancellationToken token) =>

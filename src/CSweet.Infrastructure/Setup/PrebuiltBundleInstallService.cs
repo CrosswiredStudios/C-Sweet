@@ -84,7 +84,7 @@ public sealed class PrebuiltBundleInstallService(
 
             var expectedDigest = await ResolveExpectedDigestAsync(package, cancellationToken);
             await using var bundle = await DownloadBoundedAsync(
-                package.ReleaseAssetUrl, job, progress, cancellationToken);
+                package.ReleaseAssetUrl, PublicDownloadUrl(package.ReleaseAssetUrl, package, package.ReleaseAssetName), job, progress, cancellationToken);
 
             await progress.ReportAsync(
                 new AgentBuildProgressUpdate(
@@ -213,23 +213,54 @@ public sealed class PrebuiltBundleInstallService(
         if (sidecarUrl is null)
             throw new AgentBuildException(
                 "The release has no .sha256 checksum sidecar; refusing to install an unverified bundle.");
-        var text = await DownloadTextBoundedAsync(sidecarUrl, 4096, cancellationToken);
+        var text = await DownloadTextBoundedAsync(sidecarUrl, PublicDownloadUrl(sidecarUrl, package, sidecar!.Name), 4096, cancellationToken);
         var digest = ParseChecksumSidecar(text);
         package.ReleaseBundleDigest = digest;
         await db.SaveChangesAsync(cancellationToken);
         return digest;
     }
 
+    // The same release asset on github.com. That route uses no REST API allowance, so a public release still
+    // downloads while the API is rate-limited. It is only tried after the API route is refused, and the catalog
+    // credential is never sent to it.
+    private static string? PublicDownloadUrl(string url, AgentPackageVersion package, string assetName) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Host == "api.github.com" &&
+        package.PackageSource is { } source && package.ReleaseTag is { Length: > 0 } tag
+            ? $"https://github.com/{Uri.EscapeDataString(source.RepositoryOwner)}/{Uri.EscapeDataString(source.RepositoryName)}/releases/download/{Uri.EscapeDataString(tag)}/{Uri.EscapeDataString(assetName)}"
+            : null;
+
+    private async Task<HttpResponseMessage> GetWithPublicFallbackAsync(string url, string? publicUrl, CancellationToken cancellationToken)
+    {
+        var response = await httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if ((int)response.StatusCode is not (403 or 429) || publicUrl is null) return response;
+        var fallback = await httpClient.GetAsync(publicUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (!fallback.IsSuccessStatusCode) { fallback.Dispose(); return response; }
+        response.Dispose();
+        return fallback;
+    }
+
+    // GitHub reports a primary rate limit with X-RateLimit-Reset, not Retry-After. Without this the caller
+    // retried every minute and spent each new hourly allowance as soon as it arrived.
+    private static DateTimeOffset? RetryAt(HttpResponseMessage response) =>
+        response.Headers.RetryAfter?.Date ?? (response.Headers.RetryAfter?.Delta is { } wait ? DateTimeOffset.UtcNow.Add(wait)
+            : response.Headers.TryGetValues("X-RateLimit-Reset", out var resets) &&
+              long.TryParse(resets.FirstOrDefault(), out var reset) && reset is >= 0 and <= 253402300799
+                ? DateTimeOffset.FromUnixTimeSeconds(reset) : null);
+
+    private static string RetryText(DateTimeOffset? retryAt) =>
+        retryAt is { } at ? $" Retry after {at.UtcDateTime:u}." : string.Empty;
+
     private async Task<MemoryStream> DownloadBoundedAsync(
         string url,
+        string? publicUrl,
         AgentBuildJob job,
         PersistedAgentBuildProgressReporter progress,
         CancellationToken cancellationToken)
     {
-        using var response = await httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        using var response = await GetWithPublicFallbackAsync(url, publicUrl, cancellationToken);
         if ((int)response.StatusCode is 401 or 403 or 429)
-            throw new AgentImportPreviewException($"Published provider download needs catalog access or rate-limit recovery (HTTP {(int)response.StatusCode}). Setup can resume after the dependency is corrected.")
-                { IsDependencyFailure = true, RetryAt = response.Headers.RetryAfter?.Date ?? (response.Headers.RetryAfter?.Delta is { } wait ? DateTimeOffset.UtcNow.Add(wait) : null) };
+            throw new AgentImportPreviewException($"Published provider download needs catalog access or rate-limit recovery (HTTP {(int)response.StatusCode}).{RetryText(RetryAt(response))} Setup can resume after the dependency is corrected.")
+                { IsDependencyFailure = true, RetryAt = RetryAt(response), IsRateLimited = (int)response.StatusCode is 403 or 429 };
         if (!response.IsSuccessStatusCode)
             throw new AgentBuildException($"The release bundle download failed with {(int)response.StatusCode}.");
         if (response.Content.Headers.ContentLength > MaximumBundleBytes)
@@ -267,13 +298,14 @@ public sealed class PrebuiltBundleInstallService(
 
     private async Task<string> DownloadTextBoundedAsync(
         string url,
+        string? publicUrl,
         int maximumBytes,
         CancellationToken cancellationToken)
     {
-        using var response = await httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        using var response = await GetWithPublicFallbackAsync(url, publicUrl, cancellationToken);
         if ((int)response.StatusCode is 401 or 403 or 429)
-            throw new AgentImportPreviewException($"Published provider checksum download needs catalog access or rate-limit recovery (HTTP {(int)response.StatusCode}).")
-                { IsDependencyFailure = true, RetryAt = response.Headers.RetryAfter?.Date ?? (response.Headers.RetryAfter?.Delta is { } wait ? DateTimeOffset.UtcNow.Add(wait) : null) };
+            throw new AgentImportPreviewException($"Published provider checksum download needs catalog access or rate-limit recovery (HTTP {(int)response.StatusCode}).{RetryText(RetryAt(response))}")
+                { IsDependencyFailure = true, RetryAt = RetryAt(response), IsRateLimited = (int)response.StatusCode is 403 or 429 };
         if (!response.IsSuccessStatusCode)
             throw new AgentBuildException("The release checksum sidecar could not be downloaded.");
         await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);

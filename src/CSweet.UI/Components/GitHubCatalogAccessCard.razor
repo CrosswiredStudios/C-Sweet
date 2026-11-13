@@ -1,0 +1,106 @@
+@using CSweet.Contracts.SourceControl
+@inject HttpClient Http
+@inject IAppLocalizer L
+@inject UserTime Time
+
+<MudPaper Outlined="true" Class="pa-4" Style="height:100%" id="github-catalog-access">
+    <MudStack Spacing="2">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudIcon Icon="@Icons.Custom.Brands.GitHub" />
+            <MudText Typo="Typo.h5">@L["GitHubCatalogAccessCard.Title"]</MudText>
+        </MudStack>
+        <MudText Color="Color.Secondary">@L["GitHubCatalogAccessCard.Intro"]</MudText>
+        @if (_loading) { <MudProgressLinear Indeterminate="true" /> }
+        @if (_status is not null)
+        {
+            @if (_status.Source == "settings")
+            {
+                <MudAlert Severity="Severity.Success" Dense="true">
+                    @L.Format("GitHubCatalogAccessCard.SignedInAs", new { login = _status.AccountLogin })
+                    · @L[_status.AccountType == "Organization" ? "GitHubCatalogAccessCard.AccountOrganization" : "GitHubCatalogAccessCard.AccountPersonal"]
+                </MudAlert>
+            }
+            else if (_status.Source == "configuration")
+            {
+                <MudAlert Severity="Severity.Info" Dense="true">@L["GitHubCatalogAccessCard.FromConfiguration"]</MudAlert>
+            }
+            else
+            {
+                <MudAlert Severity="@(Highlight ? Severity.Warning : Severity.Normal)" Dense="true">@L["GitHubCatalogAccessCard.NotSignedIn"]</MudAlert>
+            }
+            @if (_status.RequestLimit is { } limit && _status.RequestsRemaining is { } remaining && _status.AllowanceResetsAt is { } resets)
+            {
+                <MudText Typo="Typo.body2">@L.Format("GitHubCatalogAccessCard.Allowance", new { remaining, limit, time = Time.Format(resets, "t") })</MudText>
+            }
+            @if (_status.TokenExpiresAt is { } expires)
+            {
+                <MudText Typo="Typo.body2">@L.Format("GitHubCatalogAccessCard.TokenExpires", new { date = Time.Format(expires, "d") })</MudText>
+            }
+            @if (_status.Problem is not null) { <MudAlert Severity="Severity.Warning" Dense="true">@_status.Problem</MudAlert> }
+        }
+        @if (_error is not null) { <MudAlert Severity="Severity.Warning" Dense="true">@_error</MudAlert> }
+        @if (_notice is not null) { <MudAlert Severity="Severity.Success" Dense="true">@_notice</MudAlert> }
+        <MudTextField @bind-Value="_token" Label="@L["GitHubCatalogAccessCard.TokenLabel"]" InputType="InputType.Password"
+                      Variant="Variant.Outlined" Immediate="true" MaxLength="512" autocomplete="off" HelperText="@L["GitHubCatalogAccessCard.TokenHelp"]" />
+        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(_saving || string.IsNullOrWhiteSpace(_token))">
+                @L[_status?.Source == "settings" ? "GitHubCatalogAccessCard.Replace" : "GitHubCatalogAccessCard.Save"]
+            </MudButton>
+            @if (_status?.Source == "settings")
+            {
+                <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="RemoveAsync" Disabled="_saving">@L["GitHubCatalogAccessCard.Remove"]</MudButton>
+            }
+            <MudButton Variant="Variant.Text" Href="https://github.com/settings/personal-access-tokens/new" Target="_blank" Rel="noopener noreferrer">
+                @L["GitHubCatalogAccessCard.CreateTokenLink"]
+            </MudButton>
+        </MudStack>
+    </MudStack>
+</MudPaper>
+
+@code {
+    /// <summary>True when the page was opened from the notification that asks for a sign-in.</summary>
+    [Parameter] public bool Highlight { get; set; }
+    private GitHubCatalogAccessStatus? _status;
+    private string _token = string.Empty;
+    private string? _error, _notice;
+    private bool _loading, _saving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _loading = true;
+        try { _status = await Http.GetFromJsonAsync<GitHubCatalogAccessStatus>("api/source-control/catalog-access"); }
+        catch (Exception) { _error = L["GitHubCatalogAccessCard.LoadFailed"]; }
+        finally { _loading = false; }
+    }
+
+    private Task SaveAsync() => SendAsync(() => Http.PutAsJsonAsync("api/source-control/catalog-access",
+        new SaveGitHubCatalogAccessRequest(_token.Trim())), "GitHubCatalogAccessCard.Saved");
+
+    private Task RemoveAsync() => SendAsync(() => Http.DeleteAsync("api/source-control/catalog-access"), "GitHubCatalogAccessCard.Removed");
+
+    private async Task SendAsync(Func<Task<HttpResponseMessage>> send, string successKey)
+    {
+        _saving = true; _error = null; _notice = null;
+        try
+        {
+            using var response = await send();
+            if (response.IsSuccessStatusCode)
+            {
+                _status = await response.Content.ReadFromJsonAsync<GitHubCatalogAccessStatus>();
+                _token = string.Empty; _notice = L[successKey];
+            }
+            else
+            {
+                // The API explains a refused token in plain words; show that when it is there.
+                string? message = null;
+                try { message = (await response.Content.ReadFromJsonAsync<Failure>())?.Message; }
+                catch (Exception) { }
+                _error = string.IsNullOrWhiteSpace(message) ? L["GitHubCatalogAccessCard.SaveFailed"] : message;
+            }
+        }
+        catch (Exception) { _error = L["GitHubCatalogAccessCard.SaveFailed"]; }
+        finally { _saving = false; }
+    }
+
+    private sealed record Failure(string? Error, string? Message);
+}

@@ -18,11 +18,15 @@ public sealed class GitHubReleaseAssetAuthenticationTests
             Assert.Equal(authenticate ? "synthetic-catalog-read-token" : null, request.Headers.Authorization?.Parameter);
             Assert.Equal(authenticate, request.Headers.Accept.Any(x => x.MediaType == "application/octet-stream"));
         });
-        using var handler = new GitHubReleaseAssetAuthenticationHandler(Options.Create(new GitHubAgentRepositoryOptions {
-            AccessToken = "synthetic-catalog-read-token" })) { InnerHandler = terminal };
+        using var handler = new GitHubReleaseAssetAuthenticationHandler(new FixedCredential("synthetic-catalog-read-token")) { InnerHandler = terminal };
         using var client = new HttpClient(handler);
         using var response = await client.GetAsync(url);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+    private sealed class FixedCredential(string? token) : IGitHubCatalogCredentialProvider
+    {
+        public ValueTask<string?> GetTokenAsync(CancellationToken cancellationToken) => ValueTask.FromResult(token);
+        public void Invalidate() { }
     }
     private sealed class Terminal(Action<HttpRequestMessage> inspect) : HttpMessageHandler
     {

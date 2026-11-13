@@ -33,6 +33,14 @@ internal static class SourceControlModelConfiguration
                 .HasPrincipalKey(x => new { x.OrganizationId, x.Id }).OnDelete(DeleteBehavior.Restrict);
         });
 
+        modelBuilder.Entity<GitHubCatalogCredential>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.ProtectedToken).HasMaxLength(4096).IsRequired();
+            entity.Property(x => x.AccountLogin).HasMaxLength(100).IsRequired();
+            entity.Property(x => x.AccountType).HasMaxLength(32).IsRequired();
+        });
+
         modelBuilder.Entity<PlatformGitHubAppCredential>(entity =>
         {
             entity.HasKey(x => x.Id);

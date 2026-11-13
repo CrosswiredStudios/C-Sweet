@@ -283,7 +283,7 @@ public sealed class GitHubAgentRepositoryClient : IGitHubAgentRepositoryClient, 
             throw new AgentImportPreviewException(
                 $"GitHub temporarily rate-limited repository access. {retry} " +
                 "An administrator can configure authenticated catalog access to increase the API allowance.")
-                { IsDependencyFailure = true, RetryAt = retryAt };
+                { IsDependencyFailure = true, RetryAt = retryAt, IsRateLimited = true };
         }
         if (response.StatusCode == HttpStatusCode.Unauthorized)
             throw new AgentImportPreviewException(

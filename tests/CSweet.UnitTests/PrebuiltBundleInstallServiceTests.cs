@@ -385,6 +385,59 @@ public sealed class PrebuiltBundleInstallServiceTests
         Assert.NotEqual(AgentPackageVersionStatus.Built, (await db.AgentPackageVersions.SingleAsync()).Status);
     }
 
+    [Fact]
+    public async Task A_rate_limited_api_download_uses_the_public_release_route_and_installs()
+    {
+        await using var db = CreateDbContext();
+        var package = NewPackage(); package.ReleaseBundleDigest = "sha256:" + BundleDigest;
+        package.ReleaseAssetUrl = "https://api.github.com/repos/example/agent/releases/assets/42";
+        db.Add(package); await db.SaveChangesAsync();
+        var handler = new RateLimitedApiHandler(BundleBytes, publicRouteAvailable: true);
+
+        await CreateServiceForRecovery(db, handler).InstallAsync(package.Id);
+
+        Assert.Equal(AgentPackageVersionStatus.Built, (await db.AgentPackageVersions.SingleAsync()).Status);
+        Assert.Equal(new[]
+        {
+            "https://api.github.com/repos/example/agent/releases/assets/42",
+            "https://github.com/example/agent/releases/download/v1.11.1/agent-1.11.1-linux-x64.csab"
+        }, handler.Requests);
+    }
+
+    [Fact]
+    public async Task A_rate_limited_download_waits_for_the_reset_github_reports()
+    {
+        await using var db = CreateDbContext();
+        var package = NewPackage(); package.ReleaseBundleDigest = "sha256:" + BundleDigest;
+        package.ReleaseAssetUrl = "https://api.github.com/repos/example/agent/releases/assets/42";
+        db.Add(package); await db.SaveChangesAsync();
+        var handler = new RateLimitedApiHandler(BundleBytes, publicRouteAvailable: false);
+
+        var error = await Assert.ThrowsAsync<AgentImportPreviewException>(() => CreateServiceForRecovery(db, handler).InstallAsync(package.Id));
+
+        // GitHub's primary limit carries X-RateLimit-Reset and no Retry-After.
+        Assert.True(error.IsDependencyFailure);
+        Assert.Equal(RateLimitedApiHandler.Reset, error.RetryAt);
+        Assert.Contains("Retry after", error.Message);
+    }
+
+    private sealed class RateLimitedApiHandler(byte[] bundle, bool publicRouteAvailable) : HttpMessageHandler
+    {
+        public static readonly DateTimeOffset Reset = DateTimeOffset.FromUnixTimeSeconds(1794600000);
+        public List<string> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            Requests.Add(request.RequestUri!.AbsoluteUri);
+            if (request.RequestUri.Host == "github.com" && publicRouteAvailable)
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bundle) });
+            var response = new HttpResponseMessage(request.RequestUri.Host == "github.com" ? HttpStatusCode.NotFound : HttpStatusCode.Forbidden);
+            response.Headers.TryAddWithoutValidation("X-RateLimit-Remaining", "0");
+            response.Headers.TryAddWithoutValidation("X-RateLimit-Reset", Reset.ToUnixTimeSeconds().ToString());
+            return Task.FromResult(response);
+        }
+    }
+
     private sealed class DependencyHandler(HttpStatusCode status) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)

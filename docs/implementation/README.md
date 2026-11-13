@@ -91,6 +91,9 @@ SDK 5.1.0 research/checkpoints, protected storage, verification and opt-in rollo
 bounded increment refinement, checkpoint recovery, independent delivery acceptance and the
 verified Sweet Sweet Games rollout.
 
+[Adaptive game planning](adaptive-game-planning.md) proposes earlier Epic publication,
+staffing based on upcoming work, sprint reviews, and a comparative Breakout pilot.
+
 [Delegation with tracking](features/delegation-with-tracking.md) describes instruction publication,
 canonical work, coordinator reporting, subscriptions, recovery and the future continuity boundary.
 

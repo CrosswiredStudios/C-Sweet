@@ -197,3 +197,19 @@ public sealed record SourceControlApprovalDecisionResponse(
     Guid? MergeJobId,
     DateTimeOffset DecidedAt,
     long Revision);
+
+/// <summary>How C-Sweet signs in to GitHub when it reads the agent and plugin catalog.</summary>
+/// <param name="Source"><c>settings</c> (saved here), <c>configuration</c> (host configuration) or <c>none</c>.</param>
+public sealed record GitHubCatalogAccessStatus(
+    bool Configured,
+    string Source,
+    string? AccountLogin,
+    string? AccountType,
+    DateTimeOffset? ConfiguredAt,
+    DateTimeOffset? TokenExpiresAt,
+    int? RequestLimit,
+    int? RequestsRemaining,
+    DateTimeOffset? AllowanceResetsAt,
+    string? Problem);
+
+public sealed record SaveGitHubCatalogAccessRequest(string Token);
