@@ -13,6 +13,36 @@ public static class ComputeWorkEndpoints
 {
     internal static Task<IResult> BuildInputAsync(HttpContext http, [FromServices] ComputeBuildInputAccess access, CancellationToken token) =>
         ReceiveAsync(http, async envelope => Results.Json(await access.ReadAsync(envelope, token), ComputeProtocol.Json), token);
+
+    /// <summary>One staged evidence part from the provider holding the live dispatch. The signed request binds its digest.</summary>
+    internal static async Task<IResult> EvidencePartAsync(HttpContext http, [FromServices] ComputeEvidencePartAccess access, CancellationToken token)
+    {
+        http.Response.Headers.CacheControl = "no-store";
+        if (!http.Request.IsHttps) return Results.StatusCode(StatusCodes.Status403Forbidden);
+        if (!http.Request.HasJsonContentType() || !string.IsNullOrEmpty(http.Request.Headers.ContentEncoding))
+            return Results.StatusCode(StatusCodes.Status415UnsupportedMediaType);
+        if (http.Request.ContentLength > ComputeWorkTransport.MaximumEvidencePartRequestBytes)
+            return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
+        try
+        {
+            using var body = new MemoryStream(); var buffer = new byte[81920]; int count;
+            while ((count = await http.Request.Body.ReadAsync(buffer, token)) > 0)
+            {
+                if (body.Length + count > ComputeWorkTransport.MaximumEvidencePartRequestBytes)
+                    return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
+                body.Write(buffer, 0, count);
+            }
+            var upload = JsonSerializer.Deserialize<ComputeEvidencePartUpload>(body.GetBuffer().AsSpan(0, (int)body.Length), ComputeProtocol.Json);
+            return upload is null ? Results.BadRequest() : Results.Json(await access.WriteAsync(upload, token), ComputeProtocol.Json);
+        }
+        catch (JsonException) { return Results.BadRequest(); }
+        catch (UnauthorizedAccessException) { return Results.StatusCode(StatusCodes.Status403Forbidden); }
+        catch (BadHttpRequestException error) when (error.StatusCode == StatusCodes.Status413PayloadTooLarge)
+        { return Results.StatusCode(StatusCodes.Status413PayloadTooLarge); }
+        catch (InvalidOperationException) { return Results.Conflict(); }
+        catch (Exception error) when (error is IOException or Microsoft.EntityFrameworkCore.DbUpdateException)
+        { return Results.StatusCode(StatusCodes.Status503ServiceUnavailable); }
+    }
     internal static Task<IResult> ConfirmRetirementAsync(HttpContext http,
         [FromServices] ComputeProviderRetirementService service, CancellationToken token) => RetirementAsync(http, service, true, token);
     internal static Task<IResult> AuthorizeRetirementAsync(HttpContext http,

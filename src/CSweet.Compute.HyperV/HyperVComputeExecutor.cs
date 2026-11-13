@@ -23,6 +23,8 @@ internal sealed class HyperVComputeExecutor
     internal Func<Guid, CancellationToken, Task<bool>>? AuthorizePublication { get; set; }
     internal Func<Guid, CancellationToken, Task<bool>>? AuthorizeDependencies { get; set; }
     internal Func<Guid, Guid, int, ComputeBuildArchive, CancellationToken, Task<byte[]>>? ReadBuildInput { get; set; }
+    /// <summary>Stages one evidence part with Core under the live dispatch; false when Core predates staged evidence.</summary>
+    internal Func<Guid, Guid, int, byte[], CancellationToken, Task<bool>>? UploadEvidencePart { get; set; }
     public void ClosePublishedPorts() => publisher.Dispose();
     private ComputeLeaseMonitor? leaseMonitor;
     private ComputeMaintenanceDeliveryWorker? maintenanceDelivery;
@@ -87,7 +89,9 @@ internal sealed class HyperVComputeExecutor
                                 (request, ct) => ComputeGuestCommandClient.ExecuteAsync(connection => connectGuest(vm, connection), request, "linux", ct), cancellation));
                         else if (dispatch.Workload.EvidenceArchive is { } archive)
                             result = new(Artifact: await ComputeEvidenceArchiveTransfer.ExecuteAsync(archive,
-                                (request, ct) => ComputeGuestCommandClient.ExecuteAsync(connection => connectGuest(vm, connection), request, "linux", ct), cancellation));
+                                (request, ct) => ComputeGuestCommandClient.ExecuteAsync(connection => connectGuest(vm, connection), request, "linux", ct),
+                                UploadEvidencePart is { } upload ? (offset, content, ct) => upload(claim.OperationId, claim.DispatchId, offset, content, ct) : null,
+                                cancellation));
                         else if (dispatch.Workload.EffectiveCommand is { } command)
                         {
                             if (dispatch.Workload.BrowserTest is { } browser)

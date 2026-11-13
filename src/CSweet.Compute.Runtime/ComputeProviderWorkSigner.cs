@@ -8,7 +8,7 @@ namespace CSweet.Compute.Runtime;
 public sealed class ComputeProviderWorkSigner(ComputeProviderEnrollment enrollment, X509Certificate2 certificate, string keyId, TimeProvider clock)
 {
     public SignedComputeProviderWorkRequest Sign(Guid? operationId = null, Guid? afterOperationId = null, long? resultSequence = null, string? resultDigest = null,
-        int? inputOffset = null, Guid? dispatchId = null)
+        int? inputOffset = null, Guid? dispatchId = null, string? inputSha256 = null)
     {
         var now = clock.GetUtcNow(); var expires = now.AddMinutes(1);
         if (enrollment.OrganizationId == Guid.Empty || enrollment.NodeId == Guid.Empty || enrollment.ProviderId is not { Length: > 0 and <= 128 } ||
@@ -25,8 +25,11 @@ public sealed class ComputeProviderWorkSigner(ComputeProviderEnrollment enrollme
         if (inputOffset.HasValue != dispatchId.HasValue || inputOffset is < 0 || dispatchId == Guid.Empty ||
             inputOffset.HasValue && (!operationId.HasValue || afterOperationId.HasValue || resultSequence.HasValue))
             throw new InvalidDataException("Build input requires one operation, dispatch and nonnegative offset.");
+        if (inputSha256 is not null && (!inputOffset.HasValue || inputSha256 is not { Length: 64 } || inputSha256.AsSpan().ContainsAnyExcept("0123456789abcdef")))
+            throw new InvalidDataException("An evidence part digest requires an input offset and a lowercase SHA-256.");
         var request = new ComputeProviderWorkRequest(enrollment.OrganizationId, enrollment.NodeId, enrollment.ProviderId,
-            Guid.NewGuid(), now, expires, operationId, afterOperationId, resultSequence, resultDigest, inputOffset, dispatchId);
+            Guid.NewGuid(), now, expires, operationId, afterOperationId, resultSequence, resultDigest, inputOffset, dispatchId)
+            { InputSha256 = inputSha256 };
         var json = JsonSerializer.Serialize(request, ComputeProtocol.Json);
         return new(keyId, json, Convert.ToBase64String(key.SignData(ComputeProtocol.WorkRequestPayload(json), HashAlgorithmName.SHA256)));
     }

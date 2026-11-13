@@ -45,6 +45,11 @@ internal static class HyperVMaintenanceHost
             using var inputConnection = new HyperVWorkConnection(configuration, executor.DispatchVerifier, clock, openCertificate);
             return await inputConnection.ReadBuildInputAsync(operationId, dispatchId, offset, archive, cancellation);
         };
+        executor.UploadEvidencePart = async (operationId, dispatchId, offset, content, cancellation) =>
+        {
+            using var evidenceConnection = new HyperVWorkConnection(configuration, executor.DispatchVerifier, clock, openCertificate);
+            return await evidenceConnection.UploadEvidencePartAsync(operationId, dispatchId, offset, content, cancellation);
+        };
         executor.AuthorizePublication = async (operationId, cancellation) =>
         {
             using var permissionConnection = new HyperVWorkConnection(configuration, executor.DispatchVerifier, clock, openCertificate);

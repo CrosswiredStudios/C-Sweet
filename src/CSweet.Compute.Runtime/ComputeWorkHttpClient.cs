@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json;
 using CSweet.Compute.Contracts;
 
@@ -40,6 +41,43 @@ public sealed class ComputeWorkHttpClient : IDisposable
             page.Content.Length != Math.Min(ComputeBuildArchive.PartBytes, archive.Length - offset))
             throw new IOException("Core returned a different build input page.");
         return page.Content;
+    }
+    /// <summary>
+    /// Stages one evidence part under the live dispatch. Returns false when Core has no evidence-part endpoint (an older
+    /// Core); the caller then falls back to the inline result. Rate limiting and transient failures are retried.
+    /// </summary>
+    public async Task<bool> UploadEvidencePartAsync(Guid operationId, Guid dispatchId, int offset, byte[] content, CancellationToken token)
+    {
+        var sha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(content));
+        for (var attempt = 1; ; attempt++)
+        {
+            // A fresh proof per attempt: proofs live one minute and a retry may follow a long back-off.
+            var upload = new ComputeEvidencePartUpload(signer.Sign(operationId, inputOffset: offset, dispatchId: dispatchId, inputSha256: sha), content);
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(upload, ComputeProtocol.Json);
+            if (bytes.Length > ComputeWorkTransport.MaximumEvidencePartRequestBytes) throw new InvalidDataException("Evidence part exceeds its request limit.");
+            try
+            {
+                using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, deadline.Token);
+                using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(origin, ComputeWorkTransport.EvidencePartPath)) { Content = new ByteArrayContent(bytes) };
+                request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+                using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linked.Token);
+                if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed) return false;
+                if (response.StatusCode == HttpStatusCode.OK)
+                {
+                    var receipt = await response.Content.ReadFromJsonAsync<ComputeEvidencePartReceipt>(ComputeProtocol.Json, linked.Token);
+                    if (receipt is null || receipt.OperationId != operationId || receipt.DispatchId != dispatchId || receipt.Offset != offset || receipt.Sha256 != sha)
+                        throw new IOException("Core acknowledged a different evidence part.");
+                    return true;
+                }
+                if (response.StatusCode is not (HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable or
+                    HttpStatusCode.BadGateway or HttpStatusCode.GatewayTimeout) || attempt >= 6)
+                    throw new IOException($"Core refused the evidence part ({(int)response.StatusCode}).");
+            }
+            catch (HttpRequestException) when (attempt < 6) { }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested && attempt < 6) { }
+            await Task.Delay(TimeSpan.FromSeconds(Math.Min(30, Math.Pow(2, attempt))), token);
+        }
     }
     public async Task<bool> AuthorizeDependenciesAsync(Guid operationId, CancellationToken token)
     {

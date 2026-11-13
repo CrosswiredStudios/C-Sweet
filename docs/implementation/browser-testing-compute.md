@@ -50,7 +50,9 @@ stable keys, generations and cursors. Lost submission replies replay exactly tho
 IDs are read only. Build parts and evidence parts survive workspace/runtime replacement in operating
 state. After digest verification, screenshots/traces are retained in `GameQaJournal` as paginated
 `browser-artifact` observations, independent of the compute VM's lifetime. Current limits are 16 MiB
-compressed/64 MiB expanded build, 10,000 files, four widths, 30 seconds per operation and 4 MiB evidence.
+compressed/64 MiB expanded build, 10,000 files and four widths. Evidence archives have no size cap since
+2026-11-12 (see "Staged evidence parts" below); the guest image's own smoke-test packer (`build/compute-linux/browser/extract.py`)
+still stops at 4 MiB until the next browser-tests image version.
 
 `WorkOrchestrator.AcceptComputeWaitAsync` accepts `awaiting-compute` only from the assigned task QA
 attempt, bound to an authorized source commit, reviewer-owned project environment, current operation
@@ -532,3 +534,33 @@ QA 5.4.9 `GameQaEvidenceTransfer` checkpoints the one export request before subm
 Verification includes `ComputeEvidenceTransferTests`, `ComputeRuntimeUpdateScriptTests`, SDK `ComputeEvidenceTests`, and QA `BrowserRecoveryTests.Pending_legacy_chunk_survives_upgrade_and_exports_remaining_evidence_without_replaying_test`. The optional `CSWEET_EVIDENCE_PROBE_EXPORT` test environment variable exports an actual reader request; `tests/compute-evidence-read-probe.py` runs it in an offline disposable Linux container and checks regular-file/size and symlink boundaries. `Install-ComputeLocalProvider.ps1` uses `Install-ComputeProviderRuntime` during retained-service recovery to replace only the stopped service payload, validate it, and roll back on failure. The installer runs current component acceptance and uses `repair-local` to certify the new runtime against the retained image before validation. Runtime and certification metadata roll back together on failure. Enrollment, signing keys, images, journal and workload disks remain in place.
 
 Owners can request a retained runtime update from `ComputePreparation` through `ComputeDashboardEndpoints.QueueRuntimeUpdateAsync`. The action requires Ready setup, current owner membership, and no outstanding compute operation, audits the request, and enters the normal preparation/UAC flow. It does not release or recreate existing instances.
+
+## Staged evidence parts (2026-11-12)
+
+The 4 MiB evidence cap came from carrying the whole archive inside the provider's signed result (8 MiB request limit),
+the provider's replay journal and the operation's `ResultJson` row, then serving pages from a 16 MiB in-process cache.
+None of these is needed to keep evidence exact, so the cap is gone:
+
+- **Provider.** `ComputeEvidenceArchiveTransfer` reads the guest file in 256 KiB commands and uploads each completed
+  1 MiB part (`ComputeEvidenceArchive.PartBytes`) through `ComputeWorkHttpClient.UploadEvidencePartAsync` before the next
+  read, so it never holds more than one part. Its deadline scales with size (30 seconds plus 2 seconds per MiB). The
+  signed result then names the archive without content.
+- **Upload authority.** `POST /api/compute/providers/evidence-parts` (`ComputeEvidencePartAccess`) takes a node-signed
+  work request that binds operation, live dispatch lease, part offset and the part's SHA-256 (`InputSha256`). It passes
+  the same fence as build input (`ComputeDispatchFence`): Dispatching operation with that lease, Busy environment on that
+  node, all recorded execution grants current. The part must sit on a part boundary with the exact expected length.
+  Re-sending a stored part is idempotent; different bytes for a stored part are refused. A part digest never authorizes
+  build input or any other provider action. Rate limiting (1,200 parts per minute per node) is retried by the provider.
+- **Storage.** Parts live in `ComputeEvidenceParts` (operation, offset, length, SHA-256, `bytea` content), deleted with
+  their operation. The operation's `ResultJson` keeps identity only.
+- **Acceptance.** `ComputeResultReconciler` accepts a staged artifact only when every part is present, contiguous and of
+  the expected length and the parts hash to the pinned archive SHA-256 (`ComputeEvidenceParts.VerifyAsync`).
+- **Reads.** `ComputeBroker.ReadEvidencePageAsync` serves the same 64 KiB pages, copying from the one or two parts that
+  hold the page and caching parts, not archives.
+- **Compatibility.** A provider whose Core has no evidence-part endpoint (404) carries archives up to 4 MiB inline as
+  before, and fails larger ones with "update headquarters". Inline results from older providers are still verified and
+  served.
+
+Not changed: there is no retention policy for evidence parts beyond their operation (operations are not pruned today),
+and the smoke test's guest-image packer keeps its own 4 MiB stop until the browser-tests image is rebuilt.
+

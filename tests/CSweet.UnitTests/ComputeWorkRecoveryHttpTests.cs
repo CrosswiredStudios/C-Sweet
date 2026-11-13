@@ -75,4 +75,39 @@ public sealed class ComputeWorkRecoveryHttpTests
         await Assert.ThrowsAsync<IOException>(() => client.ClaimAsync(f.Provider.Claim.OperationId, default));
         Assert.Equal(attempts, (await f.Db.ComputeOperations.SingleAsync()).Attempts);
     }
+
+    [Fact]
+    public async Task Evidence_parts_are_signed_with_their_digest_retried_when_throttled_and_detect_an_older_core()
+    {
+        await using var f = new ComputeMaintenanceIngestorTests.Fixture(); await f.InitializeAsync();
+        var clock = f.Provider.Journal.Core.Time;
+        using var certificate = new CertificateRequest("CN=compute-evidence-parts", f.Key, HashAlgorithmName.SHA256)
+            .CreateSelfSigned(clock.Now.AddDays(-1), clock.Now.AddDays(1));
+        var operation = Guid.NewGuid(); var dispatch = Guid.NewGuid(); var content = new byte[1000]; RandomNumberGenerator.Fill(content);
+        var sha = Convert.ToHexStringLower(SHA256.HashData(content));
+        var responses = new Queue<System.Net.HttpStatusCode>([System.Net.HttpStatusCode.TooManyRequests, System.Net.HttpStatusCode.OK, System.Net.HttpStatusCode.NotFound]);
+        var seen = new List<ComputeEvidencePartUpload>();
+        var handler = new Respond(async request =>
+        {
+            Assert.Equal(ComputeWorkTransport.EvidencePartPath, request.RequestUri!.AbsolutePath);
+            seen.Add(System.Text.Json.JsonSerializer.Deserialize<ComputeEvidencePartUpload>(await request.Content!.ReadAsByteArrayAsync(), ComputeProtocol.Json)!);
+            var status = responses.Dequeue();
+            var response = new HttpResponseMessage(status);
+            if (status == System.Net.HttpStatusCode.OK)
+                response.Content = System.Net.Http.Json.JsonContent.Create(new ComputeEvidencePartReceipt(operation, dispatch, 0, sha), options: ComputeProtocol.Json);
+            return response;
+        });
+        using var client = new ComputeWorkHttpClient(new Uri("https://core.test/"),
+            new(f.Provider.Journal.Enrollment, certificate, "node-key", clock), f.Provider.Verifier, handler);
+        Assert.True(await client.UploadEvidencePartAsync(operation, dispatch, 0, content, default)); // throttled once, then stored
+        Assert.Equal(2, seen.Count);
+        var proof = System.Text.Json.JsonSerializer.Deserialize<ComputeProviderWorkRequest>(seen[^1].Request.PayloadJson, ComputeProtocol.Json)!;
+        Assert.Equal(sha, proof.InputSha256); Assert.Equal(0, proof.InputOffset); Assert.Equal(dispatch, proof.DispatchId); Assert.Equal(operation, proof.OperationId);
+        Assert.False(await client.UploadEvidencePartAsync(operation, dispatch, 0, content, default)); // an older Core has no endpoint
+    }
+
+    private sealed class Respond(Func<HttpRequestMessage, Task<HttpResponseMessage>> respond) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => respond(request);
+    }
 }

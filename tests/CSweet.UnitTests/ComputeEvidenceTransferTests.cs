@@ -3,6 +3,7 @@ using System.Text.Json;
 using CSweet.Compute.Contracts;
 using CSweet.Compute.Runtime;
 using CSweet.Domain.Compute;
+using CSweet.Infrastructure.Compute;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
@@ -25,7 +26,7 @@ public sealed class ComputeEvidenceTransferTests
         await f.Reconciler.ApplyAsync(f.Sign(),default);
         await BrowserTemplateAsync(f.Broker);
         await ComputeWorkloadTests.GrantAsync(f.Broker,InfrastructureActions.Execute);
-        var bytes=new byte[ComputeEvidenceArchive.MaximumBytes];Array.Fill(bytes,(byte)251);var archive=Request(bytes);
+        var bytes=new byte[ComputeEvidenceArchive.LegacyInlineMaximumBytes];Array.Fill(bytes,(byte)251);var archive=Request(bytes);
         var env=await f.Broker.Db.ComputeEnvironments.SingleAsync();
         var accepted=await f.Broker.Broker.SubmitWorkloadAsync(f.Broker.Organization,f.Broker.Installation,
             new(env.Id,env.Generation,"full-archive",new(EvidenceArchive:archive)),default);
@@ -80,7 +81,8 @@ public sealed class ComputeEvidenceTransferTests
     {
         var request=Request([1]); Assert.Throws<ArgumentException>(()=>(request with{BuildSha256="../../secret"}).Validate());
         Assert.Throws<ArgumentException>(()=>(request with{ScriptSha256="/etc/passwd"}).Validate());
-        Assert.Throws<ArgumentException>(()=>(request with{Length=4194305}).Validate());
+        Assert.Throws<ArgumentException>(()=>(request with{Length=0}).Validate());
+        (request with{Length=int.MaxValue}).Validate(); // no product size cap; parts and time scale with length
         Assert.Throws<ArgumentException>(()=>new ComputeWorkload(EvidenceArchive:request).Validate("windows"));
         Assert.Throws<ArgumentException>(()=>new ComputeWorkload(EvidenceArchive:request,PublishPort:8080).Validate("linux"));
         Assert.Equal(new[]{InfrastructureActions.Execute},new ComputeWorkload(EvidenceArchive:request).Validate("linux").RequiredActions);
@@ -109,5 +111,90 @@ public sealed class ComputeEvidenceTransferTests
         (await f.Db.ScopedActionGrants.SingleAsync(x=>x.Action==InfrastructureActions.Read)).RevokedAt=DateTimeOffset.UtcNow.AddYears(-100);
         await f.Db.SaveChangesAsync();
         await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>f.Broker.ReadEvidencePageAsync(f.Organization,f.Installation,accepted.Id,0,default));
+    }
+
+    [Theory]
+    [InlineData(1)] [InlineData(1048576)] [InlineData(2*1048576+12345)]
+    public async Task Archives_stream_to_core_in_parts_without_holding_the_whole_archive(int length)
+    {
+        var bytes=new byte[length];RandomNumberGenerator.Fill(bytes);var request=Request(bytes);var parts=new List<(int Offset,byte[] Content)>();
+        var result=await ComputeEvidenceArchiveTransfer.ExecuteAsync(request,(command,_)=>{
+            var offset=int.Parse(System.Text.RegularExpressions.Regex.Match(command.Arguments[1],@"os\.lseek\(f,(\d+),").Groups[1].Value);
+            return Task.FromResult(new ComputeGuestWireResult(1,Guid.NewGuid(),command.RequestId,0,false,bytes.AsSpan(offset,command.MaximumOutputBytes).ToArray(),[],false));
+        },(offset,content,_)=>{parts.Add((offset,content));return Task.FromResult(true);},default);
+        Assert.Null(result.Content);request.VerifyIdentity(result);
+        Assert.Equal(request.PartCount,parts.Count);
+        Assert.Equal(Enumerable.Range(0,request.PartCount).Select(i=>i*ComputeEvidenceArchive.PartBytes),parts.Select(x=>x.Offset));
+        Assert.All(parts,x=>Assert.Equal(request.PartLength(x.Offset),x.Content.Length));
+        Assert.Equal(bytes,parts.SelectMany(x=>x.Content).ToArray());
+    }
+
+    [Theory]
+    [InlineData(1000,true)] [InlineData(5*1048576,false)]
+    public async Task An_older_core_gets_small_archives_inline_and_large_ones_fail_clearly(int length,bool inline)
+    {
+        var bytes=new byte[length];RandomNumberGenerator.Fill(bytes);var request=Request(bytes);
+        var task=ComputeEvidenceArchiveTransfer.ExecuteAsync(request,(command,_)=>{
+            var offset=int.Parse(System.Text.RegularExpressions.Regex.Match(command.Arguments[1],@"os\.lseek\(f,(\d+),").Groups[1].Value);
+            return Task.FromResult(new ComputeGuestWireResult(1,Guid.NewGuid(),command.RequestId,0,false,bytes.AsSpan(offset,command.MaximumOutputBytes).ToArray(),[],false));
+        },(_,_,_)=>Task.FromResult(false),default);
+        if(!inline){var error=await Assert.ThrowsAsync<IOException>(()=>task);Assert.Contains("update headquarters",error.Message);return;}
+        var result=await task;request.Verify(result);Assert.Equal(bytes,result.Content);
+    }
+
+    [Theory]
+    [InlineData("valid")] [InlineData("missing-part")] [InlineData("wrong-digest")] [InlineData("wrong-dispatch")] [InlineData("different-bytes")]
+    public async Task Staged_parts_are_fenced_by_the_live_dispatch_and_verified_before_the_result_is_accepted(string scenario)
+    {
+        await using var f=new ComputeResultTests.Fixture();await f.InitializeAsync();await f.Reconciler.ApplyAsync(f.Sign(),default);
+        await BrowserTemplateAsync(f.Broker);await ComputeWorkloadTests.GrantAsync(f.Broker,InfrastructureActions.Execute);
+        var db=f.Broker.Db;var bytes=new byte[2*ComputeEvidenceArchive.PartBytes+12345];RandomNumberGenerator.Fill(bytes);var archive=Request(bytes);
+        var environment=await db.ComputeEnvironments.SingleAsync();
+        var op=await f.Broker.Broker.SubmitWorkloadAsync(f.Broker.Organization,f.Broker.Installation,new(environment.Id,environment.Generation,"staged",new(EvidenceArchive:archive)),default);
+        var clock=new ComputeBrokerTests.Clock();
+        var row=await db.ComputeOperations.SingleAsync(x=>x.Id==op.Id);row.Status="Dispatching";row.DispatchLeaseId=Guid.NewGuid();row.DispatchLeaseExpiresAt=clock.GetUtcNow().AddMinutes(3);await db.SaveChangesAsync();
+        environment=await db.ComputeEnvironments.SingleAsync();
+        using var key=ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var trust=new ComputeResultTests.Trust(new("node",f.Broker.Organization,environment.ProviderNodeId!.Value,environment.ProviderId!,Convert.ToBase64String(key.ExportSubjectPublicKeyInfo())));
+        var access=new ComputeEvidencePartAccess(db,new(trust,clock),f.Broker.Broker,clock);
+        ComputeEvidencePartUpload Upload(int offset,byte[] content,Guid? dispatch=null,string? signedSha=null)
+        {
+            var proof=new ComputeProviderWorkRequest(f.Broker.Organization,environment.ProviderNodeId!.Value,environment.ProviderId!,Guid.NewGuid(),clock.GetUtcNow(),clock.GetUtcNow().AddMinutes(1),
+                OperationId:op.Id,InputOffset:offset,DispatchId:dispatch??row.DispatchLeaseId){InputSha256=signedSha??Convert.ToHexStringLower(SHA256.HashData(content))};
+            var data=JsonSerializer.Serialize(proof,ComputeProtocol.Json);
+            return new(new("node",data,Convert.ToBase64String(key.SignData(ComputeProtocol.WorkRequestPayload(data),HashAlgorithmName.SHA256))),content);
+        }
+        byte[] Part(int offset)=>bytes.AsSpan(offset,archive.PartLength(offset)).ToArray();
+        if(scenario=="wrong-dispatch"){await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>access.WriteAsync(Upload(0,Part(0),Guid.NewGuid()),default));return;}
+        if(scenario=="wrong-digest"){await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>access.WriteAsync(Upload(0,Part(0),signedSha:new string('d',64)),default));return;}
+        // A part digest never authorizes build input, and parts off a boundary are refused.
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>new ComputeBuildInputAccess(db,new(trust,clock),f.Broker.Broker,clock).ReadAsync(Upload(0,Part(0)).Request,default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>access.WriteAsync(Upload(4096,bytes.AsSpan(4096,1000).ToArray()),default));
+        for(var offset=0;offset<bytes.Length;offset+=ComputeEvidenceArchive.PartBytes)
+        {
+            if(scenario=="missing-part"&&offset==ComputeEvidenceArchive.PartBytes)continue;
+            var receipt=await access.WriteAsync(Upload(offset,Part(offset)),default);
+            Assert.Equal(offset,receipt.Offset);Assert.Equal(row.DispatchLeaseId,receipt.DispatchId);
+        }
+        await access.WriteAsync(Upload(0,Part(0)),default); // the same part again is idempotent
+        if(scenario=="different-bytes")
+        {
+            var changed=Part(0);changed[0]^=1;
+            await Assert.ThrowsAsync<InvalidOperationException>(()=>access.WriteAsync(Upload(0,changed),default));
+            return;
+        }
+        var result=f.Result with{OperationId=op.Id,Generation=op.Generation,Action=InfrastructureActions.Execute,
+            Workload=new(Artifact:new(archive.SourceCommitSha,archive.BuildSha256,archive.Sha256,archive.Length,archive.ScriptSha256))};
+        var envelope=f.Sign(result);Assert.True(envelope.PayloadJson.Length<32768);
+        if(scenario=="missing-part"){await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>f.Reconciler.ApplyAsync(envelope,default));return;}
+        Assert.True(await f.Reconciler.ApplyAsync(envelope,default));
+        Assert.Contains("\"content\":null",(await db.ComputeOperations.AsNoTracking().SingleAsync(x=>x.Id==op.Id)).ResultJson!); // the row holds identity, not bytes
+        using var collected=new MemoryStream();
+        for(var offset=0;offset<bytes.Length;offset+=ComputeEvidenceArchive.PageBytes)
+            collected.Write((await f.Broker.Broker.ReadEvidencePageAsync(f.Broker.Organization,f.Broker.Installation,op.Id,offset,default)).Content);
+        Assert.Equal(bytes,collected.ToArray());
+        // An unaligned page that spans two parts is assembled from both.
+        var spanning=await f.Broker.Broker.ReadEvidencePageAsync(f.Broker.Organization,f.Broker.Installation,op.Id,ComputeEvidenceArchive.PartBytes-1000,default);
+        Assert.Equal(bytes.AsSpan(ComputeEvidenceArchive.PartBytes-1000,ComputeEvidenceArchive.PageBytes).ToArray(),spanning.Content);
     }
 }

@@ -18,6 +18,9 @@ internal sealed class HyperVWorkConnection(
     public Task<byte[]> ReadBuildInputAsync(Guid operationId, Guid dispatchId, int offset, ComputeBuildArchive archive, CancellationToken token) =>
         UseAsync((client, cancellation) => client.ReadBuildInputAsync(operationId, dispatchId, offset, archive, cancellation), token);
 
+    public Task<bool> UploadEvidencePartAsync(Guid operationId, Guid dispatchId, int offset, byte[] content, CancellationToken token) =>
+        UseAsync((client, cancellation) => client.UploadEvidencePartAsync(operationId, dispatchId, offset, content, cancellation), token);
+
     public Task<bool> AuthorizePublicationAsync(Guid operationId, CancellationToken token) =>
         UseAsync((client, cancellation) => client.AuthorizePublicationAsync(operationId, cancellation), token);
     public Task<bool> AuthorizeDependenciesAsync(Guid operationId, CancellationToken token) =>

@@ -14,6 +14,7 @@ public static class ComputeProviderEndpoints
 {
     public const string MaintenanceRatePolicy = "compute-provider-maintenance";
     public const string DependencyRatePolicy = "compute-provider-dependency-permissions";
+    public const string EvidenceRatePolicy = "compute-provider-evidence-parts";
 
     public static IServiceCollection AddComputeProviderIngress(this IServiceCollection services)
     {
@@ -29,6 +30,11 @@ public static class ComputeProviderEndpoints
             // A bounded restore rechecks permission throughout up to 256 packages and
             // 192 MiB of transfer. Keep these read-only proofs separate from mutation intake.
             options.AddPolicy(DependencyRatePolicy, context => RateLimitPartition.GetFixedWindowLimiter(
+                context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions
+                { PermitLimit = 1200, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true }));
+            // Evidence parts are 1 MiB each. This is a fairness bound per node, not a size limit: the provider backs off on
+            // 429 and resumes from the next unsent part.
+            options.AddPolicy(EvidenceRatePolicy, context => RateLimitPartition.GetFixedWindowLimiter(
                 context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions
                 { PermitLimit = 1200, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true }));
         });
@@ -65,6 +71,9 @@ public static class ComputeProviderEndpoints
         endpoints.MapPost(ComputeWorkTransport.BuildInputPath, ComputeWorkEndpoints.BuildInputAsync)
             .AllowAnonymous().RequireRateLimiting(DependencyRatePolicy)
             .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(ComputeWorkTransport.MaximumRequestBytes));
+        endpoints.MapPost(ComputeWorkTransport.EvidencePartPath, ComputeWorkEndpoints.EvidencePartAsync)
+            .AllowAnonymous().RequireRateLimiting(EvidenceRatePolicy)
+            .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(ComputeWorkTransport.MaximumEvidencePartRequestBytes));
         endpoints.MapPost(ComputeWorkTransport.DependencyAccessPath, ComputeWorkEndpoints.DependencyAccessAsync)
             .AllowAnonymous().RequireRateLimiting(DependencyRatePolicy)
             .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(ComputeWorkTransport.MaximumRequestBytes));

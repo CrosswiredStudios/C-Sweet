@@ -88,6 +88,14 @@ internal static class ComputeConfigurations
             entity.HasOne<AgentInstallation>().WithMany().HasForeignKey(x => x.InstallationId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Workstream>().WithMany().HasForeignKey(x => x.WorkstreamId).OnDelete(DeleteBehavior.Restrict);
         });
+        model.Entity<ComputeEvidencePart>(entity =>
+        {
+            entity.ToTable("ComputeEvidenceParts"); entity.HasKey(x => new { x.OperationId, x.Offset });
+            entity.Property(x => x.Sha256).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Content).IsRequired();
+            entity.HasIndex(x => x.OrganizationId);
+            entity.HasOne<ComputeOperation>().WithMany().HasForeignKey(x => x.OperationId).OnDelete(DeleteBehavior.Cascade);
+        });
         model.Entity<ComputeProviderWake>(entity =>
         {
             entity.ToTable("ComputeProviderWakes"); entity.HasKey(x => x.Id);

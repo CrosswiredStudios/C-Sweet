@@ -83,5 +83,10 @@ public sealed class ComputePreparationWaitTests
         CSweet.AgentHost.Broker.WorkManagementCapabilityHandler.ValidateDeclaredVerifications(new(["Scene"], ["Renders"]) { Verifications = [] });
         Assert.Throws<ArgumentException>(() => CSweet.AgentHost.Broker.WorkManagementCapabilityHandler.ValidateDeclaredVerifications(
             new(["Scene"], ["Renders"]) { Verifications = [new("pixel-diff")] }));
+        // An interaction requirement must name an existing criterion and sit beside a browser smoke.
+        CSweet.AgentHost.Broker.WorkManagementCapabilityHandler.ValidateDeclaredVerifications(new(["Scene"], ["Renders", "Ball bounces"])
+            { Verifications = [new("browser-smoke") { RequireCanvas = true }, new("browser-interaction") { CriterionIndexes = [1] }] });
+        Assert.Throws<ArgumentException>(() => CSweet.AgentHost.Broker.WorkManagementCapabilityHandler.ValidateDeclaredVerifications(
+            new(["Scene"], ["Renders"]) { Verifications = [new("browser-smoke"), new("browser-interaction") { CriterionIndexes = [1] }] }));
     }
 }

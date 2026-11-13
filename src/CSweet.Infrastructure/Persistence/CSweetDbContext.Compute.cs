@@ -15,6 +15,7 @@ public sealed partial class CSweetDbContext
 {
     public DbSet<ComputeEnvironment> ComputeEnvironments => Set<ComputeEnvironment>();
     public DbSet<ComputeOperation> ComputeOperations => Set<ComputeOperation>();
+    public DbSet<ComputeEvidencePart> ComputeEvidenceParts => Set<ComputeEvidencePart>();
     public DbSet<ComputeProviderWake> ComputeProviderWakes => Set<ComputeProviderWake>();
     public DbSet<ComputeAdmission> ComputeAdmissions => Set<ComputeAdmission>();
     public DbSet<ComputeRequestReceipt> ComputeRequestReceipts => Set<ComputeRequestReceipt>();

@@ -28,6 +28,21 @@ public sealed class ComputeOperation
     public long Revision { get; set; } = 1;
 }
 
+/// <summary>
+/// One staged part of an exported evidence archive, uploaded by the provider under the live dispatch before its result.
+/// Core reads parts in place for agent pages instead of carrying the archive inside the operation's result JSON.
+/// </summary>
+public sealed class ComputeEvidencePart
+{
+    public Guid OperationId { get; set; }
+    public int Offset { get; set; }
+    public Guid OrganizationId { get; set; }
+    public int Length { get; set; }
+    public string Sha256 { get; set; } = "";
+    public byte[] Content { get; set; } = [];
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
 /// <summary>Serializes all resource admissions for a subject, including across grants/providers.</summary>
 public sealed class ComputeAdmission
 {

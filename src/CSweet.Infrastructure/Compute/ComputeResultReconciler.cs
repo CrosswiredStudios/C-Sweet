@@ -81,7 +81,16 @@ public sealed class ComputeResultReconciler(CSweetDbContext db, ComputeProviderR
                 {
                     if (output.Artifact is null || output.Command is not null || output.Url is not null || output.UrlExpiresAt is not null)
                         throw new UnauthorizedAccessException("Conflicting archive evidence.");
-                    try { archive.Verify(output.Artifact); }
+                    try
+                    {
+                        // Legacy providers carry the archive inline; current providers stage parts under the dispatch first.
+                        if (output.Artifact.Content is not null) archive.Verify(output.Artifact);
+                        else
+                        {
+                            archive.VerifyIdentity(output.Artifact);
+                            await ComputeEvidenceParts.VerifyAsync(db, operation.Id, archive, token);
+                        }
+                    }
                     catch (Exception error) when (error is ArgumentException or InvalidDataException)
                     { throw new UnauthorizedAccessException("Archive evidence differs from its request.", error); }
                 }

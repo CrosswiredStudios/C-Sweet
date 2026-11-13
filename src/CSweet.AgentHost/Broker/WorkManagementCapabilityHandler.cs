@@ -3980,7 +3980,8 @@ public sealed partial class WorkManagementCapabilityHandler(
     /// <summary>A ticket's declared verification is read by the author, the reviewer and QA, so reject malformed ones.</summary>
     internal static void ValidateDeclaredVerifications(Wire.WorkItemPlanningSpecification? planning)
     {
-        var issues = Wire.WorkItemVerifications.Validate(planning?.Verifications);
+        // Also checks interaction criterion indexes against the planning and that interaction has a browser smoke beside it.
+        var issues = Wire.WorkItemVerifications.ValidatePlanning(planning);
         if (issues.Count > 0) throw new ArgumentException(string.Join(" ", issues));
     }
 }

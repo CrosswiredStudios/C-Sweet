@@ -1481,6 +1481,39 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.ToTable("ComputeEnvironments", (string)null);
                 });
 
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeEvidencePart", b =>
+                {
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Offset")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("Content")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Length")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("OperationId", "Offset");
+
+                    b.HasIndex("OrganizationId");
+
+                    b.ToTable("ComputeEvidenceParts", (string)null);
+                });
+
             modelBuilder.Entity("CSweet.Domain.Compute.ComputeLocalSetup", b =>
                 {
                     b.Property<Guid>("Id")
@@ -15514,6 +15547,10 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("jsonb");
 
+                    b.Property<string>("CorrectionsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -15538,10 +15575,6 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.Property<long>("ScopeRevision")
                         .HasColumnType("bigint");
-
-                    b.Property<string>("CorrectionsJson")
-                        .IsRequired()
-                        .HasColumnType("jsonb");
 
                     b.Property<string>("ScopesJson")
                         .IsRequired()
@@ -17605,6 +17638,15 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("WorkstreamId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Compute.ComputeEvidencePart", b =>
+                {
+                    b.HasOne("CSweet.Domain.Compute.ComputeOperation", null)
+                        .WithMany()
+                        .HasForeignKey("OperationId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

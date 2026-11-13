@@ -130,7 +130,7 @@ public sealed partial class ComputeBroker
     public async Task<ComputeEvidencePage> ReadEvidencePageAsync(Guid organizationId, Guid installationId,
         Guid artifactId, int offset, CancellationToken token)
     {
-        if (offset < 0 || offset > ComputeEvidenceArchive.MaximumBytes) throw new ArgumentOutOfRangeException(nameof(offset));
+        if (offset < 0) throw new ArgumentOutOfRangeException(nameof(offset));
         // Reauthorize every page, including cache hits. Do not fetch the multi-MiB JSON for every page.
         var operation = await db.ComputeOperations.AsNoTracking().Where(x => x.Id == artifactId &&
             x.OrganizationId == organizationId && x.InstallationId == installationId)
@@ -143,18 +143,44 @@ public sealed partial class ComputeBroker
             var json = await db.ComputeOperations.AsNoTracking().Where(x => x.Id == artifactId &&
                 x.OrganizationId == organizationId && x.InstallationId == installationId).Select(x => x.ResultJson).SingleAsync(token);
             var retained = json is null ? null : JsonSerializer.Deserialize<ComputeWorkloadResult>(json, Json)?.Artifact;
-            if (retained?.Content is not { } retainedBytes || retainedBytes.Length != retained.Length || retained.Length is < 1 or > ComputeEvidenceArchive.MaximumBytes ||
-                Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(retainedBytes)) != retained.Sha256)
+            if (retained is null || retained.Length < 1 || !ComputeEvidenceArchive.Hash(retained.Sha256) || retained.Content is { } inline &&
+                (inline.Length != retained.Length || Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(inline)) != retained.Sha256))
                 throw new InvalidOperationException("Evidence archive is not retained or failed integrity validation.");
             using var entry = EvidenceCache.CreateEntry(artifactId);
-            entry.Value = retained; entry.Size = retained.Length; entry.SlidingExpiration = TimeSpan.FromMinutes(2); entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
+            // Staged archives cache only their identity here; their parts are cached separately, one part at a time.
+            entry.Value = retained; entry.Size = Math.Max(1, retained.Content?.Length ?? 1);
+            entry.SlidingExpiration = TimeSpan.FromMinutes(2); entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
             cached = retained;
         }
         var artifact = (ComputeEvidenceArtifact)cached!;
-        var content = artifact.Content!;
-        if (offset > content.Length) throw new ArgumentOutOfRangeException(nameof(offset));
-        return new(artifactId, artifact.Sha256, artifact.Length, offset,
-            content.AsSpan(offset, Math.Min(ComputeEvidenceArchive.PageBytes, content.Length - offset)).ToArray());
+        if (offset > artifact.Length) throw new ArgumentOutOfRangeException(nameof(offset));
+        var count = Math.Min(ComputeEvidenceArchive.PageBytes, artifact.Length - offset);
+        if (artifact.Content is { } content)
+            return new(artifactId, artifact.Sha256, artifact.Length, offset, content.AsSpan(offset, count).ToArray());
+        // Staged archive: copy the page from the part(s) that hold it. A page never spans more than two parts.
+        var page = new byte[count];
+        for (var filled = 0; filled < count;)
+        {
+            var at = offset + filled;
+            var partOffset = at - at % ComputeEvidenceArchive.PartBytes;
+            var part = await EvidencePartAsync(artifactId, partOffset, token);
+            var from = at - partOffset;
+            if (from >= part.Length) throw new InvalidOperationException("Evidence archive is not retained or failed integrity validation.");
+            var take = Math.Min(count - filled, part.Length - from);
+            Buffer.BlockCopy(part, from, page, filled, take); filled += take;
+        }
+        return new(artifactId, artifact.Sha256, artifact.Length, offset, page);
+    }
+
+    private async Task<byte[]> EvidencePartAsync(Guid artifactId, int partOffset, CancellationToken token)
+    {
+        var key = (artifactId, partOffset);
+        if (EvidenceCache.TryGetValue(key, out var value) && value is byte[] cached) return cached;
+        var part = await ComputeEvidenceParts.ReadPartAsync(db, artifactId, partOffset, token);
+        using var entry = EvidenceCache.CreateEntry(key);
+        entry.Value = part; entry.Size = Math.Max(1, part.Length);
+        entry.SlidingExpiration = TimeSpan.FromMinutes(2); entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
+        return part;
     }
 
     private static ComputeOperationView OperationView(ComputeOperation operation)
