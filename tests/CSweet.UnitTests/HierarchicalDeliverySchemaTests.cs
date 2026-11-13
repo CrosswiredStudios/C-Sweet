@@ -68,7 +68,10 @@ public sealed class HierarchicalDeliverySchemaTests
         }
     }
 
-    [Fact]
+    [SiblingAgentRepositoryFact("CreativeDirector.VideoGame", "Producer.VideoGame", "TechnicalDirector.VideoGame", "Engineer.VideoGame", "QA.VideoGame",
+        "BuildReleaseEngineer.VideoGame", "ArtDirector.VideoGame", "Artist.VideoGame", "AudioDesigner.VideoGame", "GameDesigner", "LevelDesigner.VideoGame",
+        "NarrativeDesigner.VideoGame", "PlaytestResearcher.VideoGame", "TechnicalArtist.VideoGame", "UiUxAccessibilityDesigner.VideoGame",
+        "SoftwareProductManager", "SoftwareArchitect", "SoftwareDeveloper", "SoftwareQA")]
     public void EveryAffectedAgentAcceptsRealV2OutcomesAndPublishesVersionMatchedNotes()
     {
         var root = new DirectoryInfo(AppContext.BaseDirectory);
