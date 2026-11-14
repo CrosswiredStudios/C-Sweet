@@ -53,6 +53,16 @@ builder.Services.AddSingleton(sp => new CSweet.HostedAccount.HostedAccountClient
     TimeProvider.System));
 builder.Services.AddSingleton(sp => new CSweet.HostedAccount.HostedSetupCoordinator(
     sp.GetRequiredService<CSweet.HostedAccount.HostedAccountClient>(), TimeProvider.System));
+builder.Services.AddSingleton(sp => new CSweet.HostedAccount.DirectoryPublisher(
+    sp.GetRequiredService<CSweet.HostedAccount.HostedAccountClient>(),
+    sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<CSweet.HostedAccount.HostedAccountOptions>>(), TimeProvider.System));
+builder.Services.AddSingleton<CSweet.Api.Auth.DirectoryPublicationSignal>();
+builder.Services.AddScoped<CSweet.HostedAccount.IDirectoryPublicationStore>(sp => new CSweet.Api.Auth.EfDirectoryPublicationStore(
+    sp.GetRequiredService<CSweet.Infrastructure.Persistence.CSweetDbContext>(),
+    sp.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>(), TimeProvider.System));
+builder.Services.AddHostedService<CSweet.Api.Auth.DirectoryPublicationService>();
+builder.Services.Configure<CSweet.Api.Auth.HeadquartersRelayOptions>(builder.Configuration.GetSection(CSweet.Api.Auth.HeadquartersRelayOptions.Section));
+builder.Services.AddHostedService<CSweet.Api.Auth.MobileRelayConnectorService>();
 CSweet.Api.Compute.ComputeProviderEndpoints.AddComputeProviderIngress(builder.Services);
 builder.Services.AddHostedService<CSweet.Api.Compute.ComputeLocalSetupWorker>();
 builder.Services.AddHostedService<CSweet.Api.Compute.ComputeFailedProvisionCleanupWorker>();

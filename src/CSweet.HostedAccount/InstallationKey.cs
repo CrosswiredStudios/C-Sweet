@@ -36,6 +36,15 @@ public sealed class InstallationKey : IDisposable
     public string SignRetirement(Guid installationId, long timestamp) =>
         Sign($"csweet-installation-retire\n{installationId:D}\n{timestamp}");
 
+    public string SignMember(Guid installationId, string subject, string role, string state, long revision, long timestamp) =>
+        Sign($"csweet-installation-member\n{installationId:D}\n{subject}\n{role}\n{state}\n{revision}\n{timestamp}");
+
+    public string SignRelay(Guid installationId, string relayOrigin, string routeId, string headquartersPin, long revision, long timestamp) =>
+        Sign($"csweet-installation-relay\n{installationId:D}\n{relayOrigin}\n{routeId}\n{headquartersPin}\n{revision}\n{timestamp}");
+
+    /// <summary>Signs relay attach challenges: the installation key doubles as this Headquarters' relay route key.</summary>
+    public string SignRelayAttach(string routeId, string nonce) => Sign($"csweet-relay-attach\n{routeId}\n{nonce}");
+
     private string Sign(string message) =>
         Base64Url.Encode(_key.SignData(Encoding.UTF8.GetBytes(message), HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
 

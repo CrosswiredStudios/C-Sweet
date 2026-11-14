@@ -21,6 +21,22 @@ namespace CSweet.UnitTests;
 public sealed class OverviewAttentionStateTests
 {
     [Fact]
+    public async Task BlockedWorkUpdatesTheSharedBadgeAndReconnectRecoversResolution()
+    {
+        await using var fixture = new Fixture();
+        fixture.Api.BlockedWork = [new(Guid.NewGuid(), Guid.NewGuid(), "Producer", "Director", "Resolve evidence",
+            "Accepted source is missing", 2, true, "/work")];
+        await fixture.State.InitializeAsync();
+        Assert.Equal(6, fixture.State.PendingCount);
+        fixture.Api.BlockedWork = [];
+        fixture.Publish(fixture.OrganizationId, AppRealtimeEvents.WorkBoardChanged);
+        Assert.Equal(5, fixture.State.PendingCount);
+        fixture.Api.BlockedWork = [new(Guid.NewGuid(), Guid.NewGuid(), "Engineer", "Producer", "Review execution",
+            "Provider unavailable", 1, false, "/work")];
+        fixture.Reconnect(); Assert.Equal(6, fixture.State.PendingCount);
+    }
+
+    [Fact]
     public async Task CountsAllFiveQueuesAndExcludesCompletedInaccessibleAndExpiredItems()
     {
         await using var fixture = new Fixture();
@@ -55,6 +71,7 @@ public sealed class OverviewAttentionStateTests
     [InlineData(AppRealtimeEvents.SuggestionsChanged)]
     [InlineData(AppRealtimeEvents.ProjectImportChanged)]
     [InlineData(CommunicationEvents.DecisionUpdated)]
+    [InlineData(AppRealtimeEvents.WorkBoardChanged)]
     public async Task RealtimeChangesRefreshOnlyTheFocusedBusinessAndReconnectRecoversMissedChanges(string eventType)
     {
         await using var fixture = new Fixture();
@@ -203,6 +220,7 @@ public sealed class OverviewAttentionStateTests
         };
         public HiringBacklogResponse Hiring { get; set; } = new([Hire("Pending", 1), Hire("Pending", 0), Hire("Completed", 1)]);
         public List<BusinessSuggestionResponse> Suggestions { get; set; } = [];
+        public List<BlockedWorkAttentionResponse> BlockedWork { get; set; } = [];
         public List<PendingAgentQuestionResponse> Questions { get; set; } = [Question("Pending"), Question("Answered")];
         public ComputeDashboard Compute { get; set; } = new(Now, null,
             [Resource(false, "Ready", "Running", Now.AddHours(1)), Resource(true, "Ready", "Running", Now.AddHours(1)),
@@ -219,6 +237,7 @@ public sealed class OverviewAttentionStateTests
                 if (++HiringReads == 1) { FirstToken = token; if (FirstHiringRead is not null) await FirstHiringRead(); }
                 if (HiringStatus != HttpStatusCode.OK) return new(HiringStatus);
             }
+            else if (path.EndsWith("/personal-todos/attention")) data = Empty ? new List<BlockedWorkAttentionResponse>() : BlockedWork;
             else if (path.EndsWith("/dashboard/suggestions")) data = Empty ? new List<BusinessSuggestionResponse>() : Suggestions;
             else if (path.EndsWith("/approvals")) data = Empty ? new ApprovalDashboardResponse(Guid.NewGuid(), 0, []) : Approvals;
             else if (path.EndsWith("/questions/pending")) data = Empty ? new List<PendingAgentQuestionResponse>() : Questions;

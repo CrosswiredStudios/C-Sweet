@@ -68,6 +68,7 @@
                             ComputeResources="ComputeAccessRequests" ComputeLoaded="@(_compute is not null)"
                             ComputeError="@_errors.GetValueOrDefault("compute")" ComputeHasMore="@(_compute is { CanManageNetwork: true, HasMore: true })"
                             ApprovalError="@_errors.GetValueOrDefault("approvals")" RecommendationError="@_errors.GetValueOrDefault("hiring")"
+                            BlockedWork="@(_blockedWork ?? [])" BlockedWorkLoaded="@(_blockedWork is not null)" BlockedWorkError="@_errors.GetValueOrDefault("blocked-work")"
                             RefreshRequested="RefreshAsync" DocumentOpened="OpenDocument" />
                     </EmployeePortraitScope>
                 }
@@ -191,6 +192,7 @@
     private ApprovalDashboardResponse? _approvals;
     private HiringBacklogResponse? _hiring;
     private ComputeDashboard? _compute;
+    private IReadOnlyList<BlockedWorkAttentionResponse>? _blockedWork;
     private CompanyDashboardResponse? _dashboard;
     private ProjectPortfolioResponse? _portfolio;
     private List<string> _order = DashboardWidgets.DefaultOrder.ToList();
@@ -226,6 +228,7 @@
         _documentReview = null;
         _suggestions = []; _importedProjects = [];
         _organization = null; _approvals = null; _hiring = null; _compute = null; _dashboard = null; _portfolio = null;
+        _blockedWork = null;
         _refreshQueued = false;
         _order = DashboardWidgets.DefaultOrder.ToList(); _layoutLoaded = false; _layoutMessage = null;
         await RefreshAsync();
@@ -241,6 +244,7 @@
         _loading = true; _errors.Clear();
         var prefix = $"api/core/organizations/{organizationId}";
         await Task.WhenAll(
+            LoadAsync<IReadOnlyList<BlockedWorkAttentionResponse>>($"api/organizations/{organizationId}/work/personal-todos/attention", "blocked-work", x => _blockedWork = x, token),
             LoadAsync<IReadOnlyList<ImportedProjectAttentionResponse>>($"{prefix}/dashboard/imported-projects", "imports", x => _importedProjects = x, token),
             LoadAsync<IReadOnlyList<BusinessSuggestionResponse>>($"{prefix}/dashboard/suggestions", "suggestions", x => _suggestions = x, token),
             LoadAsync<OrganizationResponse>($"api/organizations/{organizationId}", "organization", x => _organization = x, token),
@@ -314,7 +318,7 @@
     private void OnRealtimeEvent(AppRealtimeEventEnvelope envelope)
     {
         if (_disposed || envelope.OrganizationId != OrganizationId) return;
-        if (envelope.EventType is AppRealtimeEvents.SuggestionsChanged or AppRealtimeEvents.ProjectImportChanged or AppRealtimeEvents.ComputeChanged or AppRealtimeEvents.ProjectIncidentChanged or AppRealtimeEvents.ApprovalChanged or AppRealtimeEvents.HiringRecommendationsChanged or AppRealtimeEvents.EmployeeDirectoryChanged or CompanyReportingCapabilities.ReportChanged || Projects.IsProjectResourceEvent(envelope.EventType))
+        if (envelope.EventType is AppRealtimeEvents.SuggestionsChanged or AppRealtimeEvents.ProjectImportChanged or AppRealtimeEvents.ComputeChanged or AppRealtimeEvents.ProjectIncidentChanged or AppRealtimeEvents.ApprovalChanged or AppRealtimeEvents.HiringRecommendationsChanged or AppRealtimeEvents.EmployeeDirectoryChanged or AppRealtimeEvents.WorkBoardChanged or CompanyReportingCapabilities.ReportChanged || Projects.IsProjectResourceEvent(envelope.EventType))
             QueueRefresh();
     }
     private void QueueRefresh() => _ = InvokeAsync(async () =>

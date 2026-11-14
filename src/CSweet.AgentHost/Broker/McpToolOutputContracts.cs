@@ -33,6 +33,7 @@ internal static class McpToolOutputContracts
         [WorkSprintActions.Read] = typeof(IReadOnlyList<W.WorkSprint>),
         [W.WorkDeliveryCapabilities.Read] = typeof(IReadOnlyList<W.WorkDeliveryPlanResponse>),
         [W.WorkstreamCapabilityNames.GateReadV1] = typeof(IReadOnlyList<W.WorkstreamGateSummary>),
+        [W.WorkstreamCapabilityNames.CompleteDeliveryV1] = typeof(MutationResponse),
         [W.DecisionCapabilityNames.ReadV1] = typeof(IReadOnlyList<W.DecisionRecord>),
         [W.DeliveryEvidenceCapabilityNames.ToolchainCatalogReadV2] = typeof(IReadOnlyList<W.EligibleToolchainAdapter>),
         [W.DeliveryEvidenceCapabilityNames.BuildReadV2] = typeof(IReadOnlyList<W.DeliveryBuildV2>),

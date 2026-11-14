@@ -122,20 +122,49 @@ public sealed partial class WorkDeliveryService
 
     internal async Task ValidateCurrentScopeAsync(WorkDeliveryPlan plan, CancellationToken ct)
     {
-        foreach (var scope in Scopes(plan))
-        {
-            var board = await db.WorkBoards.AsNoTracking().SingleAsync(x => x.Id == scope.BoardId && x.OrganizationId == plan.OrganizationId, ct);
-            if (board.WorkstreamId != plan.WorkstreamId || board.ArchivedAt.HasValue) throw new InvalidOperationException("A participating board is no longer in this active project.");
-            if (scope.TicketWorkflow is null) throw new InvalidOperationException("Every execution must originate from a declared workflow ticket.");
-            await ValidateDeclaredTicketAsync(plan, scope, ct);
-            foreach (var id in scope.ChildDeliveryDigests.Keys)
-            {
-                var task = await db.CoreWorkTasks.AsNoTracking().SingleAsync(t => t.OrganizationId == plan.OrganizationId && t.Id == id, ct);
-                await ValidateTaskDeliveryAsync(plan, scope, task, ct);
-            }
-            await ValidateAssignmentsAsync(plan.OrganizationId, scope, ct);
+        await ValidatePlanAuthorityAsync(plan,ct);
+        foreach (var scope in Scopes(plan)) await ValidateScopeAsync(plan,scope,ct);
+        await ValidateBranchesAsync(plan.OrganizationId,Scopes(plan),Branches(plan),ct);
+    }
+
+    private async Task ValidateScopeAsync(WorkDeliveryPlan plan,WorkDeliveryScopeSnapshot scope,CancellationToken ct)
+    {
+        var board=await db.WorkBoards.AsNoTracking().SingleAsync(x=>x.Id==scope.BoardId&&x.OrganizationId==plan.OrganizationId,ct);
+        if(board.WorkstreamId!=plan.WorkstreamId||board.ArchivedAt.HasValue)throw new InvalidOperationException("A participating board is no longer in this active project.");
+        if(scope.TicketWorkflow is null)throw new InvalidOperationException("Every execution must originate from a declared workflow ticket.");
+        if(scope.TicketWorkflow.ProjectCompletionSource is {} source)
+            await WorkstreamDeliveryCompletionValidator.RequireCurrentSourceAsync(db,plan.OrganizationId,plan.WorkstreamId,source,ct);
+        await ValidateDeclaredTicketAsync(plan,scope,ct);
+        foreach(var id in scope.ChildDeliveryDigests.Keys) {
+            var task=await db.CoreWorkTasks.AsNoTracking().SingleAsync(t=>t.OrganizationId==plan.OrganizationId&&t.Id==id,ct);
+            await ValidateTaskDeliveryAsync(plan,scope,task,ct);
         }
-        await ValidateBranchesAsync(plan.OrganizationId, Scopes(plan), Branches(plan), ct);
+        await ValidateAssignmentsAsync(plan.OrganizationId,scope,ct);
+    }
+
+    // Local drift invalidates its consumers, not unrelated declared work. Shared
+    // branches and project authority are still validated at the plan boundary.
+    private async Task ValidateExecutionInputsAsync(WorkDeliveryPlan plan,WorkDeliveryScopeSnapshot scope,CancellationToken ct)
+    {
+        await ValidatePlanAuthorityAsync(plan,ct);
+        var scopes=Scopes(plan);var seen=new HashSet<Guid>();
+        async Task Visit(WorkDeliveryScopeSnapshot current) {
+            if(!seen.Add(current.TicketWorkflow!.TicketId))return;
+            await ValidateScopeAsync(plan,current,ct);
+            var dependencies=current.ChildIds.Concat(current.PredecessorItemIds).ToHashSet();
+            foreach(var dependency in scopes.Where(s=>dependencies.Contains(s.TicketWorkflow!.TicketId)))await Visit(dependency);
+        }
+        await Visit(scope);
+    }
+
+    private async Task ValidatePlanAuthorityAsync(WorkDeliveryPlan plan,CancellationToken ct)
+    {
+        if(!await db.Workstreams.AsNoTracking().AnyAsync(p=>p.Id==plan.WorkstreamId&&p.OrganizationId==plan.OrganizationId&&
+            (p.Status==WorkstreamStatus.Active||p.Status==WorkstreamStatus.Approved),ct)||
+            !await db.ProjectParticipants.AnyAsync(p=>p.OrganizationId==plan.OrganizationId&&p.WorkstreamId==plan.WorkstreamId&&
+                p.OrganizationUserId==plan.ManagerOrganizationUserId&&p.RemovedAt==null,ct))
+            throw new UnauthorizedAccessException("Delivery requires an active project and its currently participating delegated manager.");
+        await AuthorizeProjectAsync(plan.OrganizationId,plan.ManagerOrganizationUserId,plan.WorkstreamId,WorkDeliveryCapabilities.Control,ct);
     }
 
     private async Task ValidateTaskDeliveryAsync(WorkDeliveryPlan plan, WorkDeliveryScopeSnapshot story, WorkTask task, CancellationToken ct)
@@ -205,7 +234,15 @@ public sealed partial class WorkDeliveryService
                 var assignments = await db.WorkItemStageAssignments.AsNoTracking().Where(x => x.WorkItemId == id).ToListAsync(ct);
                 digests.Add(id, TaskDeliveryDigest(task, assignments));
             }
-            scopes[index] = scopes[index] with { ChildDeliveryDigests = digests };
+            var assignmentSnapshots = new List<WorkDeliveryTaskAssignment>();
+            foreach (var id in digests.Keys)
+            {
+                var task=await db.CoreWorkTasks.Include(t=>t.StageAssignments).SingleAsync(t=>t.Id==id,ct);
+                assignmentSnapshots.Add(new(id,TaskAssignments(task)));
+            }
+            var originals=await db.CoreWorkTasks.Include(t=>t.StageAssignments).Where(t=>digests.Keys.Contains(t.Id)).ToListAsync(ct);
+            scopes[index] = scopes[index] with { ChildDeliveryDigests = digests,ChildAssignments=assignmentSnapshots,
+                ChildInputs=originals.Select(t=>new WorkDeliveryOriginalInput(t.Id,t.DeliverySpecificationJson!,t.AccountableOrganizationUserId,TaskAssignments(t))).ToArray() };
         }
         plan.ScopesJson = Encode(scopes);
     }

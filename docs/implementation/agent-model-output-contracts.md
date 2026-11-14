@@ -40,6 +40,12 @@ The model did what it was told. The contract was wrong.
    since the blocked turn" over a rule that matches one error message.
 10. **Record the failing reply as a test.** Each incident adds the model's actual output as a
     fixture, run through the same validation the platform applies.
+11. **Select roles by name, never by position.** Supply named capability choices and let code
+    bind the selected choice to its canonical role and authority. Catalog reordering must not
+    change identity. Require a new assessment rather than replaying an older positional choice.
+12. **Approve the submitted object.** Distinguish an underlying justified need from approval
+    of the exact proposed package. Record required corrections explicitly; a package that needs
+    changes cannot be approved as submitted. Validate that relationship without guessing from prose.
 
 ## Review checklist for a prompt that requests JSON
 

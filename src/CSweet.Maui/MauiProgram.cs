@@ -1,3 +1,4 @@
+using CSweet.UI.Mobile;
 using CSweet.UI.Services;
 using Microsoft.Extensions.Logging;
 using MudBlazor.Services;
@@ -17,15 +18,18 @@ public static class MauiProgram
             });
 
         builder.Services.AddMauiBlazorWebView();
-        builder.Services.AddScoped<AntiforgeryHandler>();
-        builder.Services.AddScoped(sp =>
-        {
-            var handler = sp.GetRequiredService<AntiforgeryHandler>();
-            handler.InnerHandler = new HttpClientHandler { UseCookies = true };
-            return new HttpClient(handler) { BaseAddress = new Uri(ApiBaseUrl) };
-        });
+
+        // Headquarters pages reach their Headquarters through the phone tunnel (H4). Until a phone is connected the
+        // enterprise router is not shown, so the API clients get a client with no address.
+        builder.Services.AddScoped(_ => new HttpClient());
         builder.Services.AddCSweetApiClients();
         builder.Services.AddMudServices();
+
+        // Sign in with C-Sweet and My Headquarters (H3).
+        builder.Services.AddSingleton<IBrowserAuthenticator, MauiBrowserAuthenticator>();
+        builder.Services.AddSingleton<ISecureValueStore, MauiSecureValueStore>();
+        builder.Services.AddSingleton<IHeadquartersConnector, MauiHeadquartersConnector>();
+        builder.Services.AddCSweetMobileShell(AccountOptions());
 
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();
@@ -35,9 +39,11 @@ public static class MauiProgram
         return builder.Build();
     }
 
-#if ANDROID
-    private const string ApiBaseUrl = "http://10.0.2.2:5149/";
+    private static MobileAccountOptions AccountOptions() =>
+#if DEBUG
+        // The local Aspire Market. On Android run `adb reverse tcp:5163 tcp:5163` so the phone's localhost reaches it.
+        new() { Issuer = new Uri("http://localhost:5163/"), AllowHttpIssuer = true };
 #else
-    private const string ApiBaseUrl = "http://localhost:5149/";
+        new();
 #endif
 }

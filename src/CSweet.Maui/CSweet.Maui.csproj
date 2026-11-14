@@ -76,6 +76,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\CSweet.UI\CSweet.UI.csproj" />
+        <ProjectReference Include="..\CSweet.Mobile.Transport\CSweet.Mobile.Transport.csproj" />
     </ItemGroup>
 
 </Project>

@@ -667,7 +667,17 @@ public sealed partial class WorkOrchestrationService(
                 }
             }
         }
-        return new(errors.Count == 0, boardId, sprintId, policy.Id, errors);
+        return new(errors.Count == 0, boardId, sprintId, policy.Id, errors.Select(error=>error with {
+            OwnerOrganizationUserId=board.ManagerOrganizationUserId,
+            NextAction=error.Code switch {
+                "assignment.eligibility" or "assignment.agent" or "assignment.missing" or "assignment.member" => "reassess-staffing",
+                "item.delivery_plan" => "reconcile-approved-inputs",
+                "item.delivery_not_finalized" => "finalize-delivery",
+                "item.approval_pending" => "resolve-approval",
+                "item.dependency" => "complete-or-resequence-dependency",
+                _ => "reassess-sprint"
+            }
+        }).ToArray());
     }
 
     private static string? AssignmentRole(string? requirementsJson)
@@ -886,7 +896,7 @@ public sealed partial class WorkOrchestrationService(
         catch (JsonException) { return false; }
     }
 
-    private async Task<string?> ValidateAssignmentEvidenceAsync(
+    internal async Task<string?> ValidateAssignmentEvidenceAsync(
         Guid organizationId,
         WorkBoard board,
         WorkItemStageAssignment assignment,
@@ -920,17 +930,33 @@ public sealed partial class WorkOrchestrationService(
         var profileDigest = await db.Workstreams.AsNoTracking().Where(x =>
                 x.Id == board.WorkstreamId && x.OrganizationId == organizationId)
             .Select(x => x.ProfileDefinitionDigest).SingleOrDefaultAsync(cancellationToken);
-        if (selection.TeamRosterRevision != teamRevision ||
+        // Selection records the historical staffing decision. A later unrelated hire is
+        // not a revocation: revalidate the exact selected principal and policy below.
+        if (teamRevision is null || selection.TeamRosterRevision > teamRevision ||
             !string.Equals(selection.ProfileDefinitionDigest, profileDigest, StringComparison.Ordinal))
             return "Assignment selection is stale relative to the current team roster or pinned profile.";
         var employee = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
-            x.OrganizationId == organizationId && x.AgentInstallationId == installation.Id && x.IsActive,
+            x.OrganizationId == organizationId && x.AgentInstallationId == installation.Id && x.IsActive && x.ArchivedAt==null,
             cancellationToken);
         if (employee is null || !await db.TeamMemberships.AsNoTracking().AnyAsync(x =>
                 x.TeamId == board.TeamId && x.OrganizationUserId == employee.Id && x.EndedAt == null,
                 cancellationToken))
             return "Assigned installation is not an active member of the board team.";
-        return ValidateManifestAssignmentPolicy(installation.PackageVersion!.ManifestJson, requirements, selection);
+        var policyError = ValidateManifestAssignmentPolicy(installation.PackageVersion!.ManifestJson, requirements, selection);
+        if (policyError is not null) return policyError;
+        using var manifest = JsonDocument.Parse(installation.PackageVersion.ManifestJson);
+        var provided = manifest.RootElement.TryGetProperty("provides", out var capabilities)
+            ? capabilities.EnumerateArray().Select(c => c.GetProperty("name").GetString()).ToHashSet(StringComparer.Ordinal) : [];
+        var grant = await db.AgentInstallationGrants.AsNoTracking().SingleOrDefaultAsync(g => g.AgentInstallationId == installation.Id, cancellationToken);
+        var granted = grant is null ? [] : JsonSerializer.Deserialize<string[]>(grant.RequiredCapabilitiesJson, JsonOptions) ?? [];
+        var approvedProvided=grant is null?[]:JsonSerializer.Deserialize<string[]>(grant.ProvidedCapabilitiesJson,JsonOptions)??[];
+        provided.IntersectWith(approvedProvided);
+        var requested=manifest.RootElement.TryGetProperty("requires",out var requires)
+            ?requires.EnumerateArray().Select(c=>c.GetProperty("name").GetString()).ToHashSet(StringComparer.Ordinal):[];
+        granted=granted.Where(requested.Contains).ToArray();
+        if (requirements.RequiredCapabilityKeys.Any(c => !provided.Contains(c) && !granted.Contains(c, StringComparer.Ordinal)))
+            return "Assigned installation no longer has every required execution capability.";
+        return null;
     }
 
     internal static string? ValidateManifestAssignmentPolicy(string manifestJson,

@@ -23,6 +23,7 @@
     <Project Path="src/CSweet.ExecutionGateway/CSweet.ExecutionGateway.csproj" />
     <Project Path="src/CSweet.GitHost/CSweet.GitHost.csproj" />
     <Project Path="src/CSweet.HostedAccount/CSweet.HostedAccount.csproj" />
+    <Project Path="src/CSweet.Mobile.Transport/CSweet.Mobile.Transport.csproj" />
     <Project Path="src/CSweet.Infrastructure/CSweet.Infrastructure.csproj" />
     <Project Path="src/CSweet.Migrator/CSweet.Migrator.csproj" />
     <Project Path="src/CSweet.Maui/CSweet.Maui.csproj" />
@@ -37,6 +38,7 @@
     <Project Path="tests/CSweet.RemoteMcp.Tests/CSweet.RemoteMcp.Tests.csproj" />
     <Project Path="tests/CSweet.Compute.GuestFixture/CSweet.Compute.GuestFixture.csproj" />
     <Project Path="tests/CSweet.HostedAccount.Tests/CSweet.HostedAccount.Tests.csproj" />
+    <Project Path="tests/CSweet.Mobile.Transport.Tests/CSweet.Mobile.Transport.Tests.csproj" />
     <Project Path="tests/CSweet.IntegrationTests/CSweet.IntegrationTests.csproj" />
     <Project Path="tests/CSweet.UnitTests/CSweet.UnitTests.csproj" />
   </Folder>

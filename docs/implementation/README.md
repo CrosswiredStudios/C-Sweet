@@ -20,8 +20,15 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+[Agent CI dependency fallback](agent-ci-dependency-fallback.md) maps exact-version
+NuGet resolution, reviewed SDK/contracts source commits, temporary package feeds,
+workflow coverage and dependency provenance across standalone agent repositories.
+
 [Live run analysis playbook](live-run-analysis-playbook.md) covers API access, read endpoints,
 the symptom-to-source procedure and the metrics to record for a company run in progress.
+
+[Overview work recovery](features/work-management/overview-work-attention.md) maps canonical blocked-work
+cards, authorized retry choices, owner pause semantics, named staffing choices and exact-package review.
 
 [Model output contracts](agent-model-output-contracts.md) lists the rules and review checklist
 for agent steps that submit model-produced JSON to the platform.
@@ -93,6 +100,12 @@ verified Sweet Sweet Games rollout.
 
 [Adaptive game planning](adaptive-game-planning.md) proposes earlier Epic publication,
 staffing based on upcoming work, sprint reviews, and a comparative Breakout pilot.
+
+[Planning through project completion](planning-to-project-completion.md) maps the current
+cross-agent lifecycle, identifies handoff gaps, and defines the coordinated implementation
+and acceptance plan from approved brief through successor sprints and final release.
+Its [three code journeys](planning-lifecycle-code-trace.md) record the follow-up source
+trace, representative specialist audit, revised recommendations and remaining runtime proof.
 
 [Delegation with tracking](features/delegation-with-tracking.md) describes instruction publication,
 canonical work, coordinator reporting, subscriptions, recovery and the future continuity boundary.

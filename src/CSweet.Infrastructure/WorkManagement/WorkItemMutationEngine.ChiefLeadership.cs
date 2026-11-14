@@ -39,8 +39,10 @@ public sealed partial class WorkItemMutationEngine
         var blockReason = status == WorkTaskStatus.Blocked ? assessment.BlockCode + ": " + assessment.Rationale : null;
         if (status == WorkTaskStatus.Ready && executionBlock is not null)
         {
-            status = WorkTaskStatus.Blocked;
-            blockReason = executionBlock;
+            // An owner pause withholds scheduling; it is not an execution failure or
+            // a request for intervention. Reprojection also repairs older paused
+            // cards without resuming the agenda or discarding its assessment.
+            status = WorkTaskStatus.Backlog;
         }
         var reason = assessment.ExecutionStatus is "WaitingHire" or "WaitingDecision" ? assessment.Rationale : null;
         if (card.Status == status && card.WaitingReason == reason && card.ResultSummary == assessment.Rationale && card.BlockReason == blockReason) return;

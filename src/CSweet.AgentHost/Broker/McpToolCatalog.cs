@@ -130,6 +130,7 @@ public sealed class McpToolCatalog(
             "Propose a profile-bound Workstream, accountable manager, authority envelope, milestones, and gates."),
         Approval(W.WorkstreamCapabilityNames.ChangeProposeV1, "propose_workstream_change",
             "Propose an optimistic-concurrency Workstream change bound to its current profile digest."),
+        HiddenWrite(W.WorkstreamCapabilityNames.CompleteDeliveryV1,"record_verified_project_delivery","Record project completion against explicit accepted final-product evidence. Grants no scope change or public-launch authority."),
         Read(W.WorkstreamCapabilityNames.GateReadV1, "read_workstream_gates",
             "Read lifecycle gates for a visible Workstream."),
         Write(W.WorkstreamCapabilityNames.GateSubmitV1, "submit_workstream_gate",
@@ -634,6 +635,7 @@ public sealed class McpToolCatalog(
         return capability switch
         {
         ResourceCapabilities.Request => ContractToolSchema.Create(typeof(ResourceRequest)),
+        W.WorkstreamCapabilityNames.CompleteDeliveryV1 => ContractToolSchema.Create(typeof(W.CompleteWorkstreamDeliveryRequest)),
         ResourceCapabilities.Read => ContractToolSchema.Create(typeof(ResourceRead)),
         ResourceCapabilities.Decide => ContractToolSchema.Create(typeof(ResourceDecision)),
         ProjectApprovalGovernance.ReadCapability => Schema("""

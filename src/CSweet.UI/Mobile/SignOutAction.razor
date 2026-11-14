@@ -1,0 +1,27 @@
+@namespace CSweet.UI.Mobile
+@inject MobileSessionCoordinator Session
+@inject IAppLocalizer L
+
+@if (!_confirming)
+{
+    <button type="button" class="mobile-link" @onclick="() => _confirming = true">@L["Mobile.SignOut.Action"]</button>
+}
+else
+{
+    <div class="mobile-confirm" role="alertdialog" aria-labelledby="mobile-signout-title" aria-describedby="mobile-signout-body">
+        <h2 id="mobile-signout-title">@L["Mobile.SignOut.Action"]</h2>
+        <p id="mobile-signout-body">@L["Mobile.SignOut.Explain"]</p>
+        <button type="button" class="mobile-danger" @onclick="SignOutAsync">@L["Mobile.SignOut.Confirm"]</button>
+        <button type="button" class="mobile-secondary" @onclick="() => _confirming = false">@L["Mobile.SignOut.Cancel"]</button>
+    </div>
+}
+
+@code {
+    private bool _confirming;
+
+    private async Task SignOutAsync()
+    {
+        _confirming = false;
+        await Session.SignOutAsync();
+    }
+}

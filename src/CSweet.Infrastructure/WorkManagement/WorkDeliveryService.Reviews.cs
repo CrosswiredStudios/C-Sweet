@@ -33,7 +33,7 @@ public sealed partial class WorkDeliveryService
         ValidateCriteria(scope.Planning.AcceptanceCriteria, request.Result.Approved, request.Result.Summary, request.Result.Criteria, request.Result.Findings);
         if (Handler(scope,stage.StageKey) == "quality") ValidateQualityEvidence(Candidate(execution)!, request.Result);
         if (Handler(scope,stage.StageKey) is "build-readiness" or "compute-test") await ValidateReadinessAsync(plan, execution, stage, request.Result, ct);
-        await ValidateCurrentScopeAsync(plan, ct); await RequireCandidateCurrentAsync(plan, execution, ct);
+        await ValidateExecutionInputsAsync(plan,scope,ct); await RequireCandidateCurrentAsync(plan, execution, ct);
         stage.Status = WorkStageExecutionStatus.Completed; stage.LastOutcomeCode = request.Result.Approved ? "approved" : "changes_requested";
         stage.LastSummary = Encode(request.Result); stage.CompletedAt = clock.GetUtcNow(); stage.UpdatedAt = clock.GetUtcNow();
         RecordHumanReview(stage, request.Result);

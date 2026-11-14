@@ -249,6 +249,7 @@ public sealed class CompanyDashboardRealtimeTests
                         "Pending", null, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)
                     { RemainingHeadcount = 1, HiringUrl = "/marketplace" }).ToArray());
             }
+            else if (path.EndsWith("/personal-todos/attention")) result = Array.Empty<BlockedWorkAttentionResponse>();
             else if (path.EndsWith("/dashboard/layout")) result = new DashboardLayoutRequest(DashboardWidgets.DefaultOrder);
             else if (path.EndsWith("/compute"))
             {

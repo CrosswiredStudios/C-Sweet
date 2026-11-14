@@ -16,6 +16,8 @@ public sealed class InstallationLink
     public string ProtectedInstallationKey { get; set; } = string.Empty;
     public Guid LinkedByApplicationUserId { get; set; }
     public DateTimeOffset LinkedAt { get; set; }
+    /// <summary>ECDSA P-256 private key (PKCS#8) for the phone-facing TLS identity (H4), protected with Data Protection. Phones pin its public key.</summary>
+    public string? ProtectedTlsKey { get; set; }
     public InstallationLinkState State { get; set; }
     public long Revision { get; set; } = 1;
 }

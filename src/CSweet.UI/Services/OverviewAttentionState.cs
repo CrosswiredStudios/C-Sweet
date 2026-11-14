@@ -18,9 +18,10 @@ public sealed class OverviewAttentionState(HttpClient http, IBusinessContext bus
     private IReadOnlyList<PendingAgentQuestionResponse>? _questions;
     private ComputeDashboard? _compute;
     private IReadOnlyList<BusinessSuggestionResponse>? _suggestions;
+    private IReadOnlyList<BlockedWorkAttentionResponse>? _blockedWork;
 
     public Guid? OrganizationId { get; private set; }
-    public int PendingCount => OverviewAttentionItems.Count(_approvals, _hiring, _questions, _compute) + (_suggestions?.Count(x => x.Status == "Pending") ?? 0);
+    public int PendingCount => OverviewAttentionItems.Count(_approvals, _hiring, _questions, _compute, _blockedWork) + (_suggestions?.Count(x => x.Status == "Pending") ?? 0);
     public bool HasMore => _compute is { CanManageNetwork: true, HasMore: true };
     public event Action? Changed;
 
@@ -47,6 +48,7 @@ public sealed class OverviewAttentionState(HttpClient http, IBusinessContext bus
             _refreshQueued = false;
             OrganizationId = organizationId;
             _approvals = null; _hiring = null; _questions = null; _compute = null; _suggestions = null;
+            _blockedWork = null;
             Changed?.Invoke();
         }
         if (!organizationId.HasValue) return;
@@ -64,6 +66,7 @@ public sealed class OverviewAttentionState(HttpClient http, IBusinessContext bus
                 _refreshQueued = false;
                 var prefix = $"api/core/organizations/{organizationId:D}";
                 await Task.WhenAll(
+                    ReadAsync<List<BlockedWorkAttentionResponse>>($"api/organizations/{organizationId:D}/work/personal-todos/attention", x => _blockedWork = x),
                     ReadAsync<List<BusinessSuggestionResponse>>($"{prefix}/dashboard/suggestions", x => _suggestions = x),
                     ReadAsync<ApprovalDashboardResponse>($"{prefix}/approvals", x => _approvals = x),
                     ReadAsync<HiringBacklogResponse>($"{prefix}/dashboard/hiring", x => _hiring = x),
@@ -102,7 +105,8 @@ public sealed class OverviewAttentionState(HttpClient http, IBusinessContext bus
     {
         if (envelope.OrganizationId == businesses.SelectedBusiness?.Id &&
             envelope.EventType is AppRealtimeEvents.SuggestionsChanged or AppRealtimeEvents.ProjectImportChanged or AppRealtimeEvents.ApprovalChanged or AppRealtimeEvents.HiringRecommendationsChanged or
-                AppRealtimeEvents.ProjectIncidentChanged or AppRealtimeEvents.ComputeChanged or CommunicationEvents.DecisionUpdated)
+                AppRealtimeEvents.ProjectIncidentChanged or AppRealtimeEvents.ComputeChanged or CommunicationEvents.DecisionUpdated or
+                AppRealtimeEvents.WorkBoardChanged)
             _ = ReloadAsync();
     }
 

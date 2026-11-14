@@ -112,7 +112,7 @@ public sealed class HostedSetupCoordinatorTests
         return new(new HostedAccountClient(new HttpClient(issuer), Options.Create(new HostedAccountOptions { Issuer = HostedAccountClientTests.Issuer }), _time), _time);
     }
 
-    private sealed class ManualTime(DateTimeOffset now) : TimeProvider
+    internal sealed class ManualTime(DateTimeOffset now) : TimeProvider
     {
         private DateTimeOffset _now = now;
         public override DateTimeOffset GetUtcNow() => _now;

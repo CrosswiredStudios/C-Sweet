@@ -112,14 +112,22 @@ public sealed partial class UserActionServiceTests
     }
 
     [Fact]
-    public async Task ChiefOwnerPauseBlocksReadyCardAndResumeClearsOnlyItsExecutionBlock()
+    public async Task ChiefOwnerPauseUnschedulesReadyCardAndResumeRetainsItsAssessment()
     {
         await using var db = CreateDb(); var f = await LeadershipFixtureAsync(db);
         var state = await SelectedLeadershipAsync(db, f); var row = state.Assessments.Single(x => x.ExecutionStatus == "Ready");
         var pause = await OwnerLeadershipTurnAsync(db, f, "Pause proactive leadership");
         await Leadership(db).ControlAsync(f.Organization, f.Installation, new(pause, true, state.FocusRevision, "pause"));
         var card = await db.CoreWorkTasks.SingleAsync(x => x.Id == row.WorkItemId);
-        Assert.Equal(WorkTaskStatus.Blocked, card.Status); Assert.Contains("paused by the owner", card.BlockReason);
+        Assert.Equal(WorkTaskStatus.Backlog, card.Status); Assert.Null(card.BlockReason);
+        Assert.Equal("Ready", (await db.ChiefCoverageRecords.SingleAsync(x => x.Id == row.Id)).ExecutionStatus);
+        // A normal reconnect repairs the old projection while preserving the pause.
+        card.Status = WorkTaskStatus.Blocked;
+        card.BlockReason = "Proactive leadership is paused by the owner.";
+        await db.SaveChangesAsync();
+        var paused = await Leadership(db).ReadAsync(f.Organization, f.Installation, new());
+        Assert.True(paused.Paused); Assert.Null(paused.NextAssessmentId);
+        Assert.Equal(WorkTaskStatus.Backlog, card.Status); Assert.Null(card.BlockReason);
         var resume = await OwnerLeadershipTurnAsync(db, f, "Resume proactive leadership");
         await Leadership(db).ControlAsync(f.Organization, f.Installation, new(resume, false, state.FocusRevision, "resume"));
         Assert.Equal(WorkTaskStatus.Ready, card.Status); Assert.Null(card.BlockReason);

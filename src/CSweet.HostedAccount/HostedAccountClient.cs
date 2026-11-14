@@ -26,6 +26,11 @@ public sealed record DevicePollResult(DevicePollStatus Status, HostedIdentity? I
 
 public sealed record InstallationRegistration(Guid InstallationId, string DisplayName);
 
+public enum MemberPublicationStatus { Applied, Stale, InstallationRetired, UnknownAccount }
+
+/// <summary>Outcome of one directory publication. <see cref="MarketRevision"/> is the revision C-Sweet now holds for the person.</summary>
+public sealed record MemberPublicationResult(MemberPublicationStatus Status, long MarketRevision, string? MarketState);
+
 public sealed class HostedAccountException(string code, string message) : Exception(message)
 {
     public string Code { get; } = code;
@@ -142,6 +147,52 @@ public sealed class HostedAccountClient(HttpClient http, IOptions<HostedAccountO
             throw new HostedAccountException("retire_failed", "C-Sweet did not accept the request to disconnect.");
     }
 
+    /// <summary>
+    /// IL-06/IL-12: tell C-Sweet whether this account may use this Headquarters. Signed with the installation key;
+    /// C-Sweet keeps only the highest revision, so retries and late deliveries are harmless.
+    /// </summary>
+    public async Task<MemberPublicationResult> PublishMemberAsync(Guid installationId, InstallationKey key, string subject, string role,
+        string state, long revision, CancellationToken ct = default)
+    {
+        var timestamp = time.GetUtcNow().ToUnixTimeSeconds();
+        var uri = new Uri(options.Value.IssuerUri, $"api/installations/{installationId:D}/members/{Uri.EscapeDataString(subject)}");
+        using var response = await http.PutAsJsonAsync(uri,
+            new { role, state, revision, timestamp, signature = key.SignMember(installationId, subject, role, state, revision, timestamp) }, ct);
+        if (response.IsSuccessStatusCode)
+        {
+            var body = await ReadAsync<MemberResponse>(response, ct)
+                ?? throw new HostedAccountException("publish_failed", "C-Sweet returned an unreadable directory response.");
+            return new MemberPublicationResult(body.Applied ? MemberPublicationStatus.Applied : MemberPublicationStatus.Stale, body.Revision, body.State);
+        }
+
+        var code = (await ReadAsync<ProblemResponse>(response, ct))?.ErrorCode;
+        return (response.StatusCode, code) switch
+        {
+            (HttpStatusCode.Conflict, "installation_retired") => new MemberPublicationResult(MemberPublicationStatus.InstallationRetired, 0, null),
+            (HttpStatusCode.NotFound, "unknown_account") => new MemberPublicationResult(MemberPublicationStatus.UnknownAccount, 0, null),
+            _ => throw new HostedAccountException(code ?? "publish_failed", $"C-Sweet did not accept the directory update ({(int)response.StatusCode}).")
+        };
+    }
+
+    /// <summary>
+    /// H4: tell C-Sweet where phones reach this Headquarters (relay origin, route, inner TLS pin). Returns false when
+    /// C-Sweet already holds the same or a newer revision.
+    /// </summary>
+    public async Task<bool> PublishRelayAsync(Guid installationId, InstallationKey key, Uri relayOrigin, string routeId, string headquartersPin,
+        long revision, CancellationToken ct = default)
+    {
+        var timestamp = time.GetUtcNow().ToUnixTimeSeconds();
+        var origin = relayOrigin.AbsoluteUri;
+        using var response = await http.PutAsJsonAsync(new Uri(options.Value.IssuerUri, $"api/installations/{installationId:D}/relay"),
+            new { relayOrigin = origin, routeId, headquartersPin, revision, timestamp, signature = key.SignRelay(installationId, origin, routeId, headquartersPin, revision, timestamp) }, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var code = (await ReadAsync<ProblemResponse>(response, ct))?.ErrorCode;
+            throw new HostedAccountException(code ?? "relay_publish_failed", $"C-Sweet did not accept the relay binding ({(int)response.StatusCode}).");
+        }
+        return (await ReadAsync<RelayResponse>(response, ct))?.Applied ?? false;
+    }
+
     private async Task<Discovery> DiscoverAsync(CancellationToken ct)
     {
         if (_discovery is not null && time.GetUtcNow() < _discoveryExpires) return _discovery;
@@ -186,6 +237,12 @@ public sealed class HostedAccountClient(HttpClient http, IOptions<HostedAccountO
         catch (JsonException) { return default; }
         catch (NotSupportedException) { return default; }
     }
+
+    private sealed record MemberResponse(long Revision, string? State, bool Applied);
+
+    private sealed record ProblemResponse(string? ErrorCode);
+
+    private sealed record RelayResponse(long Revision, bool Applied);
 
     private sealed record Discovery(string Issuer, Uri DeviceAuthorizationEndpoint, Uri TokenEndpoint, IList<SecurityKey> SigningKeys);
 

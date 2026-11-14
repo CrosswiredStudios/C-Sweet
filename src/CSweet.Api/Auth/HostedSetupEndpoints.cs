@@ -51,7 +51,7 @@ public static class HostedSetupEndpoints
         });
 
         group.MapPost("/complete", async (CompleteHostedSetupRequest request, HttpContext http, IAuthenticationService auth,
-            IOptions<HostedAccountOptions> options, HostedSetupCoordinator setup, CancellationToken ct) =>
+            IOptions<HostedAccountOptions> options, HostedSetupCoordinator setup, DirectoryPublicationSignal directory, CancellationToken ct) =>
         {
             if (!await IsAvailableAsync(auth, options.Value, ct)) return Results.NotFound();
             if (!http.Request.Cookies.TryGetValue(CookieName, out var attemptId) || setup.GetApproval(attemptId) is not { } approval)
@@ -71,6 +71,7 @@ public static class HostedSetupEndpoints
             {
                 setup.Remove(attemptId);
                 http.Response.Cookies.Delete(CookieName, new CookieOptions { Path = CookiePath });
+                directory.Notify(); // publish the owner to "My Headquarters" now rather than on the next timer
             }
             return AuthenticationEndpoints.ToResult(result, StatusCodes.Status201Created);
         }).RequireRateLimiting(AgentRateLimiting.AuthPolicy);

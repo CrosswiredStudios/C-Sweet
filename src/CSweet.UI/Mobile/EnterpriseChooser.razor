@@ -1,0 +1,89 @@
+@namespace CSweet.UI.Mobile
+@inject MobileSessionCoordinator Session
+@inject IAppLocalizer L
+
+<main class="mobile-page mobile-chooser" aria-labelledby="mobile-chooser-title">
+    <header class="mobile-sheet-header">
+        <div>
+            <h1 id="mobile-chooser-title">@L["Mobile.Chooser.Title"]</h1>
+            @if (Session.AccountEmail is { } email)
+            {
+                <p class="mobile-account">@email</p>
+            }
+        </div>
+        @if (Session.ActiveProfile is not null)
+        {
+            <button type="button" class="mobile-close" aria-label="@L["Mobile.Chooser.Close"]" @onclick="Session.CloseChooser">×</button>
+        }
+    </header>
+
+    @if (Session.Profiles.Count > SearchThreshold)
+    {
+        <label class="mobile-search">
+            <span class="mobile-visually-hidden">@L["Mobile.Chooser.Search"]</span>
+            <input type="search" placeholder="@L["Mobile.Chooser.Search"]" @bind="_search" @bind:event="oninput" />
+        </label>
+    }
+
+    @if (Session.Notice == MobileShellNotice.DirectoryUnavailable)
+    {
+        <div class="mobile-notice" role="alert">
+            <p>@L["Mobile.Chooser.Unavailable"]</p>
+            <button type="button" class="mobile-link" disabled="@Session.Busy" @onclick="Refresh">@L["Mobile.Chooser.Retry"]</button>
+        </div>
+    }
+
+    @if (Session.Profiles.Count == 0)
+    {
+        @if (Session.Busy)
+        {
+            <p class="mobile-status" role="status">@L["Mobile.Chooser.Loading"]</p>
+        }
+        else if (Session.Notice != MobileShellNotice.DirectoryUnavailable)
+        {
+            <section class="mobile-empty" aria-labelledby="mobile-empty-title">
+                <h2 id="mobile-empty-title">@L["Mobile.Chooser.Empty.Title"]</h2>
+                <p>@L["Mobile.Chooser.Empty.Body"]</p>
+            </section>
+        }
+    }
+    else
+    {
+        <ul class="mobile-list">
+            @foreach (var profile in Visible)
+            {
+                var current = profile.ProfileId == Session.ActiveProfile?.ProfileId;
+                <li>
+                    <button type="button" class="mobile-row" aria-current="@(current ? "true" : null)"
+                            aria-label="@(current ? L.Format("Mobile.Chooser.Current", new { name = profile.DisplayName }) : null)"
+                            @onclick="() => Session.SelectAsync(profile.ProfileId)">
+                        <span class="mobile-check" aria-hidden="true">@(current ? "✓" : "")</span>
+                        <span class="mobile-row-text">
+                            <span class="mobile-row-name">@profile.DisplayName</span>
+                            <span class="mobile-row-detail">@MobileText.Detail(L, profile)</span>
+                        </span>
+                    </button>
+                </li>
+            }
+        </ul>
+    }
+
+    <div class="mobile-actions">
+        @if (Session.Profiles.Count > 0 || Session.Notice != MobileShellNotice.DirectoryUnavailable)
+        {
+            <button type="button" class="mobile-secondary" disabled="@Session.Busy" @onclick="Refresh">@L["Mobile.Chooser.Refresh"]</button>
+        }
+        <SignOutAction />
+    </div>
+</main>
+
+@code {
+    private const int SearchThreshold = 5;
+    private string _search = string.Empty;
+
+    private IEnumerable<EnterpriseProfile> Visible => string.IsNullOrWhiteSpace(_search)
+        ? Session.Profiles
+        : Session.Profiles.Where(x => x.DisplayName.Contains(_search.Trim(), StringComparison.CurrentCultureIgnoreCase));
+
+    private Task Refresh() => Session.RefreshDirectoryAsync();
+}

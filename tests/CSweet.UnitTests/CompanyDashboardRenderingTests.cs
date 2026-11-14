@@ -15,6 +15,29 @@ namespace CSweet.UnitTests;
 
 public sealed class CompanyDashboardRenderingTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task BlockedWorkHasAnOverviewCardWithOnlyAuthorizedRecoveryChoices(bool canRetry)
+    {
+        var item = new BlockedWorkAttentionResponse(Guid.NewGuid(), Guid.NewGuid(), "Gabriel", "Marcus",
+            "Reconcile planning evidence", "The accepted source is unavailable.", 3, canRetry, "/affected-work");
+        var html = await Render(false, blockedWork: [item]);
+        Assert.Contains(item.Title, html); Assert.Contains(item.Reason, html);
+        Assert.Contains("Open affected work", html); Assert.Contains("/affected-work", html);
+        Assert.Equal(canRetry, html.Contains("Retry after review"));
+        Assert.DoesNotContain("Nothing needs your attention", html);
+        Assert.Contains("1 pending", html);
+    }
+
+    [Fact]
+    public async Task FailedBlockedWorkReadCannotClaimNothingNeedsAttention()
+    {
+        var html = await Render(false, failBlockedWork: true);
+        Assert.Contains("This information could not be loaded", html);
+        Assert.DoesNotContain("Nothing needs your attention", html);
+    }
+
     [Fact]
     public async Task RoutineManagerReportsRemainVisibleWithoutRequestingOwnerAttention()
     {
@@ -277,12 +300,13 @@ public sealed class CompanyDashboardRenderingTests
     private static async Task<string> Render(bool populated, bool failReports = false,
         IReadOnlyList<ApprovalDashboardItemResponse>? approvals = null, IReadOnlyList<HiringRecommendationResponse>? recommendations = null,
         bool failApprovals = false, bool failHiring = false, ComputeDashboard? compute = null, bool failCompute = false,
-        IReadOnlyList<ProjectIncidentAttentionResponse>? incidents = null)
+        IReadOnlyList<ProjectIncidentAttentionResponse>? incidents = null,
+        IReadOnlyList<BlockedWorkAttentionResponse>? blockedWork = null, bool failBlockedWork = false)
     {
         var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
         services.AddCSweetApiClients();
         services.AddSingleton<IJSRuntime, NoJavaScript>(); services.AddSingleton<NavigationManager, TestNavigation>();
-        services.AddSingleton(new HttpClient(new Handler(populated, failReports, approvals, recommendations, failApprovals, failHiring, compute, failCompute, incidents)) { BaseAddress = new Uri("http://localhost") });
+        services.AddSingleton(new HttpClient(new Handler(populated, failReports, approvals, recommendations, failApprovals, failHiring, compute, failCompute, incidents, blockedWork, failBlockedWork)) { BaseAddress = new Uri("http://localhost") });
         services.AddScoped<AppRealtimeState>();
         services.AddScoped<IAgentApiClient, AgentApiClient>();
         await using var provider = services.BuildServiceProvider();
@@ -296,13 +320,19 @@ public sealed class CompanyDashboardRenderingTests
     private sealed class Handler(bool populated, bool failReports,
         IReadOnlyList<ApprovalDashboardItemResponse>? approvals, IReadOnlyList<HiringRecommendationResponse>? recommendations,
         bool failApprovals, bool failHiring, ComputeDashboard? compute, bool failCompute,
-        IReadOnlyList<ProjectIncidentAttentionResponse>? incidents) : HttpMessageHandler
+        IReadOnlyList<ProjectIncidentAttentionResponse>? incidents,
+        IReadOnlyList<BlockedWorkAttentionResponse>? blockedWork, bool failBlockedWork) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             var path = request.RequestUri!.AbsolutePath;
             object result;
-            if (path.EndsWith("/dashboard/layout")) result = new DashboardLayoutRequest(["legal", "approvals", "finance", "projects"]);
+            if (path.EndsWith("/personal-todos/attention"))
+            {
+                if (failBlockedWork) return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable));
+                result = blockedWork ?? [];
+            }
+            else if (path.EndsWith("/dashboard/layout")) result = new DashboardLayoutRequest(["legal", "approvals", "finance", "projects"]);
             else if (path.EndsWith("/compute"))
             {
                 if (failCompute) return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable));

@@ -1,0 +1,53 @@
+@namespace CSweet.UI.Mobile
+@implements IDisposable
+@inject MobileSessionCoordinator Session
+@inject AppCulture Culture
+@inject IAppLocalizer L
+
+@* The phone's root. Only a connected enterprise renders the Headquarters router; the phone never shows
+   Headquarters' own /register or /setup redirects. *@
+<div class="mobile-shell">
+    @switch (Session.State)
+    {
+        case MobileShellState.Restoring:
+            <div class="mobile-splash" role="status">
+                <span class="mobile-mark">C-Sweet</span>
+                <span class="mobile-visually-hidden">@L["Mobile.Loading"]</span>
+            </div>
+            break;
+        case MobileShellState.Entry:
+            <EntryView />
+            break;
+        case MobileShellState.Chooser:
+            <EnterpriseChooser />
+            break;
+        case MobileShellState.Enterprise:
+            <CSweet.UI.Routes />
+            break;
+        default:
+            <ConnectionPendingView />
+            break;
+    }
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        Session.Changed += OnChanged;
+        Culture.Changed += OnChanged;
+        await Culture.InitializeAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await Session.StartAsync();
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Session.Changed -= OnChanged;
+        Culture.Changed -= OnChanged;
+    }
+}

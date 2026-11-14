@@ -24,6 +24,12 @@ internal sealed class FakeIssuer : HttpMessageHandler
     public Dictionary<string, string>? DeviceForm { get; private set; }
     public string? RegistrationAuthorization { get; private set; }
     public JsonElement? RegistrationBody { get; private set; }
+    /// <summary>Directory rows C-Sweet holds, by subject: (role, state, revision).</summary>
+    public Dictionary<string, (string Role, string State, long Revision)> Members { get; } = new();
+    public List<JsonElement> MemberBodies { get; } = [];
+    public HttpStatusCode? MemberStatusOverride { get; set; }
+    public JsonElement? RelayBody { get; private set; }
+    public string? MemberErrorCode { get; set; }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
@@ -59,6 +65,20 @@ internal sealed class FakeIssuer : HttpMessageHandler
                 return RegistrationStatus == HttpStatusCode.Created
                     ? Json(new { installationId = InstallationId, displayName = "Northstar Headquarters", createdAt = DateTimeOffset.UtcNow }, HttpStatusCode.Created)
                     : Json(new { title = "conflict" }, RegistrationStatus);
+            case var relay when relay.EndsWith("/relay", StringComparison.Ordinal):
+                RelayBody = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct)).RootElement.Clone();
+                return Json(new { revision = RelayBody.Value.GetProperty("revision").GetInt64(), applied = true });
+            case var member when member.StartsWith("/api/installations/", StringComparison.Ordinal) && member.Contains("/members/", StringComparison.Ordinal):
+                var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct)).RootElement.Clone();
+                MemberBodies.Add(body);
+                if (MemberStatusOverride is { } status)
+                    return Json(new { title = "error", errorCode = MemberErrorCode }, status);
+                var subject = Uri.UnescapeDataString(member[(member.LastIndexOf('/') + 1)..]);
+                var revision = body.GetProperty("revision").GetInt64();
+                if (Members.TryGetValue(subject, out var held) && held.Revision >= revision)
+                    return Json(new { revision = held.Revision, state = held.State, applied = false });
+                Members[subject] = (body.GetProperty("role").GetString()!, body.GetProperty("state").GetString()!, revision);
+                return Json(new { revision, state = body.GetProperty("state").GetString(), applied = true });
             default:
                 return new HttpResponseMessage(HttpStatusCode.NotFound);
         }

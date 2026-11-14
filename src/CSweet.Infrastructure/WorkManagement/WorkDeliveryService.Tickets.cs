@@ -69,6 +69,8 @@ public sealed partial class WorkDeliveryService
             var planning = Decode<WorkItemPlanningSpecification>(ticket.PlanningSpecificationJson ?? "null")
                 ?? throw new ArgumentException("A workflow ticket needs declared planning and acceptance criteria.");
             var definition = workflow.Definition();
+            if(workflow.ProjectCompletionSource is {} source)
+                await WorkstreamDeliveryCompletionValidator.RequireCurrentSourceAsync(db,org,plan.WorkstreamId,source,ct);
             if (planning.Workflow is null)
                 throw new ArgumentException("Define the workflow on its canonical ticket before configuring execution.");
             else if (Encode(planning.Workflow) != Encode(definition))

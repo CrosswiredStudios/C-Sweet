@@ -153,7 +153,7 @@ public sealed class DeliveryCorrectionTests
             original.Branches.Where(b=>b.Scope is "Story" or "Release").ToArray(),[],"follow-up") {
             TicketWorkflows=[prep,final],TaskAssignments=[new(fix.Id,selected)]});
         var delivery=JsonSerializer.Deserialize<WorkItemDeliverySpecification>(source.DeliverySpecificationJson!,Json)!;
-        fix.DeliverySpecificationJson=JsonSerializer.Serialize(delivery with {DeliveryPlanId=next.Id},Json);await f.Db.SaveChangesAsync();
+        fix.DeliverySpecificationJson=JsonSerializer.Serialize(delivery with {DeliveryPlanId=next.Id,DependencyItemIds=[source.Id]},Json);await f.Db.SaveChangesAsync();
         var bound=await f.Service.CoordinateCorrectionAsync(f.Org,f.Manager.Id,new(original.Id,correction.Id,correction.Revision,"bind",source.Id,next.Id,[fix.Id]));
         Assert.Equal("Paused",bound.Status);Assert.Equal("Open",Assert.Single(bound.Findings).Status);
         await Assert.ThrowsAsync<InvalidOperationException>(()=>f.Service.ControlAsync(f.Org,f.Manager.Id,
@@ -162,7 +162,8 @@ public sealed class DeliveryCorrectionTests
         next=await f.Service.ControlAsync(f.Org,f.Manager.Id,new(next.Id,next.Revision,"activate","activate-correction"));
         fix.Status=WorkTaskStatus.Completed;
         var completed=new WorkItemExecution {Id=Guid.NewGuid(),WorkItemId=fix.Id,Status=WorkItemExecutionStatus.Completed};
-        completed.Stages.Add(new() {Id=Guid.NewGuid(),StageKey="quality",Status=WorkStageExecutionStatus.Completed,LastOutcomeCode="passed",CompletedAt=DateTimeOffset.UtcNow});
+        completed.Stages.Add(new() {Id=Guid.NewGuid(),StageKey="quality",OrganizationUserId=f.Qa.Id,Status=WorkStageExecutionStatus.Completed,LastOutcomeCode="passed",CompletedAt=DateTimeOffset.UtcNow});
+        completed.Stages.Add(new() {Id=Guid.NewGuid(),StageKey="technical-review",OrganizationUserId=f.Technical.Id,Status=WorkStageExecutionStatus.Completed,LastOutcomeCode="passed",CompletedAt=DateTimeOffset.UtcNow});
         f.Db.WorkItemExecutions.Add(completed);await f.Db.SaveChangesAsync();
         foreach(var branch in next.Branches.Where(b=>b.Scope=="Story"))f.Host.AdvanceStory(branch.RepositoryId,branch.SourceBranch);
         f.PlanId=next.Id;

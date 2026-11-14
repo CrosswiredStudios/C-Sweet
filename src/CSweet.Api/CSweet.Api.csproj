@@ -6,6 +6,7 @@
     <ProjectReference Include="..\CSweet.Application\CSweet.Application.csproj" />
     <ProjectReference Include="..\CSweet.Contracts\CSweet.Contracts.csproj" />
     <ProjectReference Include="..\CSweet.HostedAccount\CSweet.HostedAccount.csproj" />
+    <ProjectReference Include="..\CSweet.Mobile.Transport\CSweet.Mobile.Transport.csproj" />
     <ProjectReference Include="..\CSweet.Infrastructure\CSweet.Infrastructure.csproj" />
     <ProjectReference Include="..\CSweet.AI\CSweet.AI.csproj" />
     <ProjectReference Include="..\CSweet.Compute.Runtime\CSweet.Compute.Runtime.csproj" />

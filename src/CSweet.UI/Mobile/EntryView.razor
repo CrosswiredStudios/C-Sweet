@@ -1,0 +1,33 @@
+@namespace CSweet.UI.Mobile
+@inject MobileSessionCoordinator Session
+@inject IAppLocalizer L
+
+<main class="mobile-page mobile-entry" aria-labelledby="mobile-entry-title">
+    <p class="mobile-mark">C-Sweet</p>
+    <h1 id="mobile-entry-title">@L["Mobile.Entry.Title"]</h1>
+    <p class="mobile-lead">@L["Mobile.Entry.Lead"]</p>
+    @if (NoticeKey is { } notice)
+    {
+        <p class="mobile-notice" role="alert">@L[notice]</p>
+    }
+    <div class="mobile-actions">
+        <button type="button" class="mobile-primary" disabled="@Session.Busy" @onclick="() => SignInAsync(false)">
+            @(Session.Busy ? L["Mobile.Entry.Opening"] : L["Mobile.Entry.Continue"])
+        </button>
+        <button type="button" class="mobile-secondary" disabled="@Session.Busy" @onclick="() => SignInAsync(true)">
+            @L["Mobile.Entry.CreateAccount"]
+        </button>
+    </div>
+</main>
+
+@code {
+    private string? NoticeKey => Session.Notice switch
+    {
+        MobileShellNotice.SignInCancelled => "Mobile.Entry.Cancelled",
+        MobileShellNotice.SignInFailed => "Mobile.Entry.Failed",
+        MobileShellNotice.SignInExpired => "Mobile.Entry.Expired",
+        _ => null
+    };
+
+    private Task SignInAsync(bool createAccount) => Session.SignInAsync(createAccount);
+}

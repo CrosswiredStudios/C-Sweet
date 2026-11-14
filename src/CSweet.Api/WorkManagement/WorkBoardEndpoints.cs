@@ -52,6 +52,16 @@ public static class WorkBoardEndpoints
             catch (UnauthorizedAccessException) { return Results.Forbid(); }
         });
 
+        personalTodoGroup.MapGet("/attention", async (
+            Guid organizationId, HttpContext http, CSweetDbContext db,
+            BlockedWorkAttentionReader reader, CancellationToken cancellationToken) =>
+        {
+            var actor = await ResolvePersonalTodoActorAsync(organizationId, http, db, cancellationToken);
+            if (actor is null) return Results.Unauthorized();
+            try { return Results.Ok(await reader.ReadAsync(organizationId, actor, cancellationToken)); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+        });
+
         personalTodoGroup.MapGet("/", async (
             Guid organizationId, bool? includeArchived, HttpContext http, CSweetDbContext db,
             IPersonalTodoService service, CancellationToken cancellationToken) =>

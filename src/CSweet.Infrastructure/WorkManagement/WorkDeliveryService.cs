@@ -56,13 +56,13 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
         var plan = await GetAuthorizedAsync(org, actorId, request.PlanId, WorkDeliveryCapabilities.Control, ct);
         var actor = await MemberAsync(org, actorId, ct);
         var ownerAmendmentControl = actor.PermissionLevel == OrganizationPermissionLevel.Owner &&
-            request.Action is "pause" or "resume" or "retry-validation" or "reconcile-planning";
+            request.Action is "pause" or "resume" or "retry-validation" or "reconcile-planning" or "reconcile-inputs";
         if (actor.Id != plan.ManagerOrganizationUserId && !ownerAmendmentControl)
             throw new UnauthorizedAccessException("Only the assigned release manager controls the plan; an authorized organization owner may pause or resume it for scope amendment.");
         var replay = await ReplayAsync(org, actorId, request.IdempotencyKey, "control", request, ct);
         if (replay is not null) return Response(replay);
         if (plan.Revision != request.ExpectedRevision) throw new DbUpdateConcurrencyException("The plan changed.");
-        if (request.Action is "resume" or "retry-validation" or "reconcile-planning" &&
+        if (request.Action is "resume" or "retry-validation" or "reconcile-planning" or "reconcile-inputs" &&
             Corrections(plan).Any(c => c.FollowUpPlanId.HasValue && c.Status != "Completed"))
             throw new InvalidOperationException("This rejected delivery has linked corrective work. Continue its follow-up plan; do not restart the superseded candidate writer.");
         switch (request.Action)
@@ -86,6 +86,8 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
             case "pause" when plan.Status is "Active" or "Promoting": plan.Status = "Paused"; break;
             case "reconcile-planning" when plan.Status == "Paused":
                 await ReconcileCurrentPlanningAsync(plan, ct); break;
+            case "reconcile-inputs" when plan.Status is "Active" or "Paused":
+                await ReconcileCurrentPlanningAsync(plan, ct, request.PlanningChanges ?? [],request.PreservedTaskAssignments,request.PreservedInputs); break;
             case "resume" when plan.Status == "Paused": await ValidateCurrentScopeAsync(plan, ct); plan.Status = "Active"; break;
             case "retry-validation" when plan.Status == "Active":
                 await ValidateCurrentScopeAsync(plan,ct);
@@ -134,7 +136,7 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
             throw new DbUpdateConcurrencyException("The current aggregate is not waiting for this acceptance.");
         if (Candidate(execution)?.Digest != request.CandidateDigest) throw new InvalidOperationException("Acceptance must bind the current candidate.");
         ValidateCriteria(scope.Planning.AcceptanceCriteria, request.Approved, request.Summary, request.Criteria, request.Findings);
-        await ValidateCurrentScopeAsync(plan, ct); await RequireCandidateCurrentAsync(plan, execution, ct);
+        await ValidateExecutionInputsAsync(plan,ScopeFor(plan,execution),ct); await RequireCandidateCurrentAsync(plan, execution, ct);
         execution.AcceptanceJson = Encode(request); execution.Status = request.Approved ? "Promoting" : "Blocked";
         execution.BlockedReason = request.Approved ? null : request.Summary;
         var stage = CurrentDeliveryStage(execution);

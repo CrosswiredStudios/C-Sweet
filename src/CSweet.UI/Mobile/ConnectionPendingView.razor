@@ -1,0 +1,68 @@
+@namespace CSweet.UI.Mobile
+@inject MobileSessionCoordinator Session
+@inject IAppLocalizer L
+
+@if (Session.ActiveProfile is { } profile)
+{
+    <main class="mobile-page mobile-pending" aria-labelledby="mobile-pending-title">
+        <header class="mobile-enterprise-header">
+            <button type="button" class="mobile-switch" aria-label="@L["Mobile.Pending.Switch"]" @onclick="Session.OpenChooser">
+                <span>@profile.DisplayName</span><span class="mobile-chevron" aria-hidden="true">⌄</span>
+            </button>
+        </header>
+        <h1 id="mobile-pending-title">@profile.DisplayName</h1>
+        <p class="mobile-row-detail">@MobileText.Detail(L, profile)</p>
+        @if (Session.LastConnection is { Status: HeadquartersConnectStatus.Connected } connected)
+        {
+            <p class="mobile-status" role="status">@L.Format("Mobile.Connect.Connected", new { name = profile.DisplayName, protocol = Protocol(connected.Protocol) })</p>
+            @if (connected.EnrollmentRequired)
+            {
+                <p class="mobile-lead">@L.Format("Mobile.Connect.EnrollmentRequired", new { name = profile.DisplayName })</p>
+            }
+        }
+        else
+        {
+            <p class="mobile-status" role="status">@L["Mobile.Pending.Status"]</p>
+            <p class="mobile-lead">@L.Format("Mobile.Pending.Body", new { name = profile.DisplayName })</p>
+            @if (FailureKey is { } failure)
+            {
+                <p class="mobile-notice" role="alert">@L.Format(failure, new { name = profile.DisplayName })</p>
+            }
+        }
+        @if (Session.Notice == MobileShellNotice.DirectoryUnavailable)
+        {
+            <p class="mobile-notice" role="alert">@L["Mobile.Chooser.Unavailable"]</p>
+        }
+        <div class="mobile-actions">
+            @if (Session.LastConnection?.Status != HeadquartersConnectStatus.Connected)
+            {
+                <button type="button" class="mobile-primary" disabled="@Session.Busy" @onclick="Connect">
+                    @(Session.Busy ? L["Mobile.Pending.Connecting"] : Session.LastConnection is null ? L["Mobile.Pending.Connect"] : L["Mobile.Pending.Retry"])
+                </button>
+            }
+            <button type="button" class="mobile-secondary" @onclick="Session.OpenChooser">@L["Mobile.Pending.Switch"]</button>
+            <SignOutAction />
+        </div>
+    </main>
+}
+
+@code {
+    private string? FailureKey => Session.LastConnection?.Status switch
+    {
+        HeadquartersConnectStatus.NotConfigured => "Mobile.Connect.NotConfigured",
+        HeadquartersConnectStatus.NoAccess => "Mobile.Connect.NoAccess",
+        HeadquartersConnectStatus.Unreachable => "Mobile.Connect.Unreachable",
+        HeadquartersConnectStatus.SecureConnectionFailed => "Mobile.Connect.SecureFailed",
+        HeadquartersConnectStatus.Refused => "Mobile.Connect.Refused",
+        _ => null
+    };
+
+    private static string Protocol(string? protocol) => protocol switch
+    {
+        "Tls13" => "TLS 1.3",
+        "Tls12" => "TLS 1.2",
+        _ => protocol ?? "TLS"
+    };
+
+    private Task Connect() => Session.ConnectAsync();
+}

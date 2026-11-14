@@ -18,6 +18,7 @@ public sealed class AuthenticationService : IAuthenticationService
     public const string AdministratorRole = "SystemAdministrator";
     public const string InstallationKeyProtectionPurpose = "CSweet.InstallationLink.Key.v1";
     public const string HostedLoginProviderDisplayName = "C-Sweet";
+    public const string DirectoryOwnerRole = "Owner";
     private static readonly SemaphoreSlim RegistrationLock = new(1, 1);
     private static readonly SemaphoreSlim RecoveryLock = new(1, 1);
     private const string RecoveryAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -143,6 +144,18 @@ public sealed class AuthenticationService : IAuthenticationService
                         LinkedByApplicationUserId = user.Id,
                         LinkedAt = DateTimeOffset.UtcNow,
                         State = InstallationLinkState.Active
+                    });
+                    // Directory outbox (IL-12): the owner appears in their C-Sweet "My Headquarters" list once published.
+                    _dbContext.DirectoryPublications.Add(new DirectoryPublication
+                    {
+                        Id = Guid.NewGuid(),
+                        Subject = link.Subject,
+                        ApplicationUserId = user.Id,
+                        Role = DirectoryOwnerRole,
+                        State = DirectoryPublicationState.Active,
+                        Revision = 1,
+                        NextAttemptAt = DateTimeOffset.UtcNow,
+                        UpdatedAt = DateTimeOffset.UtcNow
                     });
                     await _dbContext.SaveChangesAsync(token);
                     return IdentityResult.Success;

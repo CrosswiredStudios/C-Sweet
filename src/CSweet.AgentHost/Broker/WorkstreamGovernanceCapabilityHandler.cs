@@ -33,6 +33,7 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
         W.WorkstreamCapabilityNames.ReadV1,
         W.WorkstreamCapabilityNames.PlanProposeV2,
         W.WorkstreamCapabilityNames.ChangeProposeV1,
+        W.WorkstreamCapabilityNames.CompleteDeliveryV1,
         W.WorkstreamCapabilityNames.GateReadV1,
         W.WorkstreamCapabilityNames.GateSubmitV1,
         W.WorkstreamCapabilityNames.GateDecideV1,
@@ -80,6 +81,8 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
                     organizationId, installationId, actor.Id, Read<W.WorkstreamPlanProposalV2Request>(request), token),
                 W.WorkstreamCapabilityNames.ChangeProposeV1 => await ProposeChangeAsync(
                     organizationId, installationId, actor.Id, Read<W.WorkstreamChangeProposalRequest>(request), token),
+                W.WorkstreamCapabilityNames.CompleteDeliveryV1 => await new CSweet.Infrastructure.WorkManagement.WorkstreamDeliveryCompletionService(db,clock)
+                    .CompleteAsync(organizationId,actor.Id,Read<W.CompleteWorkstreamDeliveryRequest>(request),token),
                 W.WorkstreamCapabilityNames.GateReadV1 => await ReadGatesAsync(
                     organizationId, actor.Id, Read<W.ReadWorkstreamGatesRequest>(request), token),
                 W.WorkstreamCapabilityNames.GateSubmitV1 => await SubmitGateAsync(

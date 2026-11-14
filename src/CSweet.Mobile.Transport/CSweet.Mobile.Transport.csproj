@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Description>Phone-to-Headquarters transport: pinned mutual TLS carried as opaque frames through the C-Sweet mobile relay.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" />
+    <PackageReference Include="MessagePack" />
+  </ItemGroup>
+  <ItemGroup><InternalsVisibleTo Include="CSweet.Mobile.Transport.Tests" /></ItemGroup>
+</Project>

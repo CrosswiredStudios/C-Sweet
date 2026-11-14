@@ -20,6 +20,12 @@ public static class OverviewAttentionItems
         IReadOnlyList<ProjectIncidentAttentionResponse>? incidents) => (questions ?? []).Where(x =>
             x.Decision.IncidentId is not { } id || !(incidents ?? []).Any(i => i.Id == id)).ToArray();
 
+    public static IReadOnlyList<BlockedWorkAttentionResponse> StandaloneBlockedWork(
+        IReadOnlyList<BlockedWorkAttentionResponse>? items, IReadOnlyList<PendingAgentQuestionResponse>? questions,
+        IReadOnlyList<ProjectIncidentAttentionResponse>? incidents) => (items ?? []).Where(x =>
+            x.DecisionId is not { } id || !((questions ?? []).Any(q => q.Decision.Id == id) ||
+                (incidents ?? []).Any(i => i.ResolutionDecision?.Id == id))).ToArray();
+
     public static IReadOnlyList<ComputeResourceStatus> ComputeRequests(ComputeDashboard? dashboard) =>
         dashboard is { CanManageNetwork: true } compute
             ? compute.Resources.Where(x => x.LocalLinkRequested && !x.LocalLinkAllowed && x.LeaseExpiresAt > compute.CheckedAt &&
@@ -28,8 +34,10 @@ public static class OverviewAttentionItems
             : [];
 
     public static int Count(ApprovalDashboardResponse? approvals, HiringBacklogResponse? hiring,
-        IReadOnlyList<PendingAgentQuestionResponse>? questions, ComputeDashboard? compute) =>
+        IReadOnlyList<PendingAgentQuestionResponse>? questions, ComputeDashboard? compute,
+        IReadOnlyList<BlockedWorkAttentionResponse>? blockedWork = null) =>
         (approvals?.Items.Count(IsActionable) ?? 0) + (approvals?.ProjectIncidents.Count(IsActionable) ?? 0) +
         (hiring?.Recommendations.Count(IsActionable) ?? 0) +
-        StandaloneQuestions(questions, approvals?.ProjectIncidents).Count(x => IsPending(x.Decision.Status)) + ComputeRequests(compute).Count;
+        StandaloneQuestions(questions, approvals?.ProjectIncidents).Count(x => IsPending(x.Decision.Status)) + ComputeRequests(compute).Count +
+        StandaloneBlockedWork(blockedWork, questions, approvals?.ProjectIncidents).Count;
 }

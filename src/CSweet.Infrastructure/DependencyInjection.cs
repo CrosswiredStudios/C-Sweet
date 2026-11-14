@@ -566,6 +566,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IExecutiveBriefingService, ExecutiveBriefingService>();
         builder.Services.AddScoped<CompanyDashboardService>();
         builder.Services.AddScoped<CurrentActivityService>();
+        builder.Services.AddScoped<CSweet.Infrastructure.WorkManagement.BlockedWorkAttentionReader>();
         builder.Services.AddScoped<ProjectHealthReader>();
         builder.Services.AddScoped<ProjectHealthService>();
         builder.Services.AddScoped<CurrentActivityFeedReader>();

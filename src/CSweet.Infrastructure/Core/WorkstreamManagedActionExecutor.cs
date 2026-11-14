@@ -218,14 +218,18 @@ public sealed class WorkstreamManagedActionExecutor(CSweetDbContext db, TimeProv
             workstream.ProfileDefinitionDigest = upgrade.DefinitionDigest;
         }
         else ApplyChanges(workstream, profile, request.Changes);
+        var completeDelivery = request.Changes.TryGetProperty("deliveryCompletion",out var completion);
+        if (completeDelivery)
+            await WorkstreamDeliveryCompletionValidator.ValidateAsync(db,workstream,
+                completion.Deserialize<W.WorkstreamDeliveryCompletion>(JsonOptions) ?? throw new ArgumentException("Completion evidence is missing."),token);
         var projectSetup = new ProjectSetupService(db, clock, new(db, clock));
         await new ProjectWorkPolicy(db, clock).LockAsync(proposal.OrganizationId, token);
-        if (workstream.LifecycleStage.Equals("Completed", StringComparison.OrdinalIgnoreCase) || workstream.LifecycleStage.Equals("Cancelled", StringComparison.OrdinalIgnoreCase))
+        if (completeDelivery || workstream.LifecycleStage.Equals("Completed", StringComparison.OrdinalIgnoreCase) || workstream.LifecycleStage.Equals("Cancelled", StringComparison.OrdinalIgnoreCase))
         {
-            if (workstream.LifecycleStage.Equals("Completed", StringComparison.OrdinalIgnoreCase) && await db.CoreWorkTasks.AnyAsync(x => x.Board != null && x.Board.WorkstreamId == workstream.Id &&
+            if ((completeDelivery || workstream.LifecycleStage.Equals("Completed", StringComparison.OrdinalIgnoreCase)) && await db.CoreWorkTasks.AnyAsync(x => x.Board != null && x.Board.WorkstreamId == workstream.Id &&
                 x.ArchivedAt == null && x.Status != WorkTaskStatus.Completed && x.Status != WorkTaskStatus.Cancelled, token))
                 throw new InvalidOperationException("Finish or cancel the project's open tickets before completing it.");
-            workstream.Status = workstream.LifecycleStage.Equals("Completed", StringComparison.OrdinalIgnoreCase) ? WorkstreamStatus.Completed : WorkstreamStatus.Cancelled;
+            workstream.Status = completeDelivery || workstream.LifecycleStage.Equals("Completed", StringComparison.OrdinalIgnoreCase) ? WorkstreamStatus.Completed : WorkstreamStatus.Cancelled;
             foreach (var reservation in await db.ProjectManagerReservations.Where(x => x.WorkstreamId == workstream.Id).ToListAsync(token))
                 db.ProjectManagerReservations.Remove(reservation);
         }
@@ -268,6 +272,7 @@ public sealed class WorkstreamManagedActionExecutor(CSweetDbContext db, TimeProv
                     var next = RequiredString(change.Value, "lifecycleStage", 80);
                     ValidateLifecycleTransition(profile.DefinitionJson, workstream.LifecycleStage, next);
                     workstream.LifecycleStage = next; break;
+                case "deliveryCompletion": break; // Validated against authoritative final-product evidence before applying status.
                 case "targetDate": workstream.TargetDate = change.Value.ValueKind == JsonValueKind.Null ? null : change.Value.GetDateTimeOffset(); break;
                 case "budgetAmount": workstream.BudgetAmount = change.Value.ValueKind == JsonValueKind.Null ? null : change.Value.GetDecimal(); break;
                 case "budgetCurrency": workstream.BudgetCurrency = change.Value.ValueKind == JsonValueKind.Null ? null : RequiredString(change.Value, "budgetCurrency", 8); break;

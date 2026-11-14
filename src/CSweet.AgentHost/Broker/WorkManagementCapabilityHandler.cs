@@ -2663,6 +2663,16 @@ public sealed partial class WorkManagementCapabilityHandler(
             throw new DbUpdateConcurrencyException(
                 $"Expected work item revision {input.ExpectedItemRevision}, current revision is {item.Revision}.");
         var previousEstimate = item.EstimatePoints;
+        if(input.Provenance?.PlanningRevision is {} estimatedRevision&&estimatedRevision!=item.PlanningRevision)
+            throw new DbUpdateConcurrencyException("The estimate refers to a different planning revision.");
+        if(input.Provenance?.AssessmentStateKey is {} assessmentKey)
+        {
+            CSweet.Agent.SDK.AgentOperatingStateKey.Validate(assessmentKey);
+            if(input.Provenance.SourceAgentInstallationId!=installation.Id||input.Provenance.CoordinationSessionId!=Guid.Empty||
+                !await db.WorkItemStageAssignments.AnyAsync(a=>a.WorkItemId==item.Id&&a.AgentInstallationId==installation.Id&&
+                    a.OrganizationUserId==input.Provenance.SourceOrganizationUserId&&(a.StageKey=="development"||a.StageKey=="specialist-execution"),cancellationToken))
+                throw new UnauthorizedAccessException("Direct assessment provenance must belong to the current assigned author; it cannot impersonate an independent review.");
+        }
         item.EstimatePoints = input.EstimatePoints;
         item.EstimateProvenanceJson = input.Provenance is null
             ? null

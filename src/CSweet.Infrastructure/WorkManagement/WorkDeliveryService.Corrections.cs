@@ -59,11 +59,15 @@ public sealed partial class WorkDeliveryService
         if (request.WaitingReason is { Length: > 2000 }) throw new ArgumentException("Keep the corrective next action bounded.");
         var taskIds = request.RemediationTaskIds ?? correction.RemediationTaskIds ?? [];
         var followUpId = request.FollowUpPlanId ?? correction.FollowUpPlanId;
-        var sourceId = request.SourceItemId ?? correction.SourceItemId;
+        var sourceIds=request.SourceItemIds??correction.SourceItemIds??((request.SourceItemId??correction.SourceItemId) is {} legacy?[legacy]:Array.Empty<Guid>());
+        if(sourceIds.Distinct().Count()!=sourceIds.Count||sourceIds.Any(id=>!Scopes(plan).Any(s=>s.ChildIds.Contains(id))))
+            throw new UnauthorizedAccessException("Correction sources must be distinct declared inputs of the rejected plan.");
+        var sourceId = sourceIds.Count>0?(Guid?)sourceIds[0]:request.SourceItemId??correction.SourceItemId;
         if (sourceId.HasValue && !Scopes(plan).Any(s => s.ChildIds.Contains(sourceId.Value)))
             throw new UnauthorizedAccessException("The correction source must belong to the rejected plan's declared inputs.");
         if (correction.FollowUpPlanId.HasValue && (followUpId != correction.FollowUpPlanId ||
-            !taskIds.Order().SequenceEqual((correction.RemediationTaskIds ?? []).Order()) || sourceId != correction.SourceItemId))
+            !taskIds.Order().SequenceEqual((correction.RemediationTaskIds ?? []).Order()) || sourceId != correction.SourceItemId ||
+            !sourceIds.Order().SequenceEqual((correction.SourceItemIds??(correction.SourceItemId is {} old?[old]:Array.Empty<Guid>())).Order())))
             throw new InvalidOperationException("A bound correction cannot be retargeted; preserve its durable work identity.");
         var status = "NeedsPlanning";
         var retainedWait = request.FollowUpPlanId is null && request.RemediationTaskIds is null && !string.IsNullOrWhiteSpace(request.WaitingReason);
@@ -87,30 +91,43 @@ public sealed partial class WorkDeliveryService
             if (next.Id == plan.Id || next.WorkstreamId != plan.WorkstreamId || next.ManagerOrganizationUserId != member.Id ||
                 next.Status is not ("Draft" or "Active" or "Completed") || sourceId is null || taskIds.Count == 0 || taskIds.Distinct().Count() != taskIds.Count)
                 throw new InvalidOperationException("Bind distinct corrective tasks and their same-project, manager-owned follow-up plan.");
-            var source = await db.CoreWorkTasks.SingleAsync(t => t.Id == sourceId && t.OrganizationId == org && t.BoardId == correction.BoardId, ct);
-            var sourceScope = Scopes(plan).First(s => s.ChildIds.Contains(source.Id));
-            await ValidateTaskDeliveryAsync(plan, sourceScope, source, ct);
-            var original = Decode<WorkItemDeliverySpecification>(source.DeliverySpecificationJson!);
+            var sources=await db.CoreWorkTasks.Include(t=>t.StageAssignments).Where(t=>sourceIds.Contains(t.Id)&&t.OrganizationId==org&&t.BoardId==correction.BoardId&&t.ArchivedAt==null).ToArrayAsync(ct);
+            if(sources.Length!=sourceIds.Count)throw new InvalidOperationException("Restore every retained correction source before binding its successor.");
+            foreach(var source in sources) {
+                var sourceScope=Scopes(plan).First(s=>s.ChildIds.Contains(source.Id));
+                if(!sourceScope.ChildPlanningRevisions.TryGetValue(source.Id,out var pinned)||pinned!=source.PlanningRevision||
+                    !sourceScope.ChildDeliveryDigests.TryGetValue(source.Id,out var digest)||digest!=TaskDeliveryDigest(source,source.StageAssignments.ToList()))
+                    throw new InvalidOperationException("Corrective sources must retain their accepted planning and delivery bindings.");
+            }
             var findingTime = plan.Findings.Where(f => correction.FindingIds.Contains(f.Id)).Min(f => f.CreatedAt);
             var oldScope = ScopeFor(plan, execution);
             var acceptance = Scopes(next).SingleOrDefault(s => s.Scope == execution.Scope && s.ItemId == execution.WorkItemId);
             if (acceptance is null || !acceptance.Planning.AcceptanceCriteria.SequenceEqual(oldScope.Planning.AcceptanceCriteria) ||
                 !acceptance.Planning.Requirements.SequenceEqual(oldScope.Planning.Requirements) ||
+                !(acceptance.Planning.Constraints??[]).SequenceEqual(oldScope.Planning.Constraints??[]) ||
+                acceptance.TicketWorkflow!.ProjectCompletionSource!=oldScope.TicketWorkflow!.ProjectCompletionSource ||
                 !acceptance.TicketWorkflow!.CompleteContainerItemIds.Order().SequenceEqual(oldScope.TicketWorkflow!.CompleteContainerItemIds.Order()) ||
                 !Branches(plan).Where(b => b.Scope == execution.Scope && b.ItemId == execution.WorkItemId)
                     .All(b => Branches(next).Any(n => n == b)))
                 throw new InvalidOperationException("Follow-up acceptance must preserve the rejected requirements, criteria, completion effects and branch targets.");
             var declared = Scopes(boundPlan).SelectMany(s => s.ChildIds).ToHashSet();
+            var coveredSources=new HashSet<Guid>();
             foreach (var id in taskIds)
             {
                 var task = await db.CoreWorkTasks.SingleAsync(t => t.Id == id && t.OrganizationId == org && t.BoardId == correction.BoardId, ct);
                 var delivery = Decode<WorkItemDeliverySpecification>(task.DeliverySpecificationJson ?? "null");
-                if (!declared.Contains(id) || task.Id == source.Id || task.ParentWorkTaskId != source.ParentWorkTaskId ||
-                    task.CreatedAt < findingTime || delivery?.DeliveryPlanId != boundPlan.Id || delivery.RepositoryId != original.RepositoryId || delivery.DeliveryKind != original.DeliveryKind ||
-                    !original.AcceptanceCriteria.All(delivery.AcceptanceCriteria.Contains) ||
-                    !(original.Constraints ?? []).All(c => (delivery.Constraints ?? []).Contains(c)))
+                var mapped=sources.Where(source=>delivery?.DependencyItemIds.Contains(source.Id)==true).ToArray();
+                coveredSources.UnionWith(mapped.Select(source=>source.Id));
+                if (!declared.Contains(id) || sources.Any(source=>task.Id==source.Id) || mapped.Length==0 ||
+                    task.CreatedAt < findingTime || delivery?.DeliveryPlanId != boundPlan.Id || mapped.Any(source=> {
+                        var original=Decode<WorkItemDeliverySpecification>(source.DeliverySpecificationJson!);
+                        return task.ParentWorkTaskId!=source.ParentWorkTaskId||delivery.RepositoryId!=original.RepositoryId||delivery.DeliveryKind!=original.DeliveryKind||
+                            !original.Requirements.All(delivery.Requirements.Contains)||!original.AcceptanceCriteria.All(delivery.AcceptanceCriteria.Contains)||
+                            !(original.Constraints??[]).All(c=>(delivery.Constraints??[]).Contains(c)); }))
                     throw new InvalidOperationException("Corrective work must retain the original source scope, acceptance and constraints.");
             }
+            if(sources.Any(source=>!coveredSources.Contains(source.Id)))
+                throw new InvalidOperationException("Every retained source needs explicitly bound corrective work.");
             await ValidateCurrentScopeAsync(next, ct);
             // Stop the old writer before follow-up integration can change its branches.
             if (plan.Executions.SelectMany(e => e.Stages).SelectMany(s => s.Attempts)
@@ -120,11 +137,16 @@ public sealed partial class WorkDeliveryService
             status = "Assigned"; // The linked sprint/plan records, not this handoff, establish queued/running execution.
             if (next.Status == "Completed")
             {
-                foreach (var id in taskIds)
-                    if (!await db.WorkItemExecutions.AnyAsync(e => e.WorkItemId == id && e.Status == WorkItemExecutionStatus.Completed &&
-                        e.Stages.Any(s => s.Traversal == e.Traversal && s.StageKey == "quality" && s.LastOutcomeCode == "passed" &&
-                            s.Status == WorkStageExecutionStatus.Completed && s.CompletedAt >= findingTime), ct))
-                        throw new InvalidOperationException("Corrective work requires completed independent QA before resolving findings.");
+                foreach (var id in taskIds) {
+                    var repair=await db.CoreWorkTasks.SingleAsync(t=>t.Id==id,ct);
+                    var delivery=Decode<WorkItemDeliverySpecification>(repair.DeliverySpecificationJson!);
+                    var requiredReviews=sources.Where(source=>delivery.DependencyItemIds.Contains(source.Id))
+                        .SelectMany(source=>source.StageAssignments.Where(a=>a.StageKey is "quality" or "technical-review").Select(a=>a.StageKey)).Distinct().ToArray();
+                    var executed=await db.WorkItemExecutions.Include(e=>e.Stages).Where(e=>e.WorkItemId==id).OrderByDescending(e=>e.CreatedAt).FirstOrDefaultAsync(ct);
+                    if(executed?.Status!=WorkItemExecutionStatus.Completed||requiredReviews.Any(key=>!executed.Stages.Any(s=>s.Traversal==executed.Traversal&&s.StageKey==key&&s.LastOutcomeCode=="passed"&&
+                        s.Status==WorkStageExecutionStatus.Completed&&s.CompletedAt>=findingTime&&s.OrganizationUserId.HasValue&&s.OrganizationUserId!=repair.AccountableOrganizationUserId)))
+                        throw new InvalidOperationException("Corrective work requires its declared independent review before resolving findings.");
+                }
                 if (next.Findings.Any(f => f.Status == "Open") || !next.Executions.Any(e => e.Scope == execution.Scope &&
                     e.WorkItemId == execution.WorkItemId && e.Status == "Completed" && e.CandidateJson != null && Candidate(e)!.Digest != correction.CandidateDigest))
                     throw new InvalidOperationException("A different exact candidate must complete the follow-up acceptance with no open findings.");
@@ -144,7 +166,7 @@ public sealed partial class WorkDeliveryService
         else if (string.IsNullOrWhiteSpace(request.WaitingReason))
             throw new ArgumentException("Retain a specific planning/staffing next action when no follow-up work is bound.");
         corrections[index] = correction with { Revision = correction.Revision + 1, Status = status,
-            SourceItemId = sourceId, FollowUpPlanId = followUpId, RemediationTaskIds = taskIds,
+            SourceItemId = sourceId, SourceItemIds=sourceIds, FollowUpPlanId = followUpId, RemediationTaskIds = taskIds,
             WaitingReason = status == "Completed" ? null : request.WaitingReason };
         plan.CorrectionsJson = Encode(corrections); plan.Revision++; plan.UpdatedAt = clock.GetUtcNow();
         Receipt(plan, actorId, request.IdempotencyKey, "correction", request); Queue(plan, "correction.changed");

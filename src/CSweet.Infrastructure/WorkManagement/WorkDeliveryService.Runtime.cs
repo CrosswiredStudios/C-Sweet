@@ -23,11 +23,12 @@ public sealed partial class WorkDeliveryService
             EnsureCorrections(plan);
             try
             {
-                await ValidateCurrentScopeAsync(plan, ct);
+                await ValidatePlanAuthorityAsync(plan,ct);
+                await ValidateBranchesAsync(plan.OrganizationId,Scopes(plan),Branches(plan),ct);
                 foreach (var execution in OrderedTicketExecutions(plan).Where(x =>
                     x.Status is not ("Completed" or "Cancelled" or "Superseded" or "Blocked" or "PartiallyPromoted")))
                 {
-                    try { await ReconcileDeliveryAsync(plan, execution, runtimeHints, ct); }
+                    try { await ValidateExecutionInputsAsync(plan,ScopeFor(plan,execution),ct); await ReconcileDeliveryAsync(plan, execution, runtimeHints, ct); }
                     catch (Exception error) when (error is InvalidOperationException or UnauthorizedAccessException or JsonException or HttpRequestException)
                     { Stop(execution, error.Message); }
                 }
@@ -343,7 +344,11 @@ public sealed partial class WorkDeliveryService
 
     private async Task PromoteDeliveryAsync(WorkDeliveryPlan plan, WorkDeliveryExecution execution, CancellationToken ct)
     {
-        if (!await ReleaseObligationsCompleteAsync(plan, ct))
+        await ValidatePlanAuthorityAsync(plan,ct);
+        var finalPromotion=false;
+        foreach(var branch in Candidate(execution)!.Repositories.Where(b=>b.SourceBranch!=b.TargetBranch))
+            if(branch.TargetBranch==(await RepositoryAsync(plan.OrganizationId,branch.RepositoryId,ct)).DefaultBranch)finalPromotion=true;
+        if (finalPromotion && !await ReleaseObligationsCompleteAsync(plan, ct))
             throw new InvalidOperationException("A declared release dependency is unfinished; default-branch promotion is waiting for that work.");
         await RequireCandidateCurrentAsync(plan, execution, ct);
         foreach (var candidate in Candidate(execution)!.Repositories.Where(x => x.SourceBranch != x.TargetBranch))
@@ -375,13 +380,24 @@ public sealed partial class WorkDeliveryService
                 finalRepositories.Add(branch.RepositoryId);
         if (finalRepositories.Count == 0) return true;
         // Obligations survive successor plans, omission from a new request, and cancellation.
-        var history = await db.WorkDeliveryPlans.AsNoTracking().Where(p => p.OrganizationId == plan.OrganizationId && p.WorkstreamId == plan.WorkstreamId).ToListAsync(ct);
+        var history = await db.WorkDeliveryPlans.AsNoTracking().Include(p=>p.Executions).Include(p=>p.Findings)
+            .Where(p => p.OrganizationId == plan.OrganizationId && p.WorkstreamId == plan.WorkstreamId).ToListAsync(ct);
         var required = history.Where(p => Branches(p).Any(b => finalRepositories.Contains(b.RepositoryId)))
             .SelectMany(p => Scopes(p).SelectMany(s => s.TicketWorkflow!.FinalReleaseDependencyItemIds)).Distinct().ToArray();
         foreach (var id in required)
         {
-            if (!await db.CoreWorkTasks.AnyAsync(t => t.Id == id && t.OrganizationId == plan.OrganizationId && t.ArchivedAt == null && t.Status == WorkTaskStatus.Completed, ct)) return false;
-
+            var task=await db.CoreWorkTasks.AsNoTracking().Include(t=>t.StageAssignments)
+                .SingleOrDefaultAsync(t=>t.Id==id&&t.OrganizationId==plan.OrganizationId&&t.ArchivedAt==null,ct);
+            if(task?.Status!=WorkTaskStatus.Completed)return false;
+            // Done is presentation state. Reuse only accepted evidence at the current
+            // planning/delivery binding; a cancelled plan or omitted obligation is no waiver.
+            var applicable=history.Where(p=>p.Status is "Completed" or "Active" && !p.Findings.Any(f=>f.Status=="Open"))
+                .SelectMany(p=>Scopes(p).Where(s=>
+                    (s.TicketWorkflow!.TicketId==id&&s.TicketPlanningRevision==task.PlanningRevision ||
+                     s.ChildPlanningRevisions.TryGetValue(id,out var revision)&&revision==task.PlanningRevision&&
+                     s.ChildDeliveryDigests.TryGetValue(id,out var digest)&&digest==TaskDeliveryDigest(task,task.StageAssignments.ToList()))&&
+                    p.Executions.Any(e=>e.ScopeRevision==p.ScopeRevision&&e.Scope==s.Scope&&e.WorkItemId==s.ItemId&&e.Status=="Completed")));
+            if(!applicable.Any())return false;
         }
         return true;
     }
