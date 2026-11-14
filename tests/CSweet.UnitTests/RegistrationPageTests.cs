@@ -140,6 +140,94 @@ public sealed class RegistrationPageTests
     }
 
     [Fact]
+    public async Task HostedDisabledOpensPrivateFormDirectlyWithoutBack()
+    {
+        await using var h = await Harness.Create();
+        var html = await h.Html();
+        Assert.Contains("Create your administrator.", html);
+        Assert.DoesNotContain("How will you run C-Sweet?", html);
+        Assert.DoesNotContain("registration-back", html);
+        Assert.Equal(new[] { "/api/auth/registration-options" }, h.Api.Requests);
+    }
+
+    [Fact]
+    public async Task HostedEnabledShowsChoiceFirstAndRequiresExplicitSelection()
+    {
+        await using var h = await Harness.Create(configure: api => api.HostedAvailable = true);
+        var html = await h.Html();
+        Assert.Contains("How will you run C-Sweet?", html);
+        Assert.Contains("value=\"hosted\"", html);
+        Assert.Contains("value=\"private\"", html);
+        Assert.DoesNotContain("register-name", html);
+        await h.Preview("choice", "aurora");
+
+        await h.Call("ContinueFromChoice");
+        Assert.Contains("How will you run C-Sweet?", await h.Html());
+        await h.Call("RegisterAsync");
+        Assert.Equal(0, h.Api.Registrations);
+    }
+
+    [Fact]
+    public async Task HostedStepOffersMarketplaceActionsDisabledAndBackOrPrivate()
+    {
+        await using var h = await Harness.Create(configure: api => api.HostedAvailable = true);
+        await h.Select("Hosted");
+        await h.Call("ContinueFromChoice");
+        var html = await h.Html();
+        Assert.Contains("Connect your C-Sweet account", html);
+        Assert.Matches("<button[^>]*registration-primary[^>]*\\bdisabled\\b[^>]*>Create account", html);
+        Assert.Matches("<button[^>]*registration-secondary[^>]*\\bdisabled\\b[^>]*>Sign in", html);
+        await h.Preview("hosted", "aurora");
+
+        await h.Call("RegisterAsync");
+        Assert.Equal(0, h.Api.Registrations);
+
+        await h.Call("BackToChoice");
+        Assert.Contains("How will you run C-Sweet?", await h.Html());
+
+        await h.Select("Hosted");
+        await h.Call("ContinueFromChoice");
+        await h.Call("UsePrivate");
+        html = await h.Html();
+        Assert.Contains("Create your administrator.", html);
+        Assert.Contains("registration-back", html);
+
+        // Viewing, entering and leaving Hosted made no request beyond the local options read.
+        Assert.Equal(new[] { "/api/auth/registration-options" }, h.Api.Requests);
+    }
+
+    [Fact]
+    public async Task ChoosingPrivateCompletesTheExistingAdministratorFlow()
+    {
+        await using var h = await Harness.Create(configure: api => api.HostedAvailable = true);
+        await h.Select("Private");
+        await h.Call("ContinueFromChoice");
+        h.Fill();
+        await h.Call("RegisterAsync");
+        Assert.Equal(1, h.Api.Registrations);
+        Assert.Contains("Save your recovery codes.", await h.Html());
+    }
+
+    [Fact]
+    public async Task ClosedRegistrationFromOptionsShowsSignIn()
+    {
+        await using var h = await Harness.Create(configure: api => api.RegistrationOpen = false);
+        var html = await h.Html();
+        Assert.Contains("Already set up.", html);
+        Assert.Contains("href=\"/login\"", html);
+        Assert.Equal(0, h.Api.Registrations);
+    }
+
+    [Fact]
+    public async Task UnreadableOptionsFallBackToPrivateSetup()
+    {
+        await using var h = await Harness.Create(configure: api => api.OptionsFail = true);
+        var html = await h.Html();
+        Assert.Contains("Create your administrator.", html);
+        Assert.DoesNotContain("registration-back", html);
+    }
+
+    [Fact]
     public async Task ServerFieldValidationIsDisplayedBesideTheField()
     {
         await using var h = await Harness.Create();
@@ -152,12 +240,19 @@ public sealed class RegistrationPageTests
     private sealed class Api : HttpMessageHandler
     {
         public int Registrations, Regenerations;
-        public bool Throw;
+        public bool Throw, HostedAvailable, OptionsFail, RegistrationOpen = true;
+        public List<string> Requests = [];
         public static AuthActionResponse Success => new(true, null, "Created", RecoveryCodes: Enumerable.Range(0, 10).Select(i => $"DEMO-{i:0000}-1234").ToArray());
         public AuthActionResponse Result = Success;
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
-            if (request.RequestUri!.AbsolutePath.EndsWith("/register")) Registrations++;
+            if (request.RequestUri!.AbsolutePath == "/api/auth/registration-options")
+            {
+                Requests.Add(request.RequestUri.AbsolutePath);
+                if (OptionsFail) throw new HttpRequestException("Offline");
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new RegistrationOptionsResponse(RegistrationOpen, RegistrationOpen && HostedAvailable)) });
+            }
+            if (request.RequestUri.AbsolutePath.EndsWith("/register")) Registrations++;
             else if (request.RequestUri.AbsolutePath.EndsWith("/regenerate")) Regenerations++;
             else throw new InvalidOperationException("Unexpected request");
             if (Throw) throw new HttpRequestException("Offline");
@@ -175,9 +270,10 @@ public sealed class RegistrationPageTests
         private HtmlRenderer _renderer = default!;
         private Microsoft.AspNetCore.Components.Web.HtmlRendering.HtmlRootComponent _root;
         private static readonly BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
-        public static async Task<Harness> Create(string theme = "aurora")
+        public static async Task<Harness> Create(string theme = "aurora", Action<Api>? configure = null)
         {
             var h = new Harness();
+            configure?.Invoke(h.Api);
             var services = new ServiceCollection().AddLogging();
             services.AddMudServices(); services.AddCSweetLocalization();
             services.AddSingleton<IJSRuntime>(h.Js);
@@ -200,6 +296,12 @@ public sealed class RegistrationPageTests
         public void Model(string property, string value) { var model = typeof(Register).GetField("_model", Private)!.GetValue(_page)!; model.GetType().GetProperty(property)!.SetValue(model, value); }
         public void Set(string field, object value) => typeof(Register).GetField(field, Private)!.SetValue(_page, value);
         public Task Refresh() => _renderer.Dispatcher.InvokeAsync(() => typeof(ComponentBase).GetMethod("StateHasChanged", Private)!.Invoke(_page, null));
+        public Task Select(string selection) => _renderer.Dispatcher.InvokeAsync(() =>
+        {
+            var type = typeof(Register).GetNestedType("HostingSelection", BindingFlags.NonPublic)!;
+            typeof(Register).GetMethod("Select", Private)!.Invoke(_page, [Enum.Parse(type, selection)]);
+            typeof(ComponentBase).GetMethod("StateHasChanged", Private)!.Invoke(_page, null);
+        });
         public Task<string> Html() => _renderer.Dispatcher.InvokeAsync(() => _root.ToHtmlString());
         public Task Call(string method) => _renderer.Dispatcher.InvokeAsync(async () =>
         {

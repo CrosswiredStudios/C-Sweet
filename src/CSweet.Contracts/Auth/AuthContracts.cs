@@ -12,6 +12,12 @@ public sealed record AuthStatusResponse(
     string? PreferredLanguage = null,
     string? TimeZoneId = null);
 
+/// <summary>
+/// Choices shown before the first administrator exists. Read from local configuration only:
+/// producing it never contacts C-Sweet services.
+/// </summary>
+public sealed record RegistrationOptionsResponse(bool RegistrationOpen, bool HostedSetupAvailable);
+
 /// <summary>Per-user presentation preferences. Null values mean "follow the device".</summary>
 public sealed record UserPreferencesResponse(string? PreferredLanguage, string? TimeZoneId);
 

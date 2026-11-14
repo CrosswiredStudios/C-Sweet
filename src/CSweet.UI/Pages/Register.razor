@@ -46,10 +46,53 @@
             <button type="button" class="registration-primary" disabled="@_saving" @onclick="GenerateCodesAsync">@(_saving ? L["Register.Codes.Generating"] : L["Register.Codes.Generate"])</button>
         }
     }
+    else if (_step == RegistrationStep.Loading)
+    {
+        <p class="registration-lead" role="status">@L["Register.Choice.Loading"]</p>
+    }
+    else if (_step == RegistrationStep.Choose)
+    {
+        <span class="registration-eyebrow">@L["Register.Choice.Eyebrow"]</span>
+        <h1 id="registration-title" tabindex="-1" @ref="_heading">@L["Register.Choice.Title"]</h1>
+        <p class="registration-lead">@L["Register.Choice.Lead"]</p>
+        <fieldset class="registration-choices">
+            <legend class="registration-visually-hidden">@L["Register.Choice.Legend"]</legend>
+            <label class="registration-choice @(_selection == HostingSelection.Hosted ? "selected" : null)">
+                <input type="radio" name="hosting-mode" value="hosted" checked="@(_selection == HostingSelection.Hosted)" @onchange="() => Select(HostingSelection.Hosted)" />
+                <span class="registration-choice-icon"><MudIcon Icon="@Icons.Material.Outlined.Cloud" /></span>
+                <span class="registration-choice-text"><strong>@L["Register.Choice.Hosted.Title"]</strong><span>@L["Register.Choice.Hosted.Body"]</span></span>
+            </label>
+            <label class="registration-choice @(_selection == HostingSelection.Private ? "selected" : null)">
+                <input type="radio" name="hosting-mode" value="private" checked="@(_selection == HostingSelection.Private)" @onchange="() => Select(HostingSelection.Private)" />
+                <span class="registration-choice-icon"><MudIcon Icon="@Icons.Material.Outlined.Dns" /></span>
+                <span class="registration-choice-text"><strong>@L["Register.Choice.Private.Title"]</strong><span>@L["Register.Choice.Private.Body"]</span></span>
+            </label>
+        </fieldset>
+        <button type="button" class="registration-primary" disabled="@(_selection is null)" @onclick="ContinueFromChoice">@L["Common.Continue"] <MudIcon Icon="@Icons.Material.Outlined.ArrowForward" /></button>
+        <footer class="registration-footer"><span>@L["Register.Form.HaveAccount"]</span><a href="/login">@L["Login.SignIn"]</a></footer>
+    }
+    else if (_step == RegistrationStep.Hosted)
+    {
+        <button type="button" class="registration-back" @onclick="BackToChoice"><MudIcon Icon="@Icons.Material.Outlined.ArrowBack" /> @L["Common.Back"]</button>
+        <span class="registration-eyebrow">@L["Register.Hosted.Eyebrow"]</span>
+        <h1 id="registration-title" tabindex="-1" @ref="_heading">@L["Register.Hosted.Title"]</h1>
+        <p class="registration-lead">@L["Register.Hosted.Lead"]</p>
+        <div class="registration-notice" id="hosted-unavailable"><MudIcon Icon="@Icons.Material.Outlined.Info" /><div><strong>@L["Register.Hosted.Unavailable.Title"]</strong><span>@L["Register.Hosted.Unavailable.Body"]</span></div></div>
+        @* Hosted account linking (H2) is not built yet; both actions stay disabled until it is. *@
+        <div class="registration-hosted-actions">
+            <button type="button" class="registration-primary" disabled aria-describedby="hosted-unavailable">@L["Register.Hosted.CreateAccount"]</button>
+            <button type="button" class="registration-secondary" disabled aria-describedby="hosted-unavailable">@L["Register.Hosted.SignIn"]</button>
+        </div>
+        <button type="button" class="registration-link" @onclick="UsePrivate">@L["Register.Hosted.UsePrivate"]</button>
+    }
     else
     {
+        @if (_hostedAvailable)
+        {
+            <button type="button" class="registration-back" disabled="@_saving" @onclick="BackToChoice"><MudIcon Icon="@Icons.Material.Outlined.ArrowBack" /> @L["Common.Back"]</button>
+        }
         <span class="registration-eyebrow">@L["Register.Form.Eyebrow"]</span>
-        <h1 id="registration-title">@L["Register.Form.Title"]</h1>
+        <h1 id="registration-title" tabindex="-1" @ref="_heading">@L["Register.Form.Title"]</h1>
         <p class="registration-lead">@L["Register.Form.Lead"]</p>
         <EditForm EditContext="_editContext" OnSubmit="RegisterAsync" class="registration-form" novalidate>
             <DataAnnotationsValidator />
@@ -97,12 +140,70 @@
     private string? _error, _exportMessage;
     private IReadOnlyList<string> _recoveryCodes = [];
     private IJSObjectReference? _module;
+    private enum RegistrationStep { Loading, Choose, Hosted, Private }
+    private enum HostingSelection { Hosted, Private }
+    private RegistrationStep _step = RegistrationStep.Loading;
+    private HostingSelection? _selection;
+    private bool _hostedAvailable, _focusHeading;
+    private ElementReference _heading;
 
     protected override void OnInitialized()
     {
         _editContext = new(_model);
         _serverErrors = new(_editContext);
         _editContext.OnFieldChanged += ClearFieldError;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // Local read only. Viewing or leaving this choice never contacts C-Sweet services.
+            var options = await AuthenticationApi.GetRegistrationOptionsAsync();
+            if (!options.RegistrationOpen) { _registrationClosed = true; return; }
+            _hostedAvailable = options.HostedSetupAvailable;
+        }
+        catch (Exception)
+        {
+            // Never block private setup on this read; the server still enforces registration rules.
+            _hostedAvailable = false;
+        }
+        _step = _hostedAvailable ? RegistrationStep.Choose : RegistrationStep.Private;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_focusHeading) return;
+        _focusHeading = false;
+        try { await _heading.FocusAsync(); }
+        catch (Exception ex) when (ex is JSException or InvalidOperationException or TaskCanceledException) { }
+    }
+
+    private void Select(HostingSelection selection) => _selection = selection;
+
+    private void ContinueFromChoice()
+    {
+        if (_selection is not { } selection) return;
+        GoTo(selection == HostingSelection.Hosted ? RegistrationStep.Hosted : RegistrationStep.Private);
+    }
+
+    private void BackToChoice()
+    {
+        if (!_hostedAvailable || _saving) return;
+        GoTo(RegistrationStep.Choose);
+    }
+
+    private void UsePrivate()
+    {
+        _selection = HostingSelection.Private;
+        GoTo(RegistrationStep.Private);
+    }
+
+    private void GoTo(RegistrationStep step)
+    {
+        _step = step;
+        _error = null;
+        _focusHeading = true;
     }
 
     private void ClearFieldError(object? sender, FieldChangedEventArgs args)
@@ -113,7 +214,7 @@
 
     private async Task RegisterAsync()
     {
-        if (_saving || _accountCreated || _registrationClosed) return;
+        if (_saving || _accountCreated || _registrationClosed || _step != RegistrationStep.Private) return;
         _error = null;
         _serverErrors.Clear();
         if (!_editContext.Validate()) { _error = L["Register.Error.Validation"]; return; }

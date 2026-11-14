@@ -8,17 +8,31 @@ Use the same named installation throughout the walkthroughs, for example **North
 
 **Deliverable.** A Headquarters build whose first registration screen offers **Hosted** and **Private** before asking for credentials. Start with IL-08 and the upgrade case in IL-13. Entering Hosted explains that the account lives on the C-Sweet Marketplace and offers **Create account** and **Sign in**. Private opens the current local form. Review H1 with linking disabled (`Installation:LinkingEnabled` off hides Hosted). Enable linking on designated pilot installations for the H2 live walkthrough before general rollout.
 
+**Implementation status (2026-11-13).** Code complete, walkthrough pending.
+
+- `GET /api/auth/registration-options` (anonymous, local configuration only) in `AuthenticationEndpoints`; `RegistrationOptionsResponse` in `CSweet.Contracts/Auth`.
+- `Installation:LinkingEnabled`: `false` in `appsettings.json`, `true` in `appsettings.Development.json`.
+- `Register.razor`: Choose → Hosted or Private steps. With linking off, the page opens the Private form directly, exactly as before. Hosted shows **Create account** and **Sign in** disabled with a "not available in this version yet" notice until H2. Strings in all ten languages (Auth area).
+- Tests: six new cases in `RegistrationPageTests` (passing: 17 of 17 in that class) and two in `AuthenticationEndpointTests` (not yet run; they need the full solution build).
+
 **Owner walkthrough.** Start a fresh installation. Open Hosted, go Back, choose Private, create the local administrator, save recovery codes and enter setup with public network access blocked. Upgrade an already configured installation and sign in normally. Verify no account, installation link or outbound onboarding request is created by viewing the chooser or backing out. Capture the first screen, private completion and upgrade result.
 
 **Implementation checks.** Exercise the real registration guard and first-run middleware. Read hosting choices locally while setup is incomplete. Test keyboard navigation, refresh and direct navigation. An explicit choice is required before contacting Market.
 
 ## H2 · Register or sign in at the live Marketplace and finish HQ setup
 
-**Deliverable.** Hosted setup uses the production Market account site at `https://c-sweet.com`. Create account opens Market registration and Sign in opens Market login, each preserving the pending installation approval through authentication and email verification. Market handles the account credentials. HQ shows the confirmed account and installation, provisions its local administrator and recovery method, and continues the normal setup wizard. Use IL-01 through IL-05 and IL-09/10. Take the initial-owner identity link here; general member invitations are separate work.
+**Deliverable.** Hosted setup uses the production Market account site, with sign-in served from the dedicated account hostname (proposed `https://account.c-sweet.com`, decision D7). Create account opens Market registration and Sign in opens Market login, each preserving the pending installation approval through authentication and email verification. Market handles the account credentials. HQ shows the confirmed account and installation, provisions its local administrator and recovery method, and continues the normal setup wizard. Use IL-01 through IL-05 and IL-09/10. Take the initial-owner identity link here; general member invitations are separate work.
 
 **Owner walkthrough.** On fresh HQ A choose Hosted → Create account, verify email received in a real mailbox, compare the displayed device code, approve the named HQ, save local recovery codes and finish setup. On fresh HQ B choose Hosted → Sign in with the same existing account. Complete setup and confirm the original Market user ID and entitlements are preserved, with two distinct installation IDs. Repeat a returning-account run with an existing Market session and verify the approval screen identifies the account being used.
 
 **Failure and recovery.** Deny or expire the approval before commit and retry or choose Private. Interrupt setup after the local commit and after remote registration but before acknowledgement. Resume once with the original installation key and verify one local owner, one remote installation per HQ and recoverable local sign-in. A Market outage produces a retryable Hosted state. Switching to Private before commit explicitly cancels the pending attempt.
+
+**Implementation status (2026-11-13).**
+
+- **IL-01 done in Market, not yet deployed.** Identity email goes through the marketplace SMTP sender (`IdentityEmailSender`); the confirmation page no longer shows the link on screen; `ApplicationUser.EmailVerifiedAt` records proof from a delivered link (migration `AddEmailVerifiedAt`); accounts confirmed before this have it null and are asked on **Manage email** to verify again; `MailboxVerification.IsVerified` is the check later steps use. Seven new tests; Market integration suite 16 of 16 passing.
+- **Before deploying IL-01:** production `compose.production.yml` defaults `SMTP_ENABLED` to `false` and `SMTP_ENDPOINT` to `smtp://localhost:25`. Identity email is sent directly and ignores the `Enabled` flag (which pauses only the notification outbox), but it needs a working endpoint and sender credentials, otherwise new accounts cannot confirm. A failed send is logged, not shown; the user can resend.
+- **IL-02 done.** OpenIddict 7.8.0 chosen; see the decision log.
+- **Next:** IL-03 (issuer in Market at the dedicated account hostname, D7 decided 2026-11-13).
 
 **Production safety.** The issuer, device-approval page and installation registration are deployed to production disabled. They are enabled only after the full H2 walkthrough has passed on staging, and can be disabled again without affecting existing Market sign-in, purchases or email. A signing-key, database or email migration cannot be undone by a switch, so rehearse those on a copy of production data first, including a legacy account whose email was confirmed without a real message.
 

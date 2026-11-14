@@ -11,8 +11,8 @@ Start by recording each of the four [hosted onboarding walkthroughs](hosted-onbo
 
 | Package | Status | Required evidence |
 | --- | --- | --- |
-| H1 · First-run choice | Pending | Fresh chooser before credentials, Back, offline Private setup, and existing installation upgrade. |
-| H2 · Hosted setup with live Market | Pending | New registration and real confirmation, returning account login, named installation approval, setup completion, and recovery from interrupted registration. Record the production origin and both installation IDs in redacted evidence. |
+| H1 · First-run choice | Code complete 2026-11-13; registration page tests pass; endpoint tests and owner walkthrough pending | Fresh chooser before credentials, Back, offline Private setup, and existing installation upgrade. |
+| H2 · Hosted setup with live Market | In progress: IL-01 code complete (Market tests 16/16), IL-02 spike passed (6/6); IL-03 onward not started | New registration and real confirmation, returning account login, named installation approval, setup completion, and recovery from interrupted registration. Record the production origin and both installation IDs in redacted evidence. |
 | H3 · My Headquarters | Pending | Same Market account on clean Android and iOS lists both completed HQs, another account sees neither, and retry after directory outage produces one row per installation. |
 | H4 · Connect to selected HQ | Pending | Physical Android and iOS over cellular, trusted device approval, current authorized business list, disconnected instance, reconnect, and denial after revoke. |
 | M0 · Phase 0 baseline/contracts/TLS spike | Source version matched; hardware gate pending | 0.7.0 nuspec and matching source commit in architecture. Attach workflow inventory review, limits and Android/iOS × Windows/Linux stream proof. |

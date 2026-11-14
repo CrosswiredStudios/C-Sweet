@@ -22,6 +22,10 @@ public sealed class AuthenticationApiClient : IAuthenticationApiClient
         return status;
     }
 
+    public async Task<RegistrationOptionsResponse> GetRegistrationOptionsAsync(CancellationToken cancellationToken = default) =>
+        await _httpClient.GetFromJsonAsync<RegistrationOptionsResponse>("api/auth/registration-options", cancellationToken)
+            ?? throw new InvalidOperationException("Registration options response was empty.");
+
     public Task<AuthActionResponse> RegisterAsync(RegisterAdminRequest request, CancellationToken cancellationToken = default) =>
         PostAsync("api/auth/register", request, cancellationToken);
 

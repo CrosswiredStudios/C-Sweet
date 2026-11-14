@@ -31,7 +31,7 @@ Shared goals do not transfer decision authority. A production plan is not a play
 4. Gabriel's `ProjectFoundation.ProposeProjectFoundationAsync` requires production profile 8 and an accepted exact pitch reference, then uses `Artifacts.ReadAcceptedAsync`. The retired manager-brief profile is no longer published. Marcus reviews the Producer-authored project proposal.
 5. Marcus commissions Naomi's project/team-scoped GDD via SDK coordination. Naomi submits it for independent Director review. Gabriel receives the approved pitch and reviewed GDD and develops a production brief.
 6. `CreativeReviewHandoff.EnsureCreativeReviewAsync` starts an independent Naomi review of the exact brief. A durable result resumes the blocked Producer conversation. Naomi returns creative findings; Marcus decides business alignment. Revisions require a fresh review. The Producer must also declare readiness; no role can manufacture another role's confidence.
-7. Gabriel proposes the missing Technical Director, Engineer and independent QA together, then plans the approved increment. Other specialists require evidence from the scoped backlog.
+7. Gabriel assesses approaching work against the accepted brief and eligible roster. Technical planning needs a qualified participant and delivery needs independent QA; neither implies a fixed bundle of hires. Marcus independently reviews proposed changes against the brief and alternatives. Hiring and spending retain their own approvals.
 8. Canonical delivery executes implementation, exact source review, integration, independent QA, rework and aggregate acceptance. Marcus receives attributed outcomes and owns CEO reporting.
 
 ## SDK boundaries

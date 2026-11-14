@@ -25,6 +25,14 @@ public static class AuthenticationEndpoints
             return Results.Ok(await service.GetStatusAsync(userId, token, cancellationToken));
         }).AllowAnonymous();
 
+        // First-run hosting choice (Hosted or Private). Local configuration only; no outbound calls.
+        group.MapGet("/registration-options", async (IAuthenticationService service, IConfiguration configuration, CancellationToken cancellationToken) =>
+        {
+            var status = await service.GetStatusAsync(null, cancellationToken: cancellationToken);
+            var linkingEnabled = configuration.GetValue<bool>("Installation:LinkingEnabled");
+            return Results.Ok(new RegistrationOptionsResponse(status.RegistrationOpen, status.RegistrationOpen && linkingEnabled));
+        }).AllowAnonymous();
+
         group.MapPost("/register", async (RegisterAdminRequest request, HttpContext context, IAuthenticationService service, CancellationToken cancellationToken) =>
             ToResult(await service.RegisterAsync(WithInitialLocale(request, context.Request.Headers.AcceptLanguage.ToString()), cancellationToken), StatusCodes.Status201Created))
             .AllowAnonymous()

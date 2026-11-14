@@ -17,6 +17,24 @@ Proposed implementation for D3, updated 2026-11-12. Start with the four [hosted 
 
 A C-Sweet account is a Market account. The live Marketplace handles registration, login, verification and account recovery. Production Market configures `https://c-sweet.com` as its public origin (`CSweet.Market/compose.production.yml`, `Notifications__Smtp__PublicBaseUrl`). Configure the trusted issuer explicitly for this deployment. HQ's catalog URL serves a different purpose. Existing Market customers retain their ID, roles and purchases.
 
+**Issuer address (D7).** The OpenID Connect issuer is a dedicated account hostname, proposed `https://account.c-sweet.com`, served by the Marketplace application alongside `https://c-sweet.com`. Discovery, authorization, token, device and `/device` approval pages live on the account hostname; Headquarters and the phone app are configured with that issuer only. Market's cookie sign-in for its own site is unchanged.
+
+## Private installations
+
+A private Headquarters never contacts the account hostname. Headquarters itself is the account authority, using the accounts it already stores (`ApplicationUser` in its own database), and it does **not** run an OpenID Connect issuer:
+
+| Need | How a private installation does it |
+| --- | --- |
+| Administrator account | Today's local registration and recovery codes (unchanged by H1). |
+| More people | Member invitations from the [multi-user guide](multi-user-headquarters.md), delivered by the administrator through an internal channel (paste, internal email, QR). The invitee sets a local password while redeeming it. |
+| Phone sign-in | QR or pasted pairing invitation from Headquarters. Inside the pinned encrypted channel the person activates or proves their local account once; after that the phone's device key is the credential, bound to that person. No browser redirect, no issuer. |
+| Lost password or phone | Local administrator reset and device revocation; root recovery codes for the administrator. |
+| Company directory (optional) | Headquarters trusts the company's own OpenID Connect provider on the internal network (decision D9, not yet scheduled). |
+
+**Air-gapped networks.** Everything above works without internet access when the phone reaches an internal relay over the company network or VPN, with internal DNS and a locally trusted TLS certificate. What does not work: push notifications (Apple and Google delivery needs the internet; the app relies on foreground updates instead), and anything that depends on C-Sweet online services, such as Marketplace agent and plugin installs, which need their own offline import path outside this plan.
+
+**Why Headquarters is not an issuer.** Only one client, the phone, needs to authenticate to a private Headquarters, and it already has a stronger credential (an enrolled device key checked on every connection). Adding an issuer would bring signing-key management, redirect handling on internal hostnames and a second login protocol to every private install for no gain. If a later need appears (other internal apps signing in with Headquarters accounts), the IL-02 spike shows the same library would serve.
+
 ## First-run flow at Headquarters
 
 1. A fresh HQ opens `/register` at **Hosted** or **Private**. Hosted explains that C-Sweet provides sign-in, discovery and relay service while HQ runs on this machine. Displaying this choice reads only local state.
@@ -67,7 +85,7 @@ Registered clients: Market web (confidential), phone app (public, PKCE, custom s
 
 | Where | Route | Purpose |
 | --- | --- | --- |
-| Headquarters | `GET /api/installation/hosting` | Return local setup choices before first-run completion. Allow this exact bootstrap read through the first-run guard. |
+| Headquarters | `GET /api/auth/registration-options` (anonymous; implemented 2026-11-13) | Returns `RegistrationOpen` and `HostedSetupAvailable` from local configuration (`Installation:LinkingEnabled`) only. Under `/api/auth`, which the first-run guard already allows. |
 | Headquarters | `POST /api/auth/register/linked/start` | Start a key-bound attempt for the initiating browser and selected Market account action. |
 | Headquarters | `POST /api/auth/register/linked/poll`, then `…/complete` | Return approval state to the initiating browser. On explicit local completion commit step 4 once and sign the administrator into HQ. |
 | Headquarters | `POST /api/installation/link/start`, `…/poll`, `DELETE /api/installation/link` | Link or unlink an existing installation. Administrator only. |

@@ -17,6 +17,39 @@ namespace CSweet.IntegrationTests;
 public sealed class AuthenticationEndpointTests
 {
     [Fact]
+    public async Task RegistrationOptions_HostedIsOffByDefault()
+    {
+        await using var factory = CreateFactory(out _);
+        var client = CreateHttpsClient(factory);
+
+        var options = await client.GetFromJsonAsync<RegistrationOptionsResponse>("/api/auth/registration-options");
+        Assert.NotNull(options);
+        Assert.True(options.RegistrationOpen);
+        Assert.False(options.HostedSetupAvailable);
+    }
+
+    [Fact]
+    public async Task RegistrationOptions_AreAnonymousBeforeSetupAndHostedClosesWithRegistration()
+    {
+        await using var factory = CreateFactory(out _, linkingEnabled: true);
+        var client = CreateHttpsClient(factory);
+
+        // Fresh install: anonymous and allowed through the first-run guard.
+        var before = await client.GetFromJsonAsync<RegistrationOptionsResponse>("/api/auth/registration-options");
+        Assert.NotNull(before);
+        Assert.True(before.RegistrationOpen);
+        Assert.True(before.HostedSetupAvailable);
+
+        Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync("/api/auth/register", ValidRegistration())).StatusCode);
+
+        // Existing installation: no choice is offered, whatever the configuration says.
+        var after = await client.GetFromJsonAsync<RegistrationOptionsResponse>("/api/auth/registration-options");
+        Assert.NotNull(after);
+        Assert.False(after.RegistrationOpen);
+        Assert.False(after.HostedSetupAvailable);
+    }
+
+    [Fact]
     public async Task Register_SavesLanguageAndTimeZoneDetectedByTheClient()
     {
         await using var factory = CreateFactory(out _);
@@ -301,7 +334,7 @@ public sealed class AuthenticationEndpointTests
             BaseAddress = new Uri("https://localhost")
         });
 
-    private static WebApplicationFactory<Program> CreateFactory(out FakeAccountEmailSender emailSender)
+    private static WebApplicationFactory<Program> CreateFactory(out FakeAccountEmailSender emailSender, bool linkingEnabled = false)
     {
         var sender = new FakeAccountEmailSender();
         emailSender = sender;
@@ -309,6 +342,7 @@ public sealed class AuthenticationEndpointTests
         return new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("AuthenticationTesting");
+            builder.UseSetting("Installation:LinkingEnabled", linkingEnabled ? "true" : "false");
             builder.ConfigureLogging(logging => logging.ClearProviders());
             builder.ConfigureServices(services =>
             {
