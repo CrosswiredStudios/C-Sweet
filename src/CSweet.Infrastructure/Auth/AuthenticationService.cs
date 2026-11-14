@@ -4,7 +4,9 @@ using CSweet.Application.Auth;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Auth;
 using CSweet.Domain.Core;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +16,8 @@ namespace CSweet.Infrastructure.Auth;
 public sealed class AuthenticationService : IAuthenticationService
 {
     public const string AdministratorRole = "SystemAdministrator";
+    public const string InstallationKeyProtectionPurpose = "CSweet.InstallationLink.Key.v1";
+    public const string HostedLoginProviderDisplayName = "C-Sweet";
     private static readonly SemaphoreSlim RegistrationLock = new(1, 1);
     private static readonly SemaphoreSlim RecoveryLock = new(1, 1);
     private const string RecoveryAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -27,6 +31,7 @@ public sealed class AuthenticationService : IAuthenticationService
     private readonly IAccountEmailSender _emailSender;
     private readonly IEmailDeliveryProfileService _emailDeliveryProfiles;
     private readonly IAuditEventWriter _auditWriter;
+    private readonly IDataProtector _installationKeyProtector;
 
     public AuthenticationService(
         UserManager<ApplicationUser> userManager,
@@ -35,7 +40,8 @@ public sealed class AuthenticationService : IAuthenticationService
         CSweetDbContext dbContext,
         IAccountEmailSender emailSender,
         IEmailDeliveryProfileService emailDeliveryProfiles,
-        IAuditEventWriter auditWriter)
+        IAuditEventWriter auditWriter,
+        IDataProtectionProvider dataProtection)
     {
         _userManager = userManager;
         _signInManager = signInManager;
@@ -44,6 +50,7 @@ public sealed class AuthenticationService : IAuthenticationService
         _emailSender = emailSender;
         _emailDeliveryProfiles = emailDeliveryProfiles;
         _auditWriter = auditWriter;
+        _installationKeyProtector = dataProtection.CreateProtector(InstallationKeyProtectionPurpose);
     }
 
     public async Task<AuthStatusResponse> GetStatusAsync(Guid? userId, string? antiforgeryToken = null, CancellationToken cancellationToken = default)
@@ -105,7 +112,60 @@ public sealed class AuthenticationService : IAuthenticationService
         }
     }
 
-    private async Task<AuthActionResponse> RegisterCoreAsync(RegisterAdminRequest request, CancellationToken cancellationToken)
+    public async Task<AuthActionResponse> RegisterHostedAsync(RegisterAdminRequest request, HostedAdministratorLink link, CancellationToken cancellationToken = default)
+    {
+        await RegistrationLock.WaitAsync(cancellationToken);
+        try
+        {
+            // Administrator, external login and installation link commit together or not at all.
+            var transaction = _dbContext.Database.IsRelational()
+                ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
+                : null;
+            await using (transaction)
+            {
+                var result = await RegisterCoreAsync(request with { Email = link.Email }, cancellationToken, async (user, token) =>
+                {
+                    // C-Sweet verified this address before approving the link.
+                    user.EmailConfirmed = true;
+                    var updated = await _userManager.UpdateAsync(user);
+                    if (!updated.Succeeded) return updated;
+
+                    var login = await _userManager.AddLoginAsync(user, new UserLoginInfo(link.Issuer, link.Subject, HostedLoginProviderDisplayName));
+                    if (!login.Succeeded) return login;
+
+                    _dbContext.InstallationLinks.Add(new InstallationLink
+                    {
+                        Id = Guid.NewGuid(),
+                        Issuer = link.Issuer,
+                        InstallationId = link.InstallationId,
+                        DisplayName = link.InstallationName,
+                        ProtectedInstallationKey = Convert.ToBase64String(_installationKeyProtector.Protect(link.PrivateKey)),
+                        LinkedByApplicationUserId = user.Id,
+                        LinkedAt = DateTimeOffset.UtcNow,
+                        State = InstallationLinkState.Active
+                    });
+                    await _dbContext.SaveChangesAsync(token);
+                    return IdentityResult.Success;
+                });
+
+                if (result.Succeeded && transaction is not null)
+                {
+                    await transaction.CommitAsync(cancellationToken);
+                }
+
+                return result;
+            }
+        }
+        finally
+        {
+            RegistrationLock.Release();
+        }
+    }
+
+    private async Task<AuthActionResponse> RegisterCoreAsync(
+        RegisterAdminRequest request,
+        CancellationToken cancellationToken,
+        Func<ApplicationUser, CancellationToken, Task<IdentityResult>>? afterCreate = null)
     {
         var displayName = request.DisplayName.Trim();
         if (string.IsNullOrWhiteSpace(displayName) || displayName.Length > 160)
@@ -159,6 +219,15 @@ public sealed class AuthenticationService : IAuthenticationService
 
         await _userManager.AddToRoleAsync(user, AdministratorRole);
         await ReconcileExistingOrganizationsAsync(user, cancellationToken);
+
+        if (afterCreate is not null)
+        {
+            var linked = await afterCreate(user, cancellationToken);
+            if (!linked.Succeeded)
+            {
+                return IdentityFailure(linked);
+            }
+        }
 
         var recoveryCodes = await ReplaceRecoveryCodesAsync(user, cancellationToken);
         await _signInManager.SignInAsync(user, isPersistent: false);

@@ -173,7 +173,7 @@ public static class AuthenticationEndpoints
         return request with { PreferredLanguage = language, TimeZoneId = timeZoneId };
     }
 
-    private static IResult ToResult(AuthActionResponse response, int successStatus = StatusCodes.Status200OK)
+    internal static IResult ToResult(AuthActionResponse response, int successStatus = StatusCodes.Status200OK)
     {
         if (response.Succeeded)
         {

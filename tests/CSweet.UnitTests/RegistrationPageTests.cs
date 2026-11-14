@@ -168,23 +168,23 @@ public sealed class RegistrationPageTests
     }
 
     [Fact]
-    public async Task HostedStepOffersMarketplaceActionsDisabledAndBackOrPrivate()
+    public async Task HostedStepAsksForANameAndOffersBackOrPrivateWithoutContactingCSweet()
     {
         await using var h = await Harness.Create(configure: api => api.HostedAvailable = true);
         await h.Select("Hosted");
         await h.Call("ContinueFromChoice");
         var html = await h.Html();
         Assert.Contains("Connect your C-Sweet account", html);
-        Assert.Matches("<button[^>]*registration-primary[^>]*\\bdisabled\\b[^>]*>Create account", html);
-        Assert.Matches("<button[^>]*registration-secondary[^>]*\\bdisabled\\b[^>]*>Sign in", html);
+        Assert.Contains("id=\"hosted-name\"", html);
+        Assert.Matches("<button[^>]*registration-primary[^>]*\\bdisabled\\b[^>]*>\\s*<span[^>]*>Get a sign-in code", html);
         await h.Preview("hosted", "aurora");
 
+        await h.Call("StartHostedAsync"); // no name yet: nothing happens
         await h.Call("RegisterAsync");
         Assert.Equal(0, h.Api.Registrations);
 
         await h.Call("BackToChoice");
         Assert.Contains("How will you run C-Sweet?", await h.Html());
-
         await h.Select("Hosted");
         await h.Call("ContinueFromChoice");
         await h.Call("UsePrivate");
@@ -192,8 +192,87 @@ public sealed class RegistrationPageTests
         Assert.Contains("Create your administrator.", html);
         Assert.Contains("registration-back", html);
 
-        // Viewing, entering and leaving Hosted made no request beyond the local options read.
+        // Choosing and leaving Hosted made no request beyond the local options read.
         Assert.Equal(new[] { "/api/auth/registration-options" }, h.Api.Requests);
+        Assert.Empty(h.Api.HostedRequests);
+    }
+
+    [Fact]
+    public async Task HostedSetupShowsTheCodeThenFinishesTheAdministratorAfterApproval()
+    {
+        await using var h = await Harness.Create(configure: api => api.HostedAvailable = true);
+        await h.Select("Hosted");
+        await h.Call("ContinueFromChoice");
+        h.Set("_installationName", "  Studio Mac  ");
+        await h.Call("StartHostedAsync");
+        var html = await h.Html();
+        Assert.Contains("WDJB-MJHT", html);
+        Assert.Contains("href=\"https://account.test/device?user_code=WDJB-MJHT\"", html);
+        Assert.Contains("target=\"_blank\"", html);
+        Assert.Contains("Create a C-Sweet account first", html);
+        Assert.Equal("Studio Mac", h.Api.StartedName);
+        await h.Preview("hosted-waiting", "aurora");
+
+        await h.Call("PollHostedOnceAsync");
+        Assert.Contains("WDJB-MJHT", await h.Html());
+
+        h.Api.HostedPoll = new HostedSetupStatusResponse("approved", Email: "maya@example.com");
+        await h.Call("PollHostedOnceAsync");
+        html = await h.Html();
+        Assert.Contains("Finish your administrator", html);
+        Assert.Contains("maya@example.com", html);
+        Assert.DoesNotContain("register-email", html);
+        await h.Preview("hosted-approved", "aurora");
+
+        h.Model("DisplayName", "Maya Chen"); h.Model("Password", "TestPass!42"); h.Model("ConfirmPassword", "TestPass!42");
+        await h.Call("CompleteHostedAsync");
+        Assert.Contains("Save your recovery codes.", await h.Html());
+        Assert.Equal(0, h.Api.Registrations);
+        Assert.Equal(new[] { "/api/auth/hosted/start", "/api/auth/hosted/poll", "/api/auth/hosted/poll", "/api/auth/hosted/complete" }, h.Api.HostedRequests);
+    }
+
+    [Theory]
+    [InlineData("denied", "denied on C-Sweet")]
+    [InlineData("expired", "code expired")]
+    [InlineData("failed", "didn")]
+    public async Task EndedHostedAttemptReturnsToTheNameStepWithTheReason(string status, string expected)
+    {
+        await using var h = await Harness.Create(configure: api => api.HostedAvailable = true);
+        await h.Select("Hosted");
+        await h.Call("ContinueFromChoice");
+        h.Set("_installationName", "Studio Mac");
+        await h.Call("StartHostedAsync");
+        h.Api.HostedPoll = new HostedSetupStatusResponse(status, Message: "registration_failed");
+        await h.Call("PollHostedOnceAsync");
+        var html = System.Net.WebUtility.HtmlDecode(await h.Html());
+        Assert.Contains(expected, html);
+        Assert.Contains("id=\"hosted-name\"", html);
+    }
+
+    [Fact]
+    public async Task UnreachableCSweetKeepsTheNameStepAndPrivateOpen()
+    {
+        await using var h = await Harness.Create(configure: api => { api.HostedAvailable = true; api.HostedStart = new HostedSetupStatusResponse("unavailable"); });
+        await h.Select("Hosted");
+        await h.Call("ContinueFromChoice");
+        h.Set("_installationName", "Studio Mac");
+        await h.Call("StartHostedAsync");
+        var html = System.Net.WebUtility.HtmlDecode(await h.Html());
+        Assert.Contains("can't be reached", html);
+        Assert.Contains("Use Private instead", html);
+    }
+
+    [Fact]
+    public async Task CancellingWhileWaitingTellsTheServerAndReturnsToTheNameStep()
+    {
+        await using var h = await Harness.Create(configure: api => api.HostedAvailable = true);
+        await h.Select("Hosted");
+        await h.Call("ContinueFromChoice");
+        h.Set("_installationName", "Studio Mac");
+        await h.Call("StartHostedAsync");
+        await h.Call("CancelHostedAsync");
+        Assert.Contains("id=\"hosted-name\"", await h.Html());
+        Assert.Equal("/api/auth/hosted/cancel", h.Api.HostedRequests[^1]);
     }
 
     [Fact]
@@ -242,6 +321,11 @@ public sealed class RegistrationPageTests
         public int Registrations, Regenerations;
         public bool Throw, HostedAvailable, OptionsFail, RegistrationOpen = true;
         public List<string> Requests = [];
+        public List<string> HostedRequests = [];
+        public string? StartedName;
+        public HostedSetupStatusResponse HostedStart = new("waiting", "WDJB-MJHT", "https://account.test/device?user_code=WDJB-MJHT",
+            "https://account.test/Account/Register?ReturnUrl=%2Fdevice%3Fuser_code%3DWDJB-MJHT", DateTimeOffset.UtcNow.AddMinutes(15), 5, "Studio Mac");
+        public HostedSetupStatusResponse? HostedPoll;
         public static AuthActionResponse Success => new(true, null, "Created", RecoveryCodes: Enumerable.Range(0, 10).Select(i => $"DEMO-{i:0000}-1234").ToArray());
         public AuthActionResponse Result = Success;
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
@@ -251,6 +335,20 @@ public sealed class RegistrationPageTests
                 Requests.Add(request.RequestUri.AbsolutePath);
                 if (OptionsFail) throw new HttpRequestException("Offline");
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new RegistrationOptionsResponse(RegistrationOpen, RegistrationOpen && HostedAvailable)) });
+            }
+            if (request.RequestUri.AbsolutePath.StartsWith("/api/auth/hosted/", StringComparison.Ordinal))
+            {
+                HostedRequests.Add(request.RequestUri.AbsolutePath);
+                object body = request.RequestUri.AbsolutePath switch
+                {
+                    "/api/auth/hosted/start" => HostedStart,
+                    "/api/auth/hosted/poll" => HostedPoll ?? HostedStart,
+                    "/api/auth/hosted/complete" => Success,
+                    _ => new { }
+                };
+                if (request.RequestUri.AbsolutePath == "/api/auth/hosted/start")
+                    StartedName = System.Text.Json.JsonDocument.Parse(request.Content!.ReadAsStringAsync(token).Result).RootElement.GetProperty("installationName").GetString();
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(body) });
             }
             if (request.RequestUri.AbsolutePath.EndsWith("/register")) Registrations++;
             else if (request.RequestUri.AbsolutePath.EndsWith("/regenerate")) Regenerations++;

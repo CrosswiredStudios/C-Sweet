@@ -45,6 +45,14 @@ builder.Services.AddChatGateway(builder.Configuration);
 builder.Services.AddCommunicationPluginRuntime();
 builder.Services.AddAgentManagement();
 builder.Services.AddAgentRateLimiting();
+// Hosted first run (Installation section): C-Sweet account linking. One long-lived client so discovery stays cached.
+builder.Services.Configure<CSweet.HostedAccount.HostedAccountOptions>(builder.Configuration.GetSection(CSweet.HostedAccount.HostedAccountOptions.SectionName));
+builder.Services.AddSingleton(sp => new CSweet.HostedAccount.HostedAccountClient(
+    new HttpClient(new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5), AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(20) },
+    sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<CSweet.HostedAccount.HostedAccountOptions>>(),
+    TimeProvider.System));
+builder.Services.AddSingleton(sp => new CSweet.HostedAccount.HostedSetupCoordinator(
+    sp.GetRequiredService<CSweet.HostedAccount.HostedAccountClient>(), TimeProvider.System));
 CSweet.Api.Compute.ComputeProviderEndpoints.AddComputeProviderIngress(builder.Services);
 builder.Services.AddHostedService<CSweet.Api.Compute.ComputeLocalSetupWorker>();
 builder.Services.AddHostedService<CSweet.Api.Compute.ComputeFailedProvisionCleanupWorker>();
@@ -189,6 +197,7 @@ app.MapGet("/api/health", () => new { status = "ok", service = "CSweet.Api" }).A
 
 app.MapHealthChecks("/health").AllowAnonymous();
 app.MapAuthenticationEndpoints();
+app.MapHostedSetupEndpoints();
 
 app.MapLlmProviderProfileEndpoints();
 app.MapGenAiEndpoints();

@@ -6,6 +6,10 @@ public interface IAuthenticationApiClient
 {
     Task<AuthStatusResponse> GetStatusAsync(CancellationToken cancellationToken = default);
     Task<RegistrationOptionsResponse> GetRegistrationOptionsAsync(CancellationToken cancellationToken = default);
+    Task<HostedSetupStatusResponse> StartHostedSetupAsync(StartHostedSetupRequest request, CancellationToken cancellationToken = default);
+    Task<HostedSetupStatusResponse> PollHostedSetupAsync(CancellationToken cancellationToken = default);
+    Task<AuthActionResponse> CompleteHostedSetupAsync(CompleteHostedSetupRequest request, CancellationToken cancellationToken = default);
+    Task CancelHostedSetupAsync(CancellationToken cancellationToken = default);
     Task<AuthActionResponse> RegisterAsync(RegisterAdminRequest request, CancellationToken cancellationToken = default);
     Task<AuthActionResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default);
     Task<AuthActionResponse> ConfirmEmailAsync(ConfirmEmailRequest request, CancellationToken cancellationToken = default);

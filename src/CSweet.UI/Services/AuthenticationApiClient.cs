@@ -26,6 +26,26 @@ public sealed class AuthenticationApiClient : IAuthenticationApiClient
         await _httpClient.GetFromJsonAsync<RegistrationOptionsResponse>("api/auth/registration-options", cancellationToken)
             ?? throw new InvalidOperationException("Registration options response was empty.");
 
+    public Task<HostedSetupStatusResponse> StartHostedSetupAsync(StartHostedSetupRequest request, CancellationToken cancellationToken = default) =>
+        PostForStatusAsync("api/auth/hosted/start", request, cancellationToken);
+
+    public Task<HostedSetupStatusResponse> PollHostedSetupAsync(CancellationToken cancellationToken = default) =>
+        PostForStatusAsync("api/auth/hosted/poll", new { }, cancellationToken);
+
+    public Task<AuthActionResponse> CompleteHostedSetupAsync(CompleteHostedSetupRequest request, CancellationToken cancellationToken = default) =>
+        PostAsync("api/auth/hosted/complete", request, cancellationToken);
+
+    public async Task CancelHostedSetupAsync(CancellationToken cancellationToken = default) =>
+        (await _httpClient.PostAsync("api/auth/hosted/cancel", null, cancellationToken)).Dispose();
+
+    private async Task<HostedSetupStatusResponse> PostForStatusAsync<T>(string uri, T request, CancellationToken cancellationToken)
+    {
+        using var response = await _httpClient.PostAsJsonAsync(uri, request, cancellationToken);
+        if (!response.IsSuccessStatusCode) return new HostedSetupStatusResponse("unavailable");
+        return await response.Content.ReadFromJsonAsync<HostedSetupStatusResponse>(cancellationToken: cancellationToken)
+            ?? new HostedSetupStatusResponse("unavailable");
+    }
+
     public Task<AuthActionResponse> RegisterAsync(RegisterAdminRequest request, CancellationToken cancellationToken = default) =>
         PostAsync("api/auth/register", request, cancellationToken);
 

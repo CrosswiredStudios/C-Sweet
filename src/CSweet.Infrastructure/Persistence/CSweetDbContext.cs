@@ -846,6 +846,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         modelBuilder.Entity<ChiefHiringPolicyRevision>().HasIndex(x => new { x.OrganizationId, x.InstallationId, x.Revision }).IsUnique();
         modelBuilder.Entity<HiringPlanDelegation>().HasIndex(x => new { x.ResourceChangeRequestId, x.InstallationId }).IsUnique();
         ConfigureProjectHealth(modelBuilder);
+        ConfigureInstallationLink(modelBuilder);
         ConfigureDelegation(modelBuilder);
         ConfigureEfficiency(modelBuilder);
         ConfigureBenchmarks(modelBuilder);

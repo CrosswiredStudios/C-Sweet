@@ -6,6 +6,11 @@ public interface IAuthenticationService
 {
     Task<AuthStatusResponse> GetStatusAsync(Guid? userId, string? antiforgeryToken = null, CancellationToken cancellationToken = default);
     Task<AuthActionResponse> RegisterAsync(RegisterAdminRequest request, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Hosted first run: creates the initial administrator with the email of the approving C-Sweet account, links that
+    /// account as an external login and records the installation link, all in one transaction. The request's email is ignored.
+    /// </summary>
+    Task<AuthActionResponse> RegisterHostedAsync(RegisterAdminRequest request, HostedAdministratorLink link, CancellationToken cancellationToken = default);
     Task<AuthActionResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default);
     Task<AuthActionResponse> ConfirmEmailAsync(ConfirmEmailRequest request, CancellationToken cancellationToken = default);
     Task<AuthActionResponse> ResendConfirmationAsync(EmailRequest request, CancellationToken cancellationToken = default);

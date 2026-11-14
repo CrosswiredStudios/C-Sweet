@@ -86,8 +86,8 @@ Registered clients: Market web (confidential), phone app (public, PKCE, custom s
 | Where | Route | Purpose |
 | --- | --- | --- |
 | Headquarters | `GET /api/auth/registration-options` (anonymous; implemented 2026-11-13) | Returns `RegistrationOpen` and `HostedSetupAvailable` from local configuration (`Installation:LinkingEnabled`) only. Under `/api/auth`, which the first-run guard already allows. |
-| Headquarters | `POST /api/auth/register/linked/start` | Start a key-bound attempt for the initiating browser and selected Market account action. |
-| Headquarters | `POST /api/auth/register/linked/poll`, then `…/complete` | Return approval state to the initiating browser. On explicit local completion commit step 4 once and sign the administrator into HQ. |
+| Headquarters | `POST /api/auth/hosted/start` | Start a key-bound attempt for the initiating browser and selected Market account action. |
+| Headquarters | `POST /api/auth/hosted/poll`, then `…/complete` (and `…/cancel`) | Return approval state to the initiating browser. On explicit local completion commit step 4 once and sign the administrator into HQ. |
 | Headquarters | `POST /api/installation/link/start`, `…/poll`, `DELETE /api/installation/link` | Link or unlink an existing installation. Administrator only. |
 | Market | Standard discovery, authorization, token, device authorization, user-info and key endpoints | Issuer. |
 | Market | `/device` page | Enter the user code, sign in or register, approve the named Headquarters. |

@@ -59,3 +59,10 @@
 .registration-link { display:block; min-height:44px; margin:8px auto 0; padding:0 8px; border:0; border-radius:10px; background:transparent; color:var(--activity-accent); font-size:.82rem; font-weight:600; }
 .registration-sheet h1:focus { outline:none; }
 .registration-visually-hidden { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+.registration-hint { color:var(--activity-muted); font-size:.78rem; line-height:1.5; }
+.registration-field > input { height:48px; width:100%; min-width:0; border:1px solid var(--activity-border); border-radius:12px; padding:12px 14px; background:var(--activity-raised); color:var(--activity-text); font:inherit; font-size:1rem; }
+.registration-spaced { margin-top:20px; }
+.registration-code { display:flex; flex-direction:column; align-items:center; gap:6px; padding:18px; margin:0 0 6px; border:1px solid var(--activity-border); border-radius:14px; background:var(--activity-raised); }
+.registration-code span { font-size:.75rem; color:var(--activity-muted); text-transform:uppercase; letter-spacing:.1em; }
+.registration-code code { font:600 1.6rem/1.2 ui-monospace,Consolas,monospace; letter-spacing:.12em; color:var(--activity-text); background:transparent; border:0; }
+.registration-hosted-actions a { text-decoration:none; }
