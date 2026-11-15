@@ -77,7 +77,23 @@ Overview's grouped cards stale until navigation. Existing refresh coalescing han
 arriving during an earlier read; reconnect rediscovers current state. The rendered dashboard
 regressions cover new open-ended and option questions, wrong-business events, resolution and
 in-flight refreshes without remounting the page; the shared badge uses the same trigger.
-Verification: 38 focused dashboard, badge, question and issue-card tests passed.
+`OverviewIssueReader.ReadAsync` also needs to accept the actual stored question shapes:
+standalone questions have a null `workstreamDecisionId`, older option lists may be arrays,
+and older wrappers can omit the link entirely. These are ordinary questions, not broken
+project decisions. Calling `JsonElement.TryGetGuid` on null (or `TryGetProperty` on an array)
+throws and breaks the whole grouped endpoint, even though the pending-question endpoint
+still returns the saved widgets.
+
+On a failed grouped read, `CommandCenter.LoadAsync` clears that projection so
+`PendingAgentQuestions` can show independently loaded source requests. The warning belongs
+in Needs your attention, and an incomplete read must not claim the queue is clear. A later
+successful read restores grouped cards without remounting or duplicating the widgets.
+`ExecutiveDecisionOverviewTests.cs` exercises actual decision creation, stored JSON, grouped
+projection and answering; `CompanyDashboardRealtimeTests` covers endpoint failure after
+empty and populated snapshots, current widgets, stale-card removal and recovery in place.
+Verification: 82 focused decision, dashboard, badge, question, issue-card and blocked-work
+tests passed. Recovery requires the updated API and UI plus an Overview refresh; saved
+questions do not need recreation, a database repair or an agent package update.
 
 
 `WorkstreamGovernanceCapabilityHandler.RequestDecisionAsync` records a decision and emits

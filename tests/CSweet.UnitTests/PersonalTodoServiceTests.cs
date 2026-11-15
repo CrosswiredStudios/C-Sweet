@@ -509,12 +509,15 @@ public sealed partial class PersonalTodoServiceTests
         Assert.Single(await db.AgentPlatformEventOutbox.Where(x =>
             x.Status == AgentPlatformEventOutboxStatus.Pending).ToListAsync());
     }
-    [Fact]
-    public async Task RoutineOwnerWakesCannotReopenRepeatedFailureButManagerCanRetryAfterReview()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RoutineOwnerWakesCannotReopenRepeatedFailureButManagerCanRetryAfterReview(bool installedManager)
     {
         await using var db = CreateDb(); var setup = Seed(db); await db.SaveChangesAsync();
+        if (installedManager) { setup.FirstManager.EmployeeType = EmployeeType.Agent; setup.FirstManager.AgentInstallationId = Guid.NewGuid(); await db.SaveChangesAsync(); }
         var service = new PersonalTodoService(db, TimeProvider.System);
-        var manager = new PersonalTodoActor(setup.FirstManager.Id, null);
+        var manager = new PersonalTodoActor(setup.FirstManager.Id, setup.FirstManager.AgentInstallationId);
         var owner = new PersonalTodoActor(setup.Agent.Id, setup.Agent.AgentInstallationId);
         var added = await service.AddAsync(setup.Organization.Id, manager, Add("Prepare accepted project", "setup", setup.Agent.Id));
         var task = await db.CoreWorkTasks.SingleAsync(x => x.Id == added.Id);

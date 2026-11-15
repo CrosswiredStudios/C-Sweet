@@ -197,6 +197,27 @@ public sealed class OverviewAttentionStateTests
         fixture.Reconnect(); Assert.Equal(4, fixture.State.PendingCount);
     }
 
+    [Fact]
+    public async Task FailedGroupedReadFallsBackToCurrentQuestionsAndRecoversWithoutDoubleCounting()
+    {
+        await using var fixture = new Fixture();
+        fixture.Api.Approvals = fixture.Api.Approvals with { ProjectIncidents = [] };
+        fixture.Api.Questions = []; fixture.Api.Issues = new([]);
+        await fixture.State.InitializeAsync(); Assert.Equal(3, fixture.State.PendingCount);
+        var question = Question("Pending") with { AgentName = "Evelyn Brooks" };
+        fixture.Api.Questions = [question]; fixture.Api.IssueStatus = HttpStatusCode.InternalServerError;
+        fixture.Publish(fixture.OrganizationId, CommunicationEvents.DecisionUpdated);
+        Assert.Equal(4, fixture.State.PendingCount);
+
+        fixture.Api.IssueStatus = HttpStatusCode.OK;
+        fixture.Api.Issues = new([new("question:current", null, null, "Company", "Hiring preferences", "Evelyn needs a response",
+            question.AgentName, "Respond to the question", true, false, [], [question], [], question.Decision.Prompt)]);
+        fixture.Reconnect(); Assert.Equal(4, fixture.State.PendingCount);
+        fixture.Api.Questions = []; fixture.Api.Issues = new([]);
+        fixture.Publish(fixture.OrganizationId, CommunicationEvents.DecisionUpdated);
+        Assert.Equal(3, fixture.State.PendingCount);
+    }
+
     private static PendingAgentQuestionResponse Question(string status) => new(Guid.NewGuid(), Guid.NewGuid(), "Producer",
         new(Guid.NewGuid(), "Direction?", status, [], "", null, null, DateTimeOffset.UtcNow, null));
 
@@ -237,6 +258,7 @@ public sealed class OverviewAttentionStateTests
         };
         public HiringBacklogResponse Hiring { get; set; } = new([Hire("Pending", 1), Hire("Pending", 0), Hire("Completed", 1)]);
         public OverviewIssueDirectory? Issues { get; set; }
+        public HttpStatusCode IssueStatus { get; set; } = HttpStatusCode.OK;
         public List<BusinessSuggestionResponse> Suggestions { get; set; } = [];
         public List<BlockedWorkAttentionResponse> BlockedWork { get; set; } = [];
         public List<PendingAgentQuestionResponse> Questions { get; set; } = [Question("Pending"), Question("Answered")];
@@ -257,6 +279,7 @@ public sealed class OverviewAttentionStateTests
             }
             else if (path.EndsWith("/personal-todos/issues"))
             {
+                if (IssueStatus != HttpStatusCode.OK) return new(IssueStatus);
                 if (Issues is null) return new(HttpStatusCode.NotFound);
                 data = Empty ? new OverviewIssueDirectory([]) : Issues;
             }

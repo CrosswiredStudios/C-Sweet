@@ -20,6 +20,10 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+[Planning recovery and scoped progress](planning-recovery-and-scoped-progress.md) maps current
+installation authorization, shared durable manager follow-through, future-outcome impact and retained
+Prism Break recovery, with regression coverage and publication order.
+
 [Current planning context and reply recovery](planning-context-and-reply-recovery.md) maps typed
 planning advice, current staffing/resource facts, agent-owned decision reassessment and retained
 Prism Break recovery, with package versions and rollout steps.

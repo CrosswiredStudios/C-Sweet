@@ -75,7 +75,7 @@
                             ComputeResources="ComputeAccessRequests" ComputeLoaded="@(_compute is not null)"
                             ComputeError="@_errors.GetValueOrDefault("compute")" ComputeHasMore="@(_compute is { CanManageNetwork: true, HasMore: true })"
                             ApprovalError="@_errors.GetValueOrDefault("approvals")" RecommendationError="@_errors.GetValueOrDefault("hiring")"
-                            Issues="_issues" BlockedWork="@(_blockedWork ?? [])" BlockedWorkLoaded="@(_blockedWork is not null)" BlockedWorkError="@_errors.GetValueOrDefault("blocked-work")"
+                            Issues="_issues" IssueError="@_errors.GetValueOrDefault("issues")" BlockedWork="@(_blockedWork ?? [])" BlockedWorkLoaded="@(_blockedWork is not null)" BlockedWorkError="@_errors.GetValueOrDefault("blocked-work")"
                             RefreshRequested="RefreshAsync" DocumentOpened="OpenDocument" />
                     </EmployeePortraitScope>
                 }
@@ -132,7 +132,6 @@
                 }
                 else if (widget == "projects" && _portfolio is not null)
                 {
-                    @if (_errors.ContainsKey("issues")) { <MudAlert Severity="Severity.Warning" Dense="true">Issue status could not be refreshed. Showing available source records; refresh to check current action requirements.</MudAlert> }
                     @if (_issues is not null && _issues.Team.Count > 0) {
                         <section aria-label="Being handled by the team">
                             <MudText Typo="Typo.h6">Being handled by the team</MudText>
@@ -259,7 +258,8 @@
         _loading = true; _errors.Clear();
         var prefix = $"api/core/organizations/{organizationId}";
         await Task.WhenAll(
-            LoadAsync<OverviewIssueDirectory>($"api/organizations/{organizationId}/work/personal-todos/issues", "issues", x => _issues = x, token),
+            LoadAsync<OverviewIssueDirectory>($"api/organizations/{organizationId}/work/personal-todos/issues", "issues", x => _issues = x, token,
+                onFailure: () => _issues = null),
             LoadAsync<IReadOnlyList<BlockedWorkAttentionResponse>>($"api/organizations/{organizationId}/work/personal-todos/attention", "blocked-work", x => _blockedWork = x, token),
             LoadAsync<IReadOnlyList<ImportedProjectAttentionResponse>>($"{prefix}/dashboard/imported-projects", "imports", x => _importedProjects = x, token),
             LoadAsync<IReadOnlyList<BusinessSuggestionResponse>>($"{prefix}/dashboard/suggestions", "suggestions", x => _suggestions = x, token),
@@ -284,7 +284,7 @@
             await RefreshAsync();
         }
     }
-    private async Task LoadAsync<T>(string uri, string key, Action<T> apply, CancellationToken token, Func<Task<T?>>? read = null)
+    private async Task LoadAsync<T>(string uri, string key, Action<T> apply, CancellationToken token, Func<Task<T?>>? read = null, Action? onFailure = null)
     {
         try
         {
@@ -297,8 +297,12 @@
         catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
         {
             if (!token.IsCancellationRequested)
+            {
+                // Failed projections cannot override independently loaded, current source requests.
+                onFailure?.Invoke();
                 _errors[key] = ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden }
                     ? "You do not have access to this information." : "This information could not be loaded.";
+            }
         }
     }
     private string? ErrorFor(string widget) => _errors.GetValueOrDefault(widget is "finance" or "legal" ? "reports" : widget);

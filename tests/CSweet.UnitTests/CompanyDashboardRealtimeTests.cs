@@ -31,7 +31,7 @@ public sealed class CompanyDashboardRealtimeTests
         await using var fixture = new Fixture(handler);
         var output = await fixture.RenderAsync(org);
         Assert.Contains("Planning coordination stopped", await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString));
-        handler.IncludeIncident = false;
+        handler.IncludeIncident = false; handler.Issues = new([]);
         if (manual)
         {
             var refresh = fixture.Activator.IconButtons.Single(x =>
@@ -204,6 +204,56 @@ public sealed class CompanyDashboardRealtimeTests
         Assert.Contains(question.Decision.Prompt, await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task FailedGroupedRefreshShowsCurrentQuestionsInsteadOfRetainingAnEmptySnapshot(bool openEnded)
+    {
+        var org = Guid.NewGuid();
+        var handler = new Handler { ItemCount = 0, Issues = new([]) };
+        await using var fixture = new Fixture(handler);
+        var output = await fixture.RenderAsync(org);
+        Assert.Contains("Nothing needs your attention", await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString));
+
+        var question = OwnerQuestion(openEnded);
+        handler.Questions = [question]; handler.IssueStatus = System.Net.HttpStatusCode.InternalServerError;
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => fixture.Publish(org, CommunicationEvents.DecisionUpdated));
+        var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
+        Assert.Contains("Evelyn Brooks", html); Assert.Contains(question.Decision.Prompt, html);
+        Assert.Contains(openEnded ? "Send response" : "Choose an answer", html);
+        Assert.Contains("Issue status could not be refreshed", html);
+        var attention = html[html.IndexOf("aria-label=\"Pending attention items\"", StringComparison.Ordinal)..];
+        Assert.Contains("Issue status could not be refreshed", attention[..attention.IndexOf("</section>", StringComparison.Ordinal)]);
+        Assert.DoesNotContain("Nothing needs your attention", html);
+
+        // Recovery replaces the source fallback with one grouped card, without navigating away.
+        handler.IssueStatus = System.Net.HttpStatusCode.OK; handler.Issues = QuestionIssues(question);
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => fixture.Publish(org, CommunicationEvents.DecisionUpdated));
+        html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
+        Assert.Equal(1, html.Split("Choose an answer").Length - 1 + html.Split("Send response").Length - 1);
+        Assert.DoesNotContain("Issue status could not be refreshed", html);
+    }
+
+    [Fact]
+    public async Task FailedGroupedRefreshDoesNotKeepAnAnsweredCardOrClaimTheQueueIsClear()
+    {
+        var org = Guid.NewGuid(); var question = OwnerQuestion(true);
+        var handler = new Handler { ItemCount = 0, Questions = [question], Issues = QuestionIssues(question) };
+        await using var fixture = new Fixture(handler);
+        var output = await fixture.RenderAsync(org);
+        handler.Questions = []; handler.IssueStatus = System.Net.HttpStatusCode.InternalServerError;
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => fixture.Publish(org, CommunicationEvents.DecisionUpdated));
+        var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
+        Assert.DoesNotContain(question.Decision.Prompt, html);
+        Assert.DoesNotContain("Nothing needs your attention", html);
+        Assert.Contains("Issue status could not be refreshed", html);
+        Assert.Contains("Status incomplete", html);
+
+        handler.Issues = new([]); handler.IssueStatus = System.Net.HttpStatusCode.OK;
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => fixture.Publish(org, CommunicationEvents.DecisionUpdated));
+        Assert.Contains("Nothing needs your attention", await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString));
+    }
+
     private static PendingAgentQuestionResponse OwnerQuestion(bool openEnded) => new(Guid.NewGuid(), Guid.NewGuid(), "Evelyn Brooks",
         new(Guid.NewGuid(), "How would you like hiring approvals handled?", "Pending",
             openEnded ? [] : [new("review", "Review each hire", "Review candidates before hiring", true)], openEnded ? "" : "review",
@@ -263,6 +313,7 @@ public sealed class CompanyDashboardRealtimeTests
         public int HiringReads { get; private set; }
         public int ItemCount { get; set; } = 1;
         public OverviewIssueDirectory? Issues { get; set; }
+        public System.Net.HttpStatusCode IssueStatus { get; set; } = System.Net.HttpStatusCode.OK;
         public IReadOnlyList<PendingAgentQuestionResponse> Questions { get; set; } = [];
         public int IssueReads { get; private set; }
         public bool IncludeCompute { get; set; }
@@ -291,6 +342,7 @@ public sealed class CompanyDashboardRealtimeTests
             if (path.EndsWith("/personal-todos/issues"))
             {
                 IssueReads++;
+                if (IssueStatus != System.Net.HttpStatusCode.OK) return new(IssueStatus);
                 if (Issues is null) return new(System.Net.HttpStatusCode.NotFound);
                 result = Issues;
             }

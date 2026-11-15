@@ -74,7 +74,9 @@ public sealed class OverviewIssueReader(CSweetDbContext db, IPersonalTodoService
                 "Review blocked work", $"{item.OwnerName}'s work needs recovery.",
                 item.OwnerOrganizationUserId == actor.OrganizationUserId ? "Review the recorded cause before taking the available recovery action." :
                     $"{item.ManagerName ?? item.OwnerName} is accountable for the next recovery step.", item.Reason);
-            g.Work.Add(item); g.Requires |= item.OwnerOrganizationUserId == actor.OrganizationUserId;
+            var managerEscalation = task?.CorrelationId?.StartsWith(CSweet.Agent.SDK.ManagerWorkRecovery.Prefix, StringComparison.Ordinal) == true &&
+                directory.Boards.Any(b => b.BoardId == task!.BoardId && b.ManagerOrganizationUserId == actor.OrganizationUserId);
+            g.Work.Add(item); g.Requires |= item.OwnerOrganizationUserId == actor.OrganizationUserId || managerEscalation;
             g.Unclassified |= task?.WorkContext is null;
         }
         foreach (var incident in incidents)
@@ -95,7 +97,15 @@ public sealed class OverviewIssueReader(CSweetDbContext db, IPersonalTodoService
         {
             Guid? decisionId = null;
             var raw = executive.SingleOrDefault(e => e.Id == q.Decision.Id);
-            if (raw is not null) { using var data = JsonDocument.Parse(raw.OptionsJson); if (data.RootElement.TryGetProperty("workstreamDecisionId", out var d) && d.TryGetGuid(out var id)) decisionId = id; }
+            if (raw is not null)
+            {
+                using var data = JsonDocument.Parse(raw.OptionsJson);
+                // Standalone questions have no project link. Legacy options can also be an array.
+                if (data.RootElement.ValueKind == JsonValueKind.Object &&
+                    data.RootElement.TryGetProperty("workstreamDecisionId", out var link) &&
+                    link.ValueKind == JsonValueKind.String && link.TryGetGuid(out var id))
+                    decisionId = id;
+            }
             var key = q.Decision.IncidentId is Guid incident ? groupFor.GetValueOrDefault(("Incident", incident)) : null;
             key ??= decisionId is Guid source ? groupFor.GetValueOrDefault(("Decision", source), "decision:" + source.ToString("N")) : "question:" + q.Decision.Id.ToString("N");
             var g = Get(key, null, q.AgentName, "Review a project decision", $"{q.AgentName} needs your direction on the recorded question.",

@@ -6,6 +6,7 @@ using CSweet.Domain.Security;
 using CSweet.Domain.Setup;
 using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Security;
 using CSweet.Contracts.Realtime;
 using Microsoft.EntityFrameworkCore;
 using Wire = CSweet.WorkManagement.Contracts;
@@ -173,7 +174,7 @@ public sealed class WorkIssueService(CSweetDbContext db, IScopedActionAuthorizat
     {
         if (!await db.CoreOrganizationUsers.AnyAsync(x => x.OrganizationId == organization && x.Id == actor && x.IsActive, ct)) throw new UnauthorizedAccessException();
         var board = await db.WorkBoards.SingleOrDefaultAsync(x => x.OrganizationId == organization && x.Id == boardId && x.ArchivedAt == null, ct) ?? throw new UnauthorizedAccessException();
-        var grant = await authorization.AuthorizeAsync(organization, GrantSubjectKind.OrganizationUser, actor,
+        var grant = await WorkActorAuthorization.AuthorizeAsync(db, authorization, organization, actor,
             edit ? CSweet.Contracts.WorkManagement.WorkItemActions.RevisePlanning : CSweet.Contracts.WorkManagement.WorkBoardActions.Read, GrantScopeKind.Board, boardId, ct);
         var current = board.ManagerOrganizationUserId;
         var seen = new HashSet<Guid>();
@@ -185,12 +186,9 @@ public sealed class WorkIssueService(CSweetDbContext db, IScopedActionAuthorizat
 
     internal async Task<bool> CanReadSourceAsync(Guid organization, Guid actor, Wire.WorkApprovedSource source, CancellationToken ct)
     {
-        var granted = await authorization.AuthorizeAsync(organization, GrantSubjectKind.OrganizationUser, actor,
+        var granted = await WorkActorAuthorization.AuthorizeAsync(db, authorization, organization, actor,
             CSweet.Contracts.Core.ArtifactActions.Read, GrantScopeKind.Artifact, source.DocumentId, ct);
-        if (granted.Allowed) return true;
-        var installation = await db.CoreOrganizationUsers.Where(x => x.OrganizationId == organization && x.Id == actor && x.IsActive).Select(x => x.AgentInstallationId).SingleOrDefaultAsync(ct);
-        return installation is Guid id && (await authorization.AuthorizeAsync(organization, GrantSubjectKind.AgentInstallation, id,
-            CSweet.Contracts.Core.ArtifactActions.Read, GrantScopeKind.Artifact, source.DocumentId, ct)).Allowed;
+        return granted.Allowed;
     }
 
     internal async Task RequireSourceAsync(Guid organization, WorkBoard board, Wire.WorkApprovedSource source, CancellationToken ct)

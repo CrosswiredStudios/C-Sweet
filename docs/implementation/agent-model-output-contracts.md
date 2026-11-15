@@ -49,6 +49,16 @@ The model did what it was told. The contract was wrong.
 
 ## Review checklist for a prompt that requests JSON
 
+Native manager recovery (`ManagerWorkRecovery.AssessWorkRecoveryAsync`, SDK 5.33.0) asks only for
+an action judgment and reason. Code reads current reporting/work evidence, binds identities and the
+reviewed revision, atomically saves the judgment and retry intent, and replays one stable command
+after interruption. A model judgment cannot grant permissions or mark delivery complete. Producer
+ownership review similarly authors impact (`Scoped`, `FutureWork`, `Unassessed`); code validates index
+bindings and retains unresolved obligations. The minimized actual Prism Break first-increment outline
+is covered by Technical Director `AdaptiveRoadmapTests`: full-ledger validation cannot be satisfied by
+an increment-only outline. Semantic completeness still requires the full-source inventory and ownership
+judgments; structural source indexes alone cannot prove it.
+
 - [ ] Every requested field needs judgment. No field could be copied or computed in code.
 - [ ] No sentence asks the model to preserve, retain or exactly reproduce input.
 - [ ] No instruction can be followed in a way the platform would reject.

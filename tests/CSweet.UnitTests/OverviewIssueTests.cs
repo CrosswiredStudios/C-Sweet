@@ -13,6 +13,30 @@ using CSweet.Infrastructure.WorkManagement;
 namespace CSweet.UnitTests;
 public sealed class OverviewIssueTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AManagerRecoveryEscalationRequiresTheReportingOwnersAttention(bool recovery)
+    {
+        await using var f = new WorkIssueLifecycleTests.Fixture(); await f.SeedAsync();
+        var personalBoard = Guid.NewGuid();
+        var task = JsonSerializer.Deserialize<Wire.PersonalTodoItem>("{}")! with { Id = Guid.NewGuid(), BoardId = personalBoard,
+            OwnerOrganizationUserId = f.Specialist.Id, Title = "Review blocked work", Status = Wire.PersonalTodoStatuses.Blocked,
+            BlockReason = "Manager recovery needs assistance: platform correction required", IsExecutable = true,
+            CorrelationId = recovery ? CSweet.Agent.SDK.ManagerWorkRecovery.Prefix + "source:1" : "ordinary-work",
+            WorkContext = new(WorkstreamId: f.Board.WorkstreamId) };
+        var todos = DispatchProxy.Create<IPersonalTodoService, WorkIssuePostgresTests.TestProxy>();
+        ((WorkIssuePostgresTests.TestProxy)(object)todos).InvokeMethod = (method, _) => method == "ListAsync"
+            ? Task.FromResult(new Wire.PersonalTodoDirectory([new(personalBoard, f.Specialist.Id, "Director", f.Manager.Id, "Owner", 1, [task])]))
+            : throw new NotSupportedException(method);
+        var decisions = DispatchProxy.Create<IExecutiveDecisionService, WorkIssuePostgresTests.TestProxy>();
+        ((WorkIssuePostgresTests.TestProxy)(object)decisions).InvokeMethod = (_, _) => Task.FromResult<IReadOnlyList<PendingAgentQuestionResponse>>([]);
+        var reader = new OverviewIssueReader(f.Db, todos, new(f.Db, todos, TimeProvider.System), decisions,
+            new(f.Db, new(f.Db, TimeProvider.System), TimeProvider.System), f.Service);
+        var directory = await reader.ReadAsync(f.Org, new(f.Manager.Id, null), false, default);
+        Assert.Equal(recovery, Assert.Single(directory.Items).RequiresUserAction);
+    }
+
     private static OverviewIssueCard Card(string key, Guid project, bool action = false) =>
         new(key, Guid.NewGuid(), project, "Brickwave", "A concise title", "One sentence explains the issue.", "Gabriel", "Review current evidence", action, false, [], [], [], "Full retained findings");
     [Fact]

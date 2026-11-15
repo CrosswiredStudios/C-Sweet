@@ -152,11 +152,12 @@ public sealed class AgentTicketFeedbackTests
     {
         var message = AgentTicketFeedback.FailureSentence(
             "agent-failure:v1;code=platform.capability.denied;retryable=false;capability=work.delivery.read.v1;diagnosticId=one");
-        Assert.Contains("denied me access to work.delivery.read.v1", message);
-        Assert.Contains("Manage members", message);
+        Assert.Contains("refused access to work.delivery.read.v1", message);
+        Assert.Contains("platform correction may be required", message);
+        Assert.DoesNotContain("Manage members", message);
         Assert.DoesNotContain("stopped unexpectedly", message);
         // A refused model call is an authority problem, not a model outage.
-        Assert.Contains("denied me access to platform.llm.complete",
+        Assert.Contains("refused access to platform.llm.complete",
             AgentTicketFeedback.FailureSentence("agent-failure:v1;code=platform.capability.denied;capability=platform.llm.complete;diagnosticId=two"));
         Assert.Contains("model service was unavailable",
             AgentTicketFeedback.FailureSentence("agent-failure:v1;code=platform.capability.unavailable;capability=platform.llm.complete;diagnosticId=three"));

@@ -262,8 +262,7 @@ public static class AgentTicketFeedback
             "Required development tooling or runtime infrastructure is unavailable. Source, the short plan and the resource recovery action are retained; the unexecuted checks have not passed.",
         // Checked before the capability-specific cases: a refusal is an authority problem, not an outage.
         var x when IsDenied(x) =>
-            $"I couldn’t continue because the platform denied me access{DeniedCapability(x)}. Someone who manages this project " +
-            "needs to grant that access (for example, by adding me under Projects → Manage members) before I can continue.",
+            $"The platform refused access{DeniedCapability(x)}. The responsible manager needs to check the recorded permissions and failure details; a platform correction may be required.",
         var x when x.Contains("capability=platform.llm", StringComparison.Ordinal) => "I couldn’t continue because the model service was unavailable.",
         var x when x.Contains("code=agent.payload_invalid", StringComparison.Ordinal) => "I couldn’t finish because the result I produced wasn’t valid.",
         var x when x.Contains("code=agent.invalid_operation", StringComparison.Ordinal) => "I stopped before I could produce a complete result for this ticket.",

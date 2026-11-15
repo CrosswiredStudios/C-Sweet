@@ -27,7 +27,10 @@
     else
     {
         <div class="decisions-count">
-            @if (SummaryOnly) { <span>@PendingCount pending</span> }
+            @if (SummaryOnly) {
+                @if (PendingCount > 0 || IssueError is null) { <span>@PendingCount pending</span> }
+                @if (IssueError is not null) { <span>Status incomplete</span> }
+            }
             else { <span>@_questions.Count pending questions</span><span>@_questions.Select(x => x.AgentOrganizationUserId).Distinct().Count() agents</span> }
         </div>
         @if (!SummaryOnly)
@@ -42,6 +45,7 @@
     }
     @if (SummaryOnly)
     {
+        @if (IssueError is not null) { <MudAlert Severity="Severity.Warning" Dense="true">Issue status could not be refreshed. Available requests are shown; use Refresh attention items to retry.</MudAlert> }
         @if (ApprovalError is not null) { <MudAlert Severity="Severity.Warning">@ApprovalError</MudAlert> }
         else if (!ApprovalsLoaded) { <MudText Color="Color.Secondary">@L["PendingAgentQuestions.LoadingApprovals"]</MudText> }
         @if (RecommendationError is not null) { <MudAlert Severity="Severity.Warning">@RecommendationError</MudAlert> }
@@ -53,7 +57,7 @@
             <MudText Color="Color.Secondary">@L["PendingAgentQuestions.ShowingPermissionsForThe100"]</MudText>
         }
         @if (BlockedWorkError is not null) { <MudAlert Severity="Severity.Warning">@BlockedWorkError</MudAlert> }
-        @if (_loaded && _error is null && ApprovalsLoaded && ApprovalError is null && RecommendationsLoaded && RecommendationError is null && ComputeLoaded && ComputeError is null && BlockedWorkLoaded && BlockedWorkError is null && !ComputeHasMore && PendingCount == 0)
+        @if (_loaded && _error is null && IssueError is null && ApprovalsLoaded && ApprovalError is null && RecommendationsLoaded && RecommendationError is null && ComputeLoaded && ComputeError is null && BlockedWorkLoaded && BlockedWorkError is null && !ComputeHasMore && PendingCount == 0)
         {
             <div class="decisions-empty"><MudIcon Icon="@Icons.Material.Outlined.CheckCircle" Color="Color.Success" /><span>@L["PendingAgentQuestions.NothingNeedsYourAttention"]</span></div>
         }
@@ -129,6 +133,7 @@
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public bool SummaryOnly { get; set; }
     [Parameter] public OverviewIssueDirectory? Issues { get; set; }
+    [Parameter] public string? IssueError { get; set; }
     [Parameter] public IReadOnlyList<ProjectIncidentAttentionResponse> ProjectIncidents { get; set; } = [];
     [Parameter] public IReadOnlyList<ApprovalDashboardItemResponse> Approvals { get; set; } = [];
     [Parameter] public IReadOnlyList<HiringRecommendationResponse> Recommendations { get; set; } = [];
