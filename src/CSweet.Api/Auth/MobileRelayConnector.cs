@@ -38,6 +38,8 @@ internal sealed class MobileRelayConnectorService(
     IOptions<HostedAccountOptions> hostedOptions,
     HostedAccountClient client,
     IDataProtectionProvider protection,
+    MobileRequestDispatcher dispatcher,
+    MobileWebAssets webAssets,
     ILogger<MobileRelayConnectorService> logger) : BackgroundService
 {
     private const string TlsKeyProtectionPurpose = "CSweet.InstallationLink.TlsKey.v1";
@@ -78,7 +80,7 @@ internal sealed class MobileRelayConnectorService(
 
                         await using var connector = new HeadquartersRelayConnector(new SignalRRelayConnection(origin, reconnect: true),
                             settings.RouteId, identity.RouteKey, identity.Certificate, _ => true,
-                            (tls, channel, ct) => WelcomeAsync(tls, channel, identity, ct));
+                            (tls, channel, ct) => SessionAsync(tls, channel, identity, ct));
                         await connector.StartAsync(stoppingToken);
                         failures = 0;
                         logger.LogInformation("Attached to the mobile relay as route {RouteId}.", settings.RouteId);
@@ -99,13 +101,35 @@ internal sealed class MobileRelayConnectorService(
         }
     }
 
-    private static async Task WelcomeAsync(SslStream tls, PhoneChannel channel, RelayIdentity identity, CancellationToken ct)
+    /// <summary>
+    /// One phone session: hello with the directory assertion → enrollment state; when the phone is active, its
+    /// requests are dispatched one at a time, each re-authorized from the device record.
+    /// </summary>
+    private async Task SessionAsync(SslStream tls, PhoneChannel channel, RelayIdentity identity, CancellationToken ct)
     {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(TimeSpan.FromSeconds(30));
-        await HeadquartersHello.ReadHelloAsync(tls, timeout.Token);
+        using var session = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        PhoneHello hello;
+        using (var first = CancellationTokenSource.CreateLinkedTokenSource(session.Token))
+        {
+            first.CancelAfter(TimeSpan.FromSeconds(30));
+            hello = await HeadquartersHello.ReadHelloAsync(tls, first.Token);
+        }
+
+        MobileEnrollmentResult enrollment;
+        await using (var scope = scopes.CreateAsyncScope())
+            enrollment = await scope.ServiceProvider.GetRequiredService<MobileDeviceService>().EnrollAsync(hello.Assertion, channel.PhonePin, hello.DeviceLabel, session.Token);
         await HeadquartersHello.SendWelcomeAsync(tls, new HeadquartersWelcome("welcome", HeadquartersHello.Protocol, identity.InstallationId,
-            identity.DisplayName, channel.PhonePin, HeadquartersHello.EnrollmentRequired), timeout.Token);
+            identity.DisplayName, channel.PhonePin, enrollment.Enrollment), session.Token);
+        if (enrollment.Enrollment != HeadquartersHello.EnrollmentActive) return;
+
+        // Enrolled: API reads go through the dispatcher (re-authorized each time); published web files come from the
+        // manifest. The session ends when the phone closes it or after ten idle minutes.
+        await HeadquartersTunnelServer.ServeAsync(tls, (request, token) =>
+            request.Path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase) ? dispatcher.DispatchAsync(request, channel.PhonePin, token)
+            : request.Method != "GET" ? Task.FromResult(TunnelReply.Empty(StatusCodes.Status405MethodNotAllowed))
+            : request.Path == MobileWebAssets.ManifestPath ? Task.FromResult(webAssets.Enabled ? webAssets.Manifest() : TunnelReply.Empty(StatusCodes.Status404NotFound))
+            : webAssets.ReadAsync(request.Path, token),
+            concurrency: 8, idle: TimeSpan.FromMinutes(10), ct);
     }
 
     /// <summary>The active link's installation key and TLS key; creates and stores the TLS key on first use.</summary>

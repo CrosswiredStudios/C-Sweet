@@ -107,6 +107,34 @@ Missing authority or required owner configuration retains the review action.
 
 ### Correcting an approved, unfilled staffing slot
 
+`ApprovedStaffingLineage.ResolveAsync` follows explicit `SupersedesRequestId` links from a hiring
+recommendation to the current approved plan while the role remains desired in the same organization
+and staffing scope. Team-bound plans follow the existing team-wide approval boundary, including a
+shared team serving several projects; a plan without a team must retain its project scope.
+Matching role names elsewhere, pending replacements, branches, cycles and a role
+removed and later reintroduced do not transfer authority. Discovery reads the connected lineage and
+does not depend on the recent-proposal page or an agent polling loop.
+
+The historical `SourceResourceChangeRequestId` remains intact. The Overview receives a separate
+`CorrectionSourceRequestId` plus `CorrectionSourceRevision`; the submission binds both, so two plans
+with the same revision number cannot silently change the correction target. Owner/current-manager
+authorization and active authorship are checked against the resolved current approval. The same
+resolver serves action discovery and submission under the hiring lock. A pending correction hides
+all related actions, and retries return the originally recorded correction even after replacement
+approval removes the disputed role.
+
+Cancellation covers unfinished recommendations for that continuously carried-forward role across
+the lineage, including hiring workflows already started from older recommendations. Completed hires
+and other roles remain intact. A fully filled current role cannot be corrected through a leftover
+unfilled duplicate card. The correction is addressed to the current staffing author and goes through
+ordinary proposal and manager approval; this does not infer a replacement role or rewrite old approvals.
+
+The November 14 QFN Games incident retained `game-security-privacy` in a later approved proposal after
+Victor was hired, while the visible recommendation still referenced the superseded proposal. The
+old action filter hid correction. `StaffingCorrectionLineageTests` reproduces the carried-forward
+case, same-number revisions, normal replacement approval, current-manager authority, cancellation,
+replay and invalid lineage. `StaffingCorrectionButtonTests` verifies the UI sends the resolved identity.
+
 `StaffingCorrectionService.RequestAsync` implements the Overview **Request correction** action.
 It authorizes the owner/accountable manager, checks the source revision, and serializes with hire
 commits using `HiringOrganizationLock`. `HiringRecommendationCancellation.CancelAsync` is shared

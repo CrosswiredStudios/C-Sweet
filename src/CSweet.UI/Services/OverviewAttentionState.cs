@@ -1,4 +1,4 @@
-using System.Net.Http.Json;
+﻿using System.Net.Http.Json;
 using System.Text.Json;
 using CSweet.Contracts.Communications;
 using CSweet.Contracts.Compute;
@@ -19,9 +19,10 @@ public sealed class OverviewAttentionState(HttpClient http, IBusinessContext bus
     private ComputeDashboard? _compute;
     private IReadOnlyList<BusinessSuggestionResponse>? _suggestions;
     private IReadOnlyList<BlockedWorkAttentionResponse>? _blockedWork;
+    private OverviewIssueDirectory? _issues;
 
     public Guid? OrganizationId { get; private set; }
-    public int PendingCount => OverviewAttentionItems.Count(_approvals, _hiring, _questions, _compute, _blockedWork) + (_suggestions?.Count(x => x.Status == "Pending") ?? 0);
+    public int PendingCount => OverviewAttentionItems.Count(_approvals, _hiring, _questions, _compute, _blockedWork, _issues) + (_suggestions?.Count(x => x.Status == "Pending") ?? 0);
     public bool HasMore => _compute is { CanManageNetwork: true, HasMore: true };
     public event Action? Changed;
 
@@ -48,7 +49,7 @@ public sealed class OverviewAttentionState(HttpClient http, IBusinessContext bus
             _refreshQueued = false;
             OrganizationId = organizationId;
             _approvals = null; _hiring = null; _questions = null; _compute = null; _suggestions = null;
-            _blockedWork = null;
+            _blockedWork = null; _issues = null;
             Changed?.Invoke();
         }
         if (!organizationId.HasValue) return;
@@ -66,6 +67,7 @@ public sealed class OverviewAttentionState(HttpClient http, IBusinessContext bus
                 _refreshQueued = false;
                 var prefix = $"api/core/organizations/{organizationId:D}";
                 await Task.WhenAll(
+                    ReadAsync<OverviewIssueDirectory>($"api/organizations/{organizationId:D}/work/personal-todos/issues", x => _issues = x),
                     ReadAsync<List<BlockedWorkAttentionResponse>>($"api/organizations/{organizationId:D}/work/personal-todos/attention", x => _blockedWork = x),
                     ReadAsync<List<BusinessSuggestionResponse>>($"{prefix}/dashboard/suggestions", x => _suggestions = x),
                     ReadAsync<ApprovalDashboardResponse>($"{prefix}/approvals", x => _approvals = x),

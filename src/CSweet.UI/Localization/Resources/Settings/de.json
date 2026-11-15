@@ -42,6 +42,8 @@
   "Settings.Section.Communications.Description": "Kommunikations-Apps für Ihr ausgewähltes Unternehmen verbinden.",
   "Settings.Section.Security.Title": "Sicherheit",
   "Settings.Section.Security.Description": "Kontowiederherstellung und E-Mail-Zustellung verwalten.",
+  "Settings.Section.Phones.Title": "Telefone",
+  "Settings.Section.Phones.Description": "Telefone freigeben oder sperren, die diese Zentrale mit deinem Konto nutzen.",
   "Settings.PageTitle": "Einstellungen - C-Sweet",
   "Settings.Overline": "Ihr Arbeitsbereich",
   "Settings.Heading": "Passen Sie alles an",

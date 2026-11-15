@@ -37,5 +37,16 @@
   "Mobile.Connect.NoAccess": "Vous n’avez plus accès à {name}.",
   "Mobile.Connect.Unreachable": "Impossible de joindre {name}. Vérifiez qu’il fonctionne et réessayez.",
   "Mobile.Connect.SecureFailed": "La connexion sécurisée à {name} a échoué. Si cela se reproduit, arrêtez et contactez le propriétaire du Siège.",
-  "Mobile.Connect.Refused": "Le service de connexion a refusé ce téléphone. Réessayez."
+  "Mobile.Connect.Refused": "Le service de connexion a refusé ce téléphone. Réessayez.",
+  "Mobile.Connect.HowToApprove": "Sur un ordinateur connecté à {name}, ouvrez Paramètres → Téléphones et approuvez ce téléphone.",
+  "Mobile.Connect.Fingerprint": "Empreinte de ce téléphone : {fingerprint}",
+  "Mobile.Connect.CheckAgain": "Vérifier à nouveau",
+  "Mobile.Connect.Open": "Ouvrir {name}",
+  "Mobile.Enterprise.Back": "Retour à C-Sweet",
+  "Mobile.Connect.Businesses": "Vos entreprises",
+  "Mobile.Connect.NoBusinesses": "Aucune entreprise pour l’instant.",
+  "Mobile.Connect.Denied": "Ce téléphone a été refusé sur {name}.",
+  "Mobile.Connect.Revoked": "L’accès de ce téléphone à {name} a été révoqué.",
+  "Mobile.Connect.NoAccountAccess": "Votre compte C-Sweet n’a pas accès à {name}.",
+  "Mobile.Connect.Rejected": "{name} n’a pas accepté la connexion de ce téléphone. Déconnectez-vous, reconnectez-vous et réessayez."
 }

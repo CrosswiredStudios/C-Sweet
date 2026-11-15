@@ -42,6 +42,8 @@
   "Settings.Section.Communications.Description": "اربط تطبيقات الاتصال لشركتك المحددة.",
   "Settings.Section.Security.Title": "الأمان",
   "Settings.Section.Security.Description": "أدِر استرداد الحساب وتسليم البريد الإلكتروني.",
+  "Settings.Section.Phones.Title": "الهواتف",
+  "Settings.Section.Phones.Description": "وافق على الهواتف التي تستخدم هذا المقر الرئيسي بحسابك أو ألغِ وصولها.",
   "Settings.PageTitle": "الإعدادات - C-Sweet",
   "Settings.Overline": "مساحة عملك",
   "Settings.Heading": "اجعلها على طريقتك",

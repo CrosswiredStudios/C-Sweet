@@ -63,6 +63,10 @@ builder.Services.AddScoped<CSweet.HostedAccount.IDirectoryPublicationStore>(sp =
 builder.Services.AddHostedService<CSweet.Api.Auth.DirectoryPublicationService>();
 builder.Services.Configure<CSweet.Api.Auth.HeadquartersRelayOptions>(builder.Configuration.GetSection(CSweet.Api.Auth.HeadquartersRelayOptions.Section));
 builder.Services.AddHostedService<CSweet.Api.Auth.MobileRelayConnectorService>();
+builder.Services.AddScoped<CSweet.Api.Auth.MobileDeviceService>();
+builder.Services.AddSingleton<CSweet.Api.Auth.MobileRequestDispatcher>();
+builder.Services.Configure<CSweet.Api.Auth.MobileShellOptions>(builder.Configuration.GetSection(CSweet.Api.Auth.MobileShellOptions.Section));
+builder.Services.AddSingleton<CSweet.Api.Auth.MobileWebAssets>();
 CSweet.Api.Compute.ComputeProviderEndpoints.AddComputeProviderIngress(builder.Services);
 builder.Services.AddHostedService<CSweet.Api.Compute.ComputeLocalSetupWorker>();
 builder.Services.AddHostedService<CSweet.Api.Compute.ComputeFailedProvisionCleanupWorker>();
@@ -177,6 +181,14 @@ builder.Services.AddHttpClient("ComputeDownloadMetadata", client => client.Timeo
 builder.Services.AddSingleton<CSweet.Api.Compute.ComputeDownloadProgress>();
 
 var app = builder.Build();
+// Phone requests (H4) enter here, in process, and run through the whole pipeline below. Routing is explicit so the
+// captured pipeline includes it; WebApplication would otherwise add routing ahead of this middleware.
+app.Use(next =>
+{
+    app.Services.GetRequiredService<CSweet.Api.Auth.MobileRequestDispatcher>().Pipeline = next;
+    return next;
+});
+app.UseRouting();
 app.UseForwardedHeaders();
 app.UseExceptionHandler();
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
@@ -208,6 +220,7 @@ app.MapGet("/api/health", () => new { status = "ok", service = "CSweet.Api" }).A
 app.MapHealthChecks("/health").AllowAnonymous();
 app.MapAuthenticationEndpoints();
 app.MapHostedSetupEndpoints();
+app.MapMobileDeviceEndpoints();
 
 app.MapLlmProviderProfileEndpoints();
 app.MapGenAiEndpoints();

@@ -13,7 +13,12 @@ public sealed record CurrentActivityItem(string Key, Guid? WorkItemId, Guid? Boa
     string ActivityKind = "Work", string? EmployeeRole = null, CurrentActivityParticipant? Collaborator = null,
     string? TechnicalName = null, Guid? PersonalBoardOwnerId = null, Guid? ProjectId = null,
     string? CollaborationName = null, string? ActivityLabel = null, string? Description = null,
-    CurrentActivityCompute? Compute = null, CurrentActivityGeneration? Generation = null);
+    CurrentActivityCompute? Compute = null, CurrentActivityGeneration? Generation = null)
+{
+    public IReadOnlyList<CurrentActivityRelatedWork> RelatedWork { get; init; } = [];
+}
+public sealed record CurrentActivityRelatedWork(string Key, string Title, string State, Guid EmployeeId, string EmployeeName,
+    Guid? BoardId, Guid? WorkItemId, Guid? PersonalBoardOwnerId = null, Guid? ProjectId = null);
 
 public sealed record CurrentActivityGeneration(Guid ModelRunId, double TokensPerSecond,
     bool IsEstimated, DateTimeOffset ObservedAt);

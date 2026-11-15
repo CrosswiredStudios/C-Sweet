@@ -1,0 +1,95 @@
+@page "/settings/phones"
+@layout SettingsLayout
+@using CSweet.Contracts.Mobile
+@inject MobileDeviceApiClient Devices
+@inject AppCulture Culture
+@inject IAppLocalizer L
+
+<PageTitle>@L["Phones.PageTitle"]</PageTitle>
+<section class="phone-settings">
+    <MudText Typo="Typo.overline">@L["Settings.Group.Account"]</MudText>
+    <MudText Typo="Typo.h4">@L["Phones.Title"]</MudText>
+    <p>@L["Phones.Intro"]</p>
+
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="my-2">@L[_error]</MudAlert>
+    }
+
+    @if (_devices is null)
+    {
+        <p role="status">@L["Phones.Loading"]</p>
+    }
+    else if (_devices.Count == 0)
+    {
+        <p role="status">@L["Phones.Empty"]</p>
+    }
+    else
+    {
+        @foreach (var group in _devices.GroupBy(x => x.State == "Pending").OrderByDescending(x => x.Key))
+        {
+            <h2 class="phone-settings-heading">@L[group.Key ? "Phones.Pending" : "Phones.Decided"]</h2>
+            <ul class="phone-settings-list">
+                @foreach (var device in group)
+                {
+                    <li class="phone-settings-row">
+                        <div>
+                            <strong>@device.Label</strong>
+                            <div class="phone-settings-detail">@L.Format("Phones.Fingerprint", new { fingerprint = device.Fingerprint })</div>
+                            <div class="phone-settings-detail">@L.Format("Phones.Requested", new { time = Format(device.RequestedAt) }) · @L[$"Phones.State.{device.State}"]</div>
+                        </div>
+                        <div class="phone-settings-actions">
+                            @if (device.State == "Pending")
+                            {
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="@(() => DecideAsync(device, "approve"))">@L["Phones.Approve"]</MudButton>
+                                <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="@(() => DecideAsync(device, "deny"))">@L["Phones.Deny"]</MudButton>
+                            }
+                            else if (device.State == "Active")
+                            {
+                                <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy" OnClick="@(() => DecideAsync(device, "revoke"))">@L["Phones.Revoke"]</MudButton>
+                            }
+                        </div>
+                    </li>
+                }
+            </ul>
+        }
+        <p class="phone-settings-detail">@L["Phones.Compare"]</p>
+    }
+    <MudButton Variant="Variant.Text" Disabled="_busy" OnClick="LoadAsync">@L["Phones.Refresh"]</MudButton>
+</section>
+
+@code {
+    private List<MobileDeviceResponse>? _devices;
+    private string? _error;
+    private bool _busy;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _error = null;
+        try { _devices = (await Devices.ListAsync()).ToList(); }
+        catch (HttpRequestException) { _error = "Phones.LoadFailed"; _devices ??= []; }
+    }
+
+    private async Task DecideAsync(MobileDeviceResponse device, string decision)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            if (await Devices.DecideAsync(device.Id, decision) is null) _error = "Phones.Changed";
+            await LoadAsync();
+        }
+        catch (HttpRequestException)
+        {
+            _error = "Phones.ActionFailed";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private string Format(DateTimeOffset value) => value.ToOffset(Culture.TimeZone.GetUtcOffset(value)).ToString("g", Culture.Culture);
+}

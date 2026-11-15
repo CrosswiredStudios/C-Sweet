@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text.Json;
 using CSweet.Application.Setup;
 using CSweet.Application.Core;
@@ -115,6 +115,18 @@ public sealed class PluginOperationsCapabilityHandler(
         var input = JsonSerializer.Deserialize<AgentOperatingStateWriteRequest>(request.Payload.Span, JsonOptions)
             ?? throw new JsonException("The operating-state write payload is empty.");
         AgentOperatingStateValidation.Validate(input);
+        var content = MutationContent.Digest(new { input.SchemaId, input.SchemaVersion, input.Status,
+            input.SourceRevisions, input.ConditionCodes, input.DecisionFingerprint, input.OpenCommitmentCorrelations, input.Payload });
+        var resource = "agent-state:" + MutationContent.Digest(input.StateKey);
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        var receipt = await db.DurableMutationReceipts.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.OrganizationId == organizationId && x.PrincipalId == installationId && x.ResourceKey == resource &&
+            x.MutationKey == input.IdempotencyKey, cancellationToken);
+        if (receipt is not null)
+            return receipt.ContentDigest == content
+                ? Success(request.RequestId, JsonSerializer.Deserialize<AgentOperatingStateResponse>(receipt.ResultJson, JsonOptions)!)
+                : Failure(request.RequestId, PlatformCapabilityErrorCode.Conflict, "idempotency.content_mismatch: This mutation identity already binds different state content.");
         var state = await db.PluginOperationalStates.SingleOrDefaultAsync(x =>
             x.OrganizationId == organizationId && x.AgentInstallationId == installationId &&
             x.Kind == "agent-operating-state" && x.ExternalKey == input.StateKey, cancellationToken);
@@ -122,7 +134,13 @@ public sealed class PluginOperationsCapabilityHandler(
         {
             var stored = JsonSerializer.Deserialize<StoredAgentOperatingState>(state.PayloadJson, JsonOptions);
             if (stored is not null && string.Equals(stored.IdempotencyKey, input.IdempotencyKey, StringComparison.Ordinal))
+            {
+                var previousContent = MutationContent.Digest(new { stored.SchemaId, stored.SchemaVersion, stored.Status,
+                    stored.SourceRevisions, stored.ConditionCodes, stored.DecisionFingerprint, stored.OpenCommitmentCorrelations, stored.Payload });
+                if (previousContent != content)
+                    return Failure(request.RequestId, PlatformCapabilityErrorCode.Conflict, "idempotency.content_mismatch: The retained mutation binds different state content.");
                 return Success(request.RequestId, ToOperatingStateResponse(state));
+            }
             if (input.ExpectedRevision != state.Revision)
                 return Failure(request.RequestId, PlatformCapabilityErrorCode.Conflict,
                     $"Expected operating-state revision {input.ExpectedRevision?.ToString() ?? "none"}; current revision is {state.Revision}.");
@@ -151,7 +169,11 @@ public sealed class PluginOperationsCapabilityHandler(
         state.UpdatedAt = now;
         try
         {
+            db.DurableMutationReceipts.Add(new() { Id = Guid.NewGuid(), OrganizationId = organizationId, PrincipalId = installationId,
+                ResourceKey = resource, MutationKey = input.IdempotencyKey, ContentDigest = content,
+                ResultJson = JsonSerializer.Serialize(ToOperatingStateResponse(state), JsonOptions), CreatedAt = now });
             await db.SaveChangesAsync(cancellationToken);
+            if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         }
         catch (DbUpdateConcurrencyException)
         {

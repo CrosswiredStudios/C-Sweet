@@ -18,13 +18,25 @@ if (!httpBaseAddress.EndsWith('/'))
     httpBaseAddress += "/";
 }
 
-builder.Services.AddScoped<CookieAndAntiforgeryHandler>();
-builder.Services.AddScoped(sp =>
+if (ShellBridge.IsShellOrigin(new Uri(builder.HostEnvironment.BaseAddress)))
 {
-    var handler = sp.GetRequiredService<CookieAndAntiforgeryHandler>();
-    handler.InnerHandler = new HttpClientHandler();
-    return new HttpClient(handler) { BaseAddress = new Uri(httpBaseAddress) };
-});
+    // Inside the C-Sweet phone app: API calls go through the native bridge to this enterprise's Headquarters.
+    ShellBridge.IsActive = true;
+    builder.Services.AddScoped(sp => new HttpClient(new ShellBridgeHttpHandler(sp.GetRequiredService<Microsoft.JSInterop.IJSRuntime>()))
+    {
+        BaseAddress = new Uri(builder.HostEnvironment.BaseAddress)
+    });
+}
+else
+{
+    builder.Services.AddScoped<CookieAndAntiforgeryHandler>();
+    builder.Services.AddScoped(sp =>
+    {
+        var handler = sp.GetRequiredService<CookieAndAntiforgeryHandler>();
+        handler.InnerHandler = new HttpClientHandler();
+        return new HttpClient(handler) { BaseAddress = new Uri(httpBaseAddress) };
+    });
+}
 builder.Services.AddCSweetApiClients();
 builder.Services.AddMudServices();
 

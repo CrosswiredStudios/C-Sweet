@@ -42,6 +42,8 @@
   "Settings.Section.Communications.Description": "選択中の会社にコミュニケーションアプリを接続します。",
   "Settings.Section.Security.Title": "セキュリティ",
   "Settings.Section.Security.Description": "アカウントの復旧とメール配信を管理します。",
+  "Settings.Section.Phones.Title": "スマートフォン",
+  "Settings.Section.Phones.Description": "あなたのアカウントでこの本部を使うスマートフォンを承認または取り消します。",
   "Settings.PageTitle": "設定 - C-Sweet",
   "Settings.Overline": "あなたのワークスペース",
   "Settings.Heading": "自分らしくカスタマイズ",

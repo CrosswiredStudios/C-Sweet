@@ -37,5 +37,16 @@
   "Mobile.Connect.NoAccess": "Du hast keinen Zugriff mehr auf {name}.",
   "Mobile.Connect.Unreachable": "{name} ist nicht erreichbar. Prüfe, ob sie läuft, und versuche es erneut.",
   "Mobile.Connect.SecureFailed": "Die sichere Verbindung zu {name} ist fehlgeschlagen. Wenn das wiederholt passiert, brich ab und wende dich an den Inhaber der Zentrale.",
-  "Mobile.Connect.Refused": "Der Verbindungsdienst hat dieses Telefon abgelehnt. Versuche es erneut."
+  "Mobile.Connect.Refused": "Der Verbindungsdienst hat dieses Telefon abgelehnt. Versuche es erneut.",
+  "Mobile.Connect.HowToApprove": "Öffne auf einem bei {name} angemeldeten Computer Einstellungen → Telefone und gib dieses Telefon frei.",
+  "Mobile.Connect.Fingerprint": "Fingerabdruck dieses Telefons: {fingerprint}",
+  "Mobile.Connect.CheckAgain": "Erneut prüfen",
+  "Mobile.Connect.Open": "{name} öffnen",
+  "Mobile.Enterprise.Back": "Zurück zu C-Sweet",
+  "Mobile.Connect.Businesses": "Deine Unternehmen",
+  "Mobile.Connect.NoBusinesses": "Noch keine Unternehmen.",
+  "Mobile.Connect.Denied": "Dieses Telefon wurde bei {name} abgelehnt.",
+  "Mobile.Connect.Revoked": "Der Zugriff dieses Telefons auf {name} wurde entzogen.",
+  "Mobile.Connect.NoAccountAccess": "Dein C-Sweet-Konto hat keinen Zugriff auf {name}.",
+  "Mobile.Connect.Rejected": "{name} hat die Anmeldung dieses Telefons nicht akzeptiert. Melde dich ab, wieder an und versuche es erneut."
 }

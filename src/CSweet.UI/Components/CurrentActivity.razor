@@ -30,6 +30,16 @@
         @foreach (var item in VisibleRows)
         {
             <ActivityCard @key="item.Key" Item="item" OrganizationId="OrganizationId" State="@DisplayState(item)" Action="@DisplayAction(item)" Age="@Age(item.StartedAt)" IsSelected="@(_selected?.Key == item.Key)" IsConnected="@_connected" Inspect="ToggleStreamAsync">
+    @if (item.RelatedWork.Count > 0)
+    {
+        <details class="activity-related"><summary>@item.RelatedWork.Count related work records</summary>
+            @foreach (var related in item.RelatedWork)
+            {
+                <p>@related.EmployeeName · @related.State · @related.Title
+                @if (related.BoardId is Guid board && related.WorkItemId is Guid work) { <a href="@(related.PersonalBoardOwnerId is Guid owner ? $"/organizations/{OrganizationId}/employees/{owner}?tab=personal-board&item={work}" : related.ProjectId is Guid project ? $"/organizations/{OrganizationId}/projects/{project}?tab=work&board={board}&item={work}" : $"/organizations/{OrganizationId}/projects/boards/{board}?item={work}")">Open work</a> }</p>
+            }
+        </details>
+    }
     @if (_selected is { } selected && selected.Key == item.Key)
     {
         <section class="activity-stream @(_wide ? "wide" : "")" role="region" aria-label="@L["CurrentActivity.Stream.Title"]" data-activity-stream>

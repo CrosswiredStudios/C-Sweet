@@ -13,7 +13,7 @@
         <MudText>The disputed unfilled hire will stop. Existing employees stay assigned, and the team will submit a replacement for manager review.</MudText>
         <MudTextField T="string" Label="What should change?" HelperText="Describe the intended work or capability and why the current request is incorrect."
             Lines="3" @bind-Value="_reason" Disabled="_busy" />
-        <MudButton OnClick="SubmitAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_reason) || _reason.Length > 2048)" Color="Color.Primary">@(_busy ? "Requesting…" : "Submit correction")</MudButton>
+        <MudButton OnClick="SubmitAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_reason))" Color="Color.Primary">@(_busy ? "Requesting…" : "Submit correction")</MudButton>
         <MudButton OnClick="() => _editing = false" Disabled="_busy">Cancel</MudButton>
     </div>
 }
@@ -36,7 +36,7 @@
         try
         {
             using var response = await Http.PostAsJsonAsync($"api/core/organizations/{OrganizationId:D}/hiring/recommendations/{Recommendation.Id:D}/correction",
-                new RequestStaffingCorrection(revision, _reason.Trim(), _key));
+                new RequestStaffingCorrection(revision, _reason.Trim(), _key) { ExpectedSourceRequestId = Recommendation.CorrectionSourceRequestId });
             if (!response.IsSuccessStatusCode)
             {
                 _error = "The correction could not be recorded. Refresh and review the current request before retrying.";

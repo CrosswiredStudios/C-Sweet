@@ -358,7 +358,7 @@ public sealed partial class ResourceChangeService(
             ResourceChangeDecisionKinds.Reject => ResourceChangeRequestStatus.Rejected,
             _ => throw new ArgumentException("Decision must be Approve, RequestRevision, or Reject.")
         };
-        record.DecisionComment = Clean(request.Comment, 4000);
+        record.DecisionComment = CSweet.Application.Common.AuthoredText.Optional(request.Comment);
         if (record.CorrectionId is { } correctionId)
         {
             var correction = await db.StaffingCorrections.SingleAsync(x => x.Id == correctionId && x.OrganizationId == organizationId, token);
@@ -763,7 +763,7 @@ public sealed partial class ResourceChangeService(
         {
             Kind = Required(item.Kind, 80, "evidence.kind"),
             SourceRevision = Required(item.SourceRevision, 128, "evidence.sourceRevision"),
-            Summary = Required(item.Summary, 2048, "evidence.summary"),
+            Summary = CSweet.Application.Common.AuthoredText.Required(item.Summary, "evidence.summary"),
             Unit = Clean(item.Unit, 40)
         }).ToList();
     }

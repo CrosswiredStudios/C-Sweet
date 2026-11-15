@@ -30,6 +30,18 @@ the symptom-to-source procedure and the metrics to record for a company run in p
 [Overview work recovery](features/work-management/overview-work-attention.md) maps canonical blocked-work
 cards, authorized retry choices, owner pause semantics, named staffing choices and exact-package review.
 
+[Decision content and staffing recovery](decision-content-and-staffing-recovery.md) maps unbounded
+authored decision text, PostgreSQL migration coverage, carried-forward staffing correction authority,
+and the QFN Games Prism Break publish/retry steps.
+
+[Meaningful planning ownership](meaningful-planning-ownership.md) maps obligation ownership,
+agent reconciliation, evidence-based manager questions, scoped progress, unbounded personal reports,
+and source-based upgrade recovery.
+
+[Issue lifecycle and Overview proposal](features/work-management/issue-lifecycle-and-overview-proposal.md)
+proposes durable issue identity, consolidated reconciliation, truthful record retirement, shared
+attention eligibility, concise cards, and recovery of existing noisy business runs.
+
 [Model output contracts](agent-model-output-contracts.md) lists the rules and review checklist
 for agent steps that submit model-produced JSON to the platform.
 

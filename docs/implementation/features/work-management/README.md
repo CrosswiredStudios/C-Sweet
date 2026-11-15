@@ -1,5 +1,9 @@
 # Universal work management
 
+See the proposed [issue lifecycle and Overview improvements](issue-lifecycle-and-overview-proposal.md)
+for durable issue identity, consolidated agent consultation, current actionability, concise status,
+idempotency fixes and legacy business recovery. This is a proposal, not implemented behavior.
+
 See [corrective delivery lifecycle and agent collaboration](corrective-delivery-lifecycle.md)
 for the tracked architecture plan, reporting/execution separation, failure tests
 and Prism Break recovery rollout.

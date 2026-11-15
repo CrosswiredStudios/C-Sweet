@@ -23,6 +23,7 @@ public sealed class MobileShellTests
     private readonly FakeBrowser _browser;
     private readonly InMemorySecureValueStore _storage = new();
     private readonly FakeConnector _connector = new();
+    private readonly FakeEnterpriseApp _app = new();
 
     public MobileShellTests()
     {
@@ -265,6 +266,24 @@ public sealed class MobileShellTests
     }
 
     [Fact]
+    public async Task An_active_phone_can_open_the_enterprise_app_when_the_host_has_one()
+    {
+        _app.IsAvailable = true;
+        _connector.Result = new(HeadquartersConnectStatus.Connected, "Tls13", "Crosswired Studios", "active", ["Qwen Games"]);
+        _issuer.Directory.Add(new("Crosswired Studios", "Owner"));
+        _issuer.RelayConfigured = true;
+        var shell = await SignedIn();
+        await shell.ConnectAsync();
+        var html = WebUtility.HtmlDecode(await Render(shell));
+        Assert.Contains("Open Crosswired Studios", html);
+        Assert.Contains("Qwen Games", html);
+        Assert.Equal(_issuer.Directory.Single().Id, _connector.Installations.Single());
+
+        _app.IsAvailable = false;
+        Assert.DoesNotContain("Open Crosswired Studios", WebUtility.HtmlDecode(await Render(shell)));
+    }
+
+    [Fact]
     public async Task Connect_gets_a_ticket_for_this_phones_key_and_reports_that_enrollment_is_needed()
     {
         _issuer.Directory.Add(new("Crosswired Studios", "Owner"));
@@ -281,10 +300,44 @@ public sealed class MobileShellTests
         html = WebUtility.HtmlDecode(await Render(shell));
         Assert.Contains("Connected securely to Crosswired Studios (TLS 1.3).", html);
         Assert.Contains("still needs approval at Crosswired Studios", html);
+        Assert.Contains("open Settings → Phones", html);
+        Assert.Contains("This phone's fingerprint: " + shell.DeviceFingerprint, html);
+        Assert.Contains("Check again", html);
+        Assert.Equal("assertion-1", ticket.DeviceAssertion);
 
         // The device key is created once and reused.
         await shell.ConnectAsync();
         Assert.Equal(MobileDeviceKeyStore.PublicKey(_connector.Keys[0]), MobileDeviceKeyStore.PublicKey(_connector.Keys[1]));
+    }
+
+    [Fact]
+    public async Task An_approved_phone_shows_the_businesses_Headquarters_returned()
+    {
+        _issuer.Directory.Add(new("Crosswired Studios", "Owner"));
+        _issuer.RelayConfigured = true;
+        _connector.Result = new(HeadquartersConnectStatus.Connected, "Tls13", "Crosswired Studios", "active", ["Games", "Media"]);
+        var shell = await SignedIn();
+        await shell.ConnectAsync();
+        var html = WebUtility.HtmlDecode(await Render(shell));
+        Assert.Contains("Your businesses", html);
+        Assert.Contains(">Games<", html);
+        Assert.Contains(">Media<", html);
+        Assert.DoesNotContain("Check again", html);
+    }
+
+    [Theory]
+    [InlineData("denied", "This phone was denied at Crosswired Studios.")]
+    [InlineData("revoked", "access to Crosswired Studios was revoked")]
+    [InlineData("no_access", "doesn't have access to Crosswired Studios")]
+    [InlineData("rejected", "didn't accept this phone's sign-in")]
+    public async Task Enrollment_outcomes_other_than_pending_or_active_are_explained(string enrollment, string expected)
+    {
+        _issuer.Directory.Add(new("Crosswired Studios", "Owner"));
+        _issuer.RelayConfigured = true;
+        _connector.Result = new(HeadquartersConnectStatus.Connected, "Tls13", "Crosswired Studios", enrollment);
+        var shell = await SignedIn();
+        await shell.ConnectAsync();
+        Assert.Contains(expected, WebUtility.HtmlDecode(await Render(shell)));
     }
 
     [Theory]
@@ -349,12 +402,13 @@ public sealed class MobileShellTests
             new MobileDeviceKeyStore(_storage), _connector);
     }
 
-    private static async Task<string> Render(MobileSessionCoordinator shell)
+    private async Task<string> Render(MobileSessionCoordinator shell)
     {
         var services = new ServiceCollection().AddLogging();
         services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJs>();
         services.AddSingleton(shell);
+        services.AddSingleton<IEnterpriseAppHost>(_app);
         await using var provider = services.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
         return await renderer.Dispatcher.InvokeAsync(async () =>
@@ -420,7 +474,7 @@ public sealed class MobileShellTests
                     LastPhoneKey = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct)).RootElement.GetProperty("phoneKey").GetString();
                     if (TicketNotFound) return new HttpResponseMessage(HttpStatusCode.NotFound);
                     if (!RelayConfigured) return Json(new { errorCode = "relay_not_configured" }, HttpStatusCode.Conflict);
-                    return Json(new { ticket = "body.sig", relayOrigin = "https://relay.test/", routeId = "route-1", headquartersPin = "HQPIN", expiresAt = time.GetUtcNow().AddMinutes(5) });
+                    return Json(new { ticket = "body.sig", relayOrigin = "https://relay.test/", routeId = "route-1", headquartersPin = "HQPIN", expiresAt = time.GetUtcNow().AddMinutes(5), deviceAssertion = "assertion-1" });
                 case "/api/directory/installations":
                     if (request.Headers.Authorization?.Parameter != $"access-{_tokens}") return new HttpResponseMessage(HttpStatusCode.Unauthorized);
                     if (DirectoryStatus != HttpStatusCode.OK) return new HttpResponseMessage(DirectoryStatus);
@@ -471,14 +525,23 @@ public sealed class MobileShellTests
         }
     }
 
+    private sealed class FakeEnterpriseApp : IEnterpriseAppHost
+    {
+        public bool IsAvailable { get; set; }
+        public List<(Guid, string)> Opened { get; } = [];
+        public Task<bool> OpenAsync(Guid installationId, string displayName) { Opened.Add((installationId, displayName)); return Task.FromResult(true); }
+    }
+
     private sealed class FakeConnector : IHeadquartersConnector
     {
         public List<ConnectionTicket> Tickets { get; } = [];
         public List<ECDsa> Keys { get; } = [];
-        public HeadquartersConnectResult Result { get; set; } = new(HeadquartersConnectStatus.Connected, "Tls13", "Crosswired Studios", EnrollmentRequired: true);
+        public List<Guid> Installations { get; } = [];
+        public HeadquartersConnectResult Result { get; set; } = new(HeadquartersConnectStatus.Connected, "Tls13", "Crosswired Studios", "pending");
 
-        public Task<HeadquartersConnectResult> ConnectAsync(ConnectionTicket ticket, ECDsa deviceKey, CancellationToken ct)
+        public Task<HeadquartersConnectResult> ConnectAsync(Guid installationId, ConnectionTicket ticket, ECDsa deviceKey, CancellationToken ct)
         {
+            Installations.Add(installationId);
             Tickets.Add(ticket);
             Keys.Add(deviceKey);
             return Task.FromResult(Result);

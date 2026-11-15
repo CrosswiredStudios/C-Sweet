@@ -992,8 +992,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         if (request.NextReviewAt <= clock.GetUtcNow() ||
             request.NextReviewAt > clock.GetUtcNow().AddDays(30))
             throw new ArgumentException("The next personal-work review must be within the next 30 days.");
-        if (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Trim().Length > 2048)
-            throw new ArgumentException("A waiting reason between 1 and 2048 characters is required.");
+        var reason = CSweet.Application.Common.AuthoredText.Required(request.Reason, "Waiting reason");
         var item = await LoadPersonalItemAsync(organizationId, request.ItemId, actor, cancellationToken);
         await RequireGrantAsync(organizationId, item.BoardId!.Value,
             actor, PersonalTodoActions.Defer, cancellationToken);
@@ -1008,7 +1007,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         item.ClaimEventId = null;
         item.ClaimExpiresAt = null;
         item.NextReviewAt = request.NextReviewAt;
-        item.WaitingReason = request.Reason.Trim();
+        item.WaitingReason = reason;
         item.WaitingOnOrganizationUserId = request.WaitingOnOrganizationUserId;
         item.Revision++;
         item.UpdatedAt = clock.GetUtcNow();
@@ -1209,8 +1208,8 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
 
     private static void ValidateAdd(Wire.AddPersonalTodoItemRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.Title) || request.Title.Trim().Length > 512)
-            throw new ArgumentException("A personal to-do title between 1 and 512 characters is required.");
+        if (string.IsNullOrWhiteSpace(request.Title))
+            throw new ArgumentException("A personal to-do title is required.");
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey) || request.IdempotencyKey.Trim().Length > 160)
             throw new ArgumentException("A personal to-do idempotency key is required.");
         if (!Enum.TryParse<WorkTaskPriority>(CanonicalPriority(request.Priority), true, out _))
@@ -1222,8 +1221,8 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
 
     private static void ValidateEditableFields(string title, string? description, string priority)
     {
-        if (string.IsNullOrWhiteSpace(title) || title.Trim().Length > 512)
-            throw new ArgumentException("A personal task title between 1 and 512 characters is required.");
+        if (string.IsNullOrWhiteSpace(title))
+            throw new ArgumentException("A personal task title is required.");
         if (!Enum.TryParse<WorkTaskPriority>(CanonicalPriority(priority), true, out _))
             throw new ArgumentException("The personal task priority is invalid.");
     }

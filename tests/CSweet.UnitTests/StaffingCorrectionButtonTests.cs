@@ -16,7 +16,7 @@ public sealed class StaffingCorrectionButtonTests
     public async Task CorrectionBindsSourceAndReasonAndRefreshesOnlyOnConfirmedAcceptance(HttpStatusCode status, bool accepted)
     {
         var org = Guid.NewGuid(); var recommendation = new HiringRecommendationResponse(Guid.NewGuid(), null, "Misclassified slot", "Technical planning", "Pending", null, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)
-            { CorrectionSourceRevision = 7, RemainingHeadcount = 1 };
+            { CorrectionSourceRevision = 7, CorrectionSourceRequestId = Guid.NewGuid(), SourceResourceChangeRequestId = Guid.NewGuid(), RemainingHeadcount = 1 };
         var handler = new Handler(status); using var http = new HttpClient(handler) { BaseAddress = new("http://localhost/") };
         var refreshes = 0;
         var button = new StaffingCorrectionButton { OrganizationId = org, Recommendation = recommendation,
@@ -27,6 +27,7 @@ public sealed class StaffingCorrectionButtonTests
         await (Task)typeof(StaffingCorrectionButton).GetMethod("SubmitAsync", flags)!.Invoke(button, null)!;
         Assert.Equal($"/api/core/organizations/{org:D}/hiring/recommendations/{recommendation.Id:D}/correction", handler.Path);
         Assert.Equal(7, handler.Request!.ExpectedSourceRevision);
+        Assert.Equal(recommendation.CorrectionSourceRequestId, handler.Request.ExpectedSourceRequestId);
         Assert.Equal("Request technical planning capacity instead.", handler.Request.Reason);
         Assert.Equal(accepted ? 1 : 0, refreshes);
         Assert.Equal(accepted, (bool)typeof(StaffingCorrectionButton).GetField("_submitted", flags)!.GetValue(button)!);

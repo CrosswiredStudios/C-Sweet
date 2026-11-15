@@ -38,5 +38,16 @@
   "Mobile.Connect.NoAccess": "You don't have access to {name} anymore.",
   "Mobile.Connect.Unreachable": "Couldn't reach {name}. Check that it's running and try again.",
   "Mobile.Connect.SecureFailed": "The secure connection to {name} failed. If this keeps happening, stop and check with the Headquarters owner.",
-  "Mobile.Connect.Refused": "The connection service refused this phone. Try again."
+  "Mobile.Connect.Refused": "The connection service refused this phone. Try again.",
+  "Mobile.Connect.HowToApprove": "On a computer signed in to {name}, open Settings → Phones and approve this phone.",
+  "Mobile.Connect.Fingerprint": "This phone's fingerprint: {fingerprint}",
+  "Mobile.Connect.CheckAgain": "Check again",
+  "Mobile.Connect.Open": "Open {name}",
+  "Mobile.Enterprise.Back": "Back to C-Sweet",
+  "Mobile.Connect.Businesses": "Your businesses",
+  "Mobile.Connect.NoBusinesses": "No businesses yet.",
+  "Mobile.Connect.Denied": "This phone was denied at {name}.",
+  "Mobile.Connect.Revoked": "This phone's access to {name} was revoked.",
+  "Mobile.Connect.NoAccountAccess": "Your C-Sweet account doesn't have access to {name}.",
+  "Mobile.Connect.Rejected": "{name} didn't accept this phone's sign-in. Sign out, sign in again and retry."
 }

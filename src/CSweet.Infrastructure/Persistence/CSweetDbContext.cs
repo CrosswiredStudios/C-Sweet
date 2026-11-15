@@ -837,6 +837,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        ConfigureIssues(modelBuilder);
         ConfigureChiefLeadership(modelBuilder);
         ConfigureResourceCleanup(modelBuilder);
         ConfigurePersonalAssistant(modelBuilder);

@@ -37,5 +37,16 @@
   "Mobile.Connect.NoAccess": "你已无法访问 {name}。",
   "Mobile.Connect.Unreachable": "无法连接到 {name}。请确认它正在运行后重试。",
   "Mobile.Connect.SecureFailed": "与 {name} 的安全连接失败。如果反复出现，请停止操作并联系总部所有者。",
-  "Mobile.Connect.Refused": "连接服务拒绝了此手机。请重试。"
+  "Mobile.Connect.Refused": "连接服务拒绝了此手机。请重试。",
+  "Mobile.Connect.HowToApprove": "在已登录 {name} 的电脑上，打开 设置 → 手机 并批准此手机。",
+  "Mobile.Connect.Fingerprint": "此手机的指纹：{fingerprint}",
+  "Mobile.Connect.CheckAgain": "再次检查",
+  "Mobile.Connect.Open": "打开 {name}",
+  "Mobile.Enterprise.Back": "返回 C-Sweet",
+  "Mobile.Connect.Businesses": "你的业务",
+  "Mobile.Connect.NoBusinesses": "还没有业务。",
+  "Mobile.Connect.Denied": "此手机在 {name} 被拒绝。",
+  "Mobile.Connect.Revoked": "此手机对 {name} 的访问已被撤销。",
+  "Mobile.Connect.NoAccountAccess": "你的 C-Sweet 账户无权访问 {name}。",
+  "Mobile.Connect.Rejected": "{name} 未接受此手机的登录。请退出后重新登录，然后重试。"
 }

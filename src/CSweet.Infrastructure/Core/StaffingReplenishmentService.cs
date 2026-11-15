@@ -197,7 +197,7 @@ public sealed class StaffingReplenishmentService(
             ResourceChangeDecisionKinds.Reject => StaffingReplenishmentRequestStatus.Rejected,
             _ => throw new ArgumentException("Decision must be Approve, RequestRevision, or Reject.")
         };
-        record.DecisionComment = Clean(request.Comment, 4000);
+        record.DecisionComment = CSweet.Application.Common.AuthoredText.Optional(request.Comment);
         record.DecisionIdempotencyKey = request.IdempotencyKey;
         record.DecidedByOrganizationUserId = managerId;
         record.DecidedAt = record.UpdatedAt = DateTimeOffset.UtcNow;

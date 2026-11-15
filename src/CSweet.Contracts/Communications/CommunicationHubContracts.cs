@@ -282,7 +282,7 @@ public sealed record ExecutiveDecisionCardResponse(
 
 public sealed record AnswerExecutiveDecisionRequest(
     [property: MaxLength(80)] string? OptionId,
-    [property: MaxLength(4000)] string? SomethingElse,
+    string? SomethingElse,
     [property: Required, MaxLength(160)] string IdempotencyKey);
 
 public sealed record AnswerExecutiveDecisionResponse(

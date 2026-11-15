@@ -42,6 +42,8 @@
   "Settings.Section.Communications.Description": "Conecta aplicaciones de comunicación para la empresa seleccionada.",
   "Settings.Section.Security.Title": "Seguridad",
   "Settings.Section.Security.Description": "Administra la recuperación de la cuenta y el envío de correos.",
+  "Settings.Section.Phones.Title": "Teléfonos",
+  "Settings.Section.Phones.Description": "Aprueba o revoca los teléfonos que usan esta Sede central con tu cuenta.",
   "Settings.PageTitle": "Configuración - C-Sweet",
   "Settings.Overline": "Tu espacio de trabajo",
   "Settings.Heading": "Hazlo tuyo",

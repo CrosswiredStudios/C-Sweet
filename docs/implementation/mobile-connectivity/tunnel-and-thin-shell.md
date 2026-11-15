@@ -138,6 +138,27 @@ One mid-range Android phone about three years old, one iPhone of similar age, an
 
 The owner also uses the build for a day. Thresholds may change before the prototype runs, not after.
 
+### Prototype build (2026-11-14, Android first)
+
+Built over the real relay and pinned TLS rather than a desktop stand-in, since H4's transport was already working.
+
+- **Tunnel.** After hello/welcome an approved phone keeps the session open. Requests carry ids and run concurrently (8 at a time at Headquarters); each response is a head line plus base64 chunks of 48 KiB, so binary files fit. Ten idle minutes end the session. JSON lines remain the prototype framing; TS-01 replaces it with a binary codec. (`CSweet.Mobile.Transport/TunnelSession.cs`)
+- **Headquarters.** `MobileShell:WebRoot` points at the published `CSweet.App` `wwwroot`. `MobileWebAssets` builds a manifest (path, SHA-256, size, content type) at `/.csweet/manifest`, serves only listed files, and sends the `.br` sibling when present. API paths go through the dispatcher; `MobileShell:AllowAllReads` (prototype only) lets any `GET /api/*` through with the real authorization, writes stay refused, and `/api/mobile/*` is never reachable from a phone.
+- **Web app.** At an origin ending `.csweet.invalid` the app registers `ShellBridgeHttpHandler`: API calls go to `shell-bridge.js`, which posts them to the native shell. The realtime hub is not started in shell mode.
+- **Phone (Android).** "Open {name}" appears once the phone is active. The enterprise page is a WebView at `https://hq-{installation}.csweet.invalid/`. `ShouldInterceptRequest` serves that origin from the manifest (hash-checked, cached by hash, client routes fall back to `index.html`), forwards `GET /api/*` and returns 403 for every other origin. The bridge object is injected only for that origin (`WebViewCompat.AddWebMessageListener`, AndroidX WebKit 1.14.0) and answers main-frame calls only.
+- **Not in the prototype.** Writes (need operation keys, TS-05), realtime hints, per-enterprise WebView profiles (isolation is per origin only), iPhone.
+
+Local check: the real published app (212 files, 41 MiB uncompressed) went through manifest, Brotli decode and hash check with no mismatches.
+
+| Check | Result |
+| --- | --- |
+| Real published `CSweet.App` loads, changed only by shell-mode detection | Android: pending |
+| First open to usable business list | Pending |
+| Cold start, Headquarters unchanged | Pending |
+| Navigation between visited pages | Pending |
+| Requests to other origins blocked | Pending (logged as `CSweetShell` in logcat) |
+| Data written by A not readable from B | Pending; needs two enterprises |
+
 **Outcomes.** Pass: H4 is built on the thin shell. Fail on speed only: try the optimisations once (trimmed build, load only the active language's data, compressed files), then decide. Fail on isolation, bridge containment or store review with no fix: switch to bundled screens. Record the outcome in the decision log.
 
 ## Issues

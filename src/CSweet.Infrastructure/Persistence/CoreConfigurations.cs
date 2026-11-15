@@ -1,4 +1,4 @@
-using CSweet.Domain.Core;
+﻿using CSweet.Domain.Core;
 using CSweet.Domain.Communications;
 using CSweet.Infrastructure.Auth;
 using CSweet.Domain.Notifications;
@@ -442,7 +442,7 @@ internal static class CoreConfigurations
             entity.HasIndex(x => new { x.OrganizationId, x.RequestingInstallationId, x.IdempotencyKey }).IsUnique(); entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
             entity.Property(x => x.CandidateSource).HasMaxLength(80).IsRequired(); entity.Property(x => x.CandidateId).HasMaxLength(256).IsRequired();
             entity.Property(x => x.PayloadJson).HasColumnType("jsonb"); entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
-            entity.Property(x => x.DecisionComment).HasMaxLength(2048);
+            entity.Property(x => x.DecisionComment).HasColumnType("text");
             entity.HasIndex(x => x.ConversationMessageId).IsUnique().HasFilter("\"ConversationMessageId\" IS NOT NULL");
         });
         modelBuilder.Entity<AgentHireOperation>(entity =>
@@ -452,7 +452,7 @@ internal static class CoreConfigurations
             entity.HasIndex(x => new { x.Status, x.LeaseUntil });
             entity.HasIndex(x => new { x.InitiatedByOrganizationUserId, x.DismissedAt });
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
-            entity.Property(x => x.Error).HasMaxLength(2048);
+            entity.Property(x => x.Error).HasColumnType("text");
             entity.Property(x => x.LeaseOwner).HasMaxLength(160);
             entity.HasOne<StaffingActionProposal>().WithOne().HasForeignKey<AgentHireOperation>(x => x.WorkflowId)
                 .OnDelete(DeleteBehavior.Cascade);
@@ -517,7 +517,7 @@ internal static class CoreConfigurations
             entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
             entity.Property(x => x.DeliveryStatus).HasMaxLength(32).IsRequired();
-            entity.Property(x => x.DecisionComment).HasMaxLength(4000);
+            entity.Property(x => x.DecisionComment).HasColumnType("text");
             entity.Property(x => x.DecisionIdempotencyKey).HasMaxLength(160);
             entity.HasOne<OrganizationTeam>().WithMany().HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne<Workstream>().WithMany().HasForeignKey(x => x.WorkstreamId).OnDelete(DeleteBehavior.SetNull);
@@ -548,7 +548,7 @@ internal static class CoreConfigurations
             entity.HasIndex(x => new { x.OrganizationId, x.IdempotencyKey }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.SourceRequestId, x.RoleKey, x.Status });
             entity.Property(x => x.RoleKey).HasMaxLength(160).IsRequired();
-            entity.Property(x => x.Reason).HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.Reason).HasColumnType("text").IsRequired();
             entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
             entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
             entity.Property(x => x.Revision).IsConcurrencyToken();
@@ -567,7 +567,7 @@ internal static class CoreConfigurations
             entity.Property(x => x.DecisionFingerprint).HasMaxLength(128).IsRequired();
             entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
-            entity.Property(x => x.DecisionComment).HasMaxLength(4000);
+            entity.Property(x => x.DecisionComment).HasColumnType("text");
             entity.Property(x => x.DecisionIdempotencyKey).HasMaxLength(160);
             entity.HasOne<ResourceChangeRequestRecord>().WithMany().HasForeignKey(x => x.SourceResourceChangeRequestId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<OrganizationTeam>().WithMany().HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.Restrict);
@@ -638,7 +638,7 @@ internal static class CoreConfigurations
                 "CK_CoreWorkTasks_Priority",
                 "\"Priority\" IN ('Low', 'Medium', 'High', 'Critical')");
         });
-        entity.Property(x => x.Title).HasMaxLength(512).IsRequired();
+        entity.Property(x => x.Title).HasColumnType("text").IsRequired();
         entity.Property(x => x.Description).HasColumnType("text").IsRequired();
         entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
         entity.Property(x => x.Priority).HasConversion<string>().HasMaxLength(16).IsRequired();
@@ -656,7 +656,8 @@ internal static class CoreConfigurations
         entity.Property(x => x.MergeCommitSha).HasMaxLength(128);
         entity.Property(x => x.QualityFindingFingerprint).HasMaxLength(128);
         entity.Property(x => x.Identifier).HasMaxLength(32);
-        entity.Property(x => x.ResultSummary).HasMaxLength(4096);
+        entity.Property(x => x.ResultSummary).HasColumnType("text");
+        entity.Property(x => x.WaitingReason).HasColumnType("text");
         entity.Property(x => x.BlockReason).HasColumnType("text");
         entity.Property(x => x.CreationIdempotencyKey).HasMaxLength(160);
         entity.Property(x => x.CorrelationId).HasMaxLength(160);
@@ -837,20 +838,20 @@ internal static class CoreConfigurations
             entity.Property(x => x.EvidenceJson).HasColumnType("jsonb");
             entity.Property(x => x.FindingsJson).HasColumnType("jsonb");
             entity.Property(x => x.SubmissionSummary).HasMaxLength(4096);
-            entity.Property(x => x.DecisionRationale).HasMaxLength(4096);
+            entity.Property(x => x.DecisionRationale).HasColumnType("text");
             entity.HasIndex(x => new { x.WorkstreamId, x.Key }).IsUnique();
         });
         modelBuilder.Entity<WorkstreamDecisionRecord>(entity =>
         {
             entity.HasKey(x => x.Id);
             entity.Property(x => x.TypeKey).HasMaxLength(200).IsRequired();
-            entity.Property(x => x.Summary).HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.Summary).HasColumnType("text").IsRequired();
             entity.Property(x => x.AuthorityRuleKey).HasMaxLength(200).IsRequired();
             entity.Property(x => x.RecommendedOptionId).HasMaxLength(100).IsRequired();
             entity.Property(x => x.SelectedOptionId).HasMaxLength(100);
             entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
-            entity.Property(x => x.BlockingImpact).HasMaxLength(2048).IsRequired();
-            entity.Property(x => x.Rationale).HasMaxLength(4096);
+            entity.Property(x => x.BlockingImpact).HasColumnType("text").IsRequired();
+            entity.Property(x => x.Rationale).HasColumnType("text");
             entity.Property(x => x.IdempotencyKey).HasMaxLength(200).IsRequired();
             entity.Property(x => x.Revision).IsConcurrencyToken();
             entity.Property(x => x.OptionsJson).HasColumnType("jsonb");
@@ -1275,13 +1276,13 @@ internal static class CoreConfigurations
     static void ConfigureExecutiveDecision(EntityTypeBuilder<ExecutiveDecision> entity)
     {
         entity.HasKey(x => x.Id);
-        entity.Property(x => x.Prompt).HasMaxLength(2048).IsRequired();
+        entity.Property(x => x.Prompt).HasColumnType("text").IsRequired();
         entity.Property(x => x.OptionsJson).HasColumnType("jsonb").IsRequired();
         entity.Property(x => x.RecommendedOptionId).HasMaxLength(80).IsRequired();
         entity.Property(x => x.IdempotencyKey).HasMaxLength(200).IsRequired();
         entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(24).IsRequired();
         entity.Property(x => x.SelectedOptionId).HasMaxLength(80);
-        entity.Property(x => x.FreeTextAnswer).HasMaxLength(4000);
+        entity.Property(x => x.FreeTextAnswer).HasColumnType("text");
         entity.Property(x => x.AnswerIdempotencyKey).HasMaxLength(200);
         entity.HasIndex(x => new { x.RequestingInstallationId, x.IdempotencyKey }).IsUnique();
         entity.HasIndex(x => new { x.ConversationId, x.RequestingInstallationId, x.Status })

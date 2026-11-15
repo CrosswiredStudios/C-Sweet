@@ -293,7 +293,7 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
         if (gate.Status != W.WorkstreamGateStatuses.Submitted)
             throw new InvalidOperationException("Only a submitted gate can be decided.");
         var decision = NormalizeGateDecision(request.Decision);
-        ValidateText(request.Rationale, 1, 4000, "Decision rationale");
+        var rationale = CSweet.Application.Common.AuthoredText.Required(request.Rationale, "Decision rationale");
         ValidateText(request.IdempotencyKey, 1, 200, "Idempotency key");
         if (decision == W.WorkstreamGateStatuses.Approved && request.Findings.Any(x => x.Blocking))
             throw new ArgumentException("A gate with blocking findings cannot be approved.");
@@ -304,7 +304,7 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
         var now = clock.GetUtcNow();
         gate.Status = decision;
         gate.FindingsJson = JsonSerializer.Serialize(request.Findings, JsonOptions);
-        gate.DecisionRationale = request.Rationale.Trim();
+        gate.DecisionRationale = rationale;
         gate.DecidedByOrganizationUserId = actorId;
         gate.DecidedAt = now;
         gate.Revision++;
@@ -396,16 +396,14 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
     {
         var workstream = await RequireVisibleWorkstreamAsync(organizationId, actorId, request.WorkstreamId, false, token);
         ValidateText(request.TypeKey, 1, 200, "Decision type key");
-        ValidateText(request.Summary, 1, 4000, "Decision summary");
+        var summary = CSweet.Application.Common.AuthoredText.Required(request.Summary, "Decision summary");
         ValidateText(request.AuthorityRuleKey, 1, 200, "Authority rule key");
-        ValidateText(request.BlockingImpact, 1, 4000, "Blocking impact");
+        var impact = CSweet.Application.Common.AuthoredText.Required(request.BlockingImpact, "Blocking impact");
         ValidateText(request.IdempotencyKey, 1, 200, "Idempotency key");
         if (request.TypeData is { } typeData)
         {
             if (typeData.ValueKind != JsonValueKind.Object)
                 throw new ArgumentException("Decision type data must be a JSON object.");
-            if (Encoding.UTF8.GetByteCount(typeData.GetRawText()) > 64 * 1024)
-                throw new ArgumentException("Decision type data must not exceed 64 KB.");
         }
         if (request.Options.Count < 2 || request.Options.GroupBy(x => x.Id, StringComparer.Ordinal).Any(x => x.Count() > 1) ||
             request.Options.All(x => x.Id != request.RecommendedOptionId))
@@ -425,11 +423,11 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
         var decision = new WorkstreamDecisionRecord
         {
             Id = Guid.NewGuid(), OrganizationId = organizationId, WorkstreamId = request.WorkstreamId,
-            TypeKey = request.TypeKey.Trim(), Summary = request.Summary.Trim(), AuthorityRuleKey = request.AuthorityRuleKey.Trim(),
+            TypeKey = request.TypeKey.Trim(), Summary = summary, AuthorityRuleKey = request.AuthorityRuleKey.Trim(),
             OptionsJson = JsonSerializer.Serialize(request.Options, JsonOptions), RecommendedOptionId = request.RecommendedOptionId,
             EvidenceJson = JsonSerializer.Serialize(request.Evidence, JsonOptions), Status = W.DecisionStatuses.Pending,
             TypeDataJson = request.TypeData?.GetRawText(),
-            BlockingImpact = request.BlockingImpact.Trim(), RequestedByOrganizationUserId = actorId,
+            BlockingImpact = impact, RequestedByOrganizationUserId = actorId,
             RequestedByInstallationId = installationId, SupersedesDecisionId = request.SupersedesDecisionId,
             DueAt = request.DueAt, IdempotencyKey = request.IdempotencyKey, CreatedAt = now, UpdatedAt = now
         };
@@ -476,11 +474,11 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
         if (decision.Status != W.DecisionStatuses.Pending) throw new InvalidOperationException("Only a pending decision can be decided.");
         var options = ReadList<W.DecisionOption>(decision.OptionsJson);
         if (options.All(x => x.Id != request.SelectedOptionId)) throw new ArgumentException("The selected option is invalid.");
-        ValidateText(request.Rationale, 1, 4000, "Decision rationale");
+        var rationale = CSweet.Application.Common.AuthoredText.Required(request.Rationale, "Decision rationale");
         ValidateText(request.IdempotencyKey, 1, 200, "Idempotency key");
         await RequireAuthorityAsync(organizationId, actorId, decision.WorkstreamId, decision.AuthorityRuleKey, token);
         var now = clock.GetUtcNow();
-        decision.SelectedOptionId = request.SelectedOptionId; decision.Rationale = request.Rationale.Trim();
+        decision.SelectedOptionId = request.SelectedOptionId; decision.Rationale = rationale;
         decision.Status = W.DecisionStatuses.Decided; decision.DecidedByOrganizationUserId = actorId;
         decision.Revision++; decision.UpdatedAt = now;
         AddEvent(organizationId, W.WorkstreamEventNames.DecisionDecidedV1, workstream, decision.Id, decision.Revision,

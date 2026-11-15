@@ -37,5 +37,16 @@
   "Mobile.Connect.NoAccess": "{name} へのアクセス権がなくなりました。",
   "Mobile.Connect.Unreachable": "{name} に接続できませんでした。起動していることを確認して、もう一度お試しください。",
   "Mobile.Connect.SecureFailed": "{name} との安全な接続に失敗しました。繰り返し発生する場合は操作を中止し、本部のオーナーに確認してください。",
-  "Mobile.Connect.Refused": "接続サービスがこのスマートフォンを拒否しました。もう一度お試しください。"
+  "Mobile.Connect.Refused": "接続サービスがこのスマートフォンを拒否しました。もう一度お試しください。",
+  "Mobile.Connect.HowToApprove": "{name} にサインインしているコンピューターで、設定 → スマートフォン を開き、このスマートフォンを承認してください。",
+  "Mobile.Connect.Fingerprint": "このスマートフォンのフィンガープリント: {fingerprint}",
+  "Mobile.Connect.CheckAgain": "もう一度確認",
+  "Mobile.Connect.Open": "{name} を開く",
+  "Mobile.Enterprise.Back": "C-Sweet に戻る",
+  "Mobile.Connect.Businesses": "あなたのビジネス",
+  "Mobile.Connect.NoBusinesses": "まだビジネスはありません。",
+  "Mobile.Connect.Denied": "このスマートフォンは {name} で拒否されました。",
+  "Mobile.Connect.Revoked": "このスマートフォンの {name} へのアクセスは取り消されました。",
+  "Mobile.Connect.NoAccountAccess": "あなたの C-Sweet アカウントには {name} へのアクセス権がありません。",
+  "Mobile.Connect.Rejected": "{name} はこのスマートフォンのサインインを受け付けませんでした。サインアウトしてからもう一度サインインし、再試行してください。"
 }

@@ -11,6 +11,48 @@ namespace CSweet.UnitTests;
 
 public sealed partial class ExecutiveDecisionServiceTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DecisionCardsAndOwnerRepliesPreserveFullAuthoredText(bool linked)
+    {
+        await using var db = CreateDb(); var setup = await SeedAsync(db);
+        var agent = await db.CoreOrganizationUsers.SingleAsync(x => x.AgentInstallationId == setup.InstallationId);
+        var text = string.Concat(Enumerable.Repeat(DecisionContentTests.IncidentText() + "\n", 20)).Trim();
+        WorkstreamDecisionRecord? source = null;
+        if (linked)
+        {
+            var project = new Workstream { Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, Name = "Project" };
+            source = new() { Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, WorkstreamId = project.Id,
+                RequestedByInstallationId = setup.InstallationId, RequestedByOrganizationUserId = agent.Id,
+                Summary = text, Status = "Pending", Revision = 1,
+                OptionsJson = JsonSerializer.Serialize(new[] { new W.DecisionOption("provide-direction", "Provide direction", text),
+                    new W.DecisionOption("continue-current-plan", "Continue", "Keep accepted scope") }), RecommendedOptionId = "provide-direction" };
+            db.AddRange(project, source); await db.SaveChangesAsync();
+        }
+        var turns = new ChatTurnService(db); var service = new ExecutiveDecisionService(db, turns);
+        if (source is not null)
+            await CSweet.AgentHost.Broker.WorkstreamDecisionChatReview.PresentAsync(db,
+                new CommunicationHubService(db, new TestAuditEventWriter(), turns, service), service, source, default);
+        else
+            await service.CreateAsync(new(setup.OrganizationId, setup.ConversationId, setup.TurnId, null, setup.InstallationId,
+                text, [new("a", text, text), new("b", "Wait", null)], "a", "long-owner-decision"));
+        db.ChangeTracker.Clear();
+        var card = await db.ExecutiveDecisions.SingleAsync(); Assert.Equal(text, card.Prompt);
+        var command = new CSweet.Contracts.Communications.AnswerExecutiveDecisionRequest(null, text, "long-answer");
+        Assert.True(System.ComponentModel.DataAnnotations.Validator.TryValidateObject(command,
+            new(command), [], validateAllProperties: true));
+        var answered = await service.AnswerAsync(setup.OrganizationId, card.ConversationId, card.Id, setup.OwnerId, command);
+        Assert.True(answered.Succeeded, answered.Message);
+        db.ChangeTracker.Clear();
+        Assert.Equal(text, (await db.ExecutiveDecisions.SingleAsync()).FreeTextAnswer);
+        if (linked)
+        {
+            Assert.Equal(text, (await db.WorkstreamDecisions.SingleAsync()).Rationale);
+            Assert.Single(await db.AgentPlatformEventOutbox.Where(x => x.EventType == W.WorkstreamEventNames.DecisionDecidedV1).ToListAsync());
+        }
+    }
+
     [Fact]
     public void PendingCardConstraintExcludesLinkedProjectDecisions()
     {

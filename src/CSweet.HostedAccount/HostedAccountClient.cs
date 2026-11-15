@@ -46,6 +46,8 @@ public sealed class HostedAccountClient(HttpClient http, IOptions<HostedAccountO
     private readonly SemaphoreSlim _discoveryLock = new(1, 1);
     private Discovery? _discovery;
     private DateTimeOffset _discoveryExpires;
+    private string? _ticketKey;
+    private DateTimeOffset _ticketKeyExpires;
 
     public async Task<DeviceAuthorization> StartAsync(string installationName, InstallationKey key, CancellationToken ct = default)
     {
@@ -193,6 +195,22 @@ public sealed class HostedAccountClient(HttpClient http, IOptions<HostedAccountO
         return (await ReadAsync<RelayResponse>(response, ct))?.Applied ?? false;
     }
 
+    /// <summary>
+    /// The C-Sweet directory's ticket key (base64url SPKI), which also signs device assertions. Fetched from the trusted
+    /// issuer and cached for an hour.
+    /// </summary>
+    public async Task<string> GetDirectoryTicketKeyAsync(CancellationToken ct = default)
+    {
+        if (_ticketKey is not null && time.GetUtcNow() < _ticketKeyExpires) return _ticketKey;
+        var body = await http.GetFromJsonAsync<TicketKeyResponse>(new Uri(options.Value.IssuerUri, "api/directory/ticket-key"), ct)
+            ?? throw new HostedAccountException("ticket_key_unavailable", "C-Sweet did not return its ticket key.");
+        if (string.IsNullOrWhiteSpace(body.Key) || body.Key.Length > 512)
+            throw new HostedAccountException("ticket_key_unavailable", "C-Sweet returned an invalid ticket key.");
+        _ticketKey = body.Key;
+        _ticketKeyExpires = time.GetUtcNow().AddHours(1);
+        return _ticketKey;
+    }
+
     private async Task<Discovery> DiscoverAsync(CancellationToken ct)
     {
         if (_discovery is not null && time.GetUtcNow() < _discoveryExpires) return _discovery;
@@ -243,6 +261,8 @@ public sealed class HostedAccountClient(HttpClient http, IOptions<HostedAccountO
     private sealed record ProblemResponse(string? ErrorCode);
 
     private sealed record RelayResponse(long Revision, bool Applied);
+
+    private sealed record TicketKeyResponse(string? Key);
 
     private sealed record Discovery(string Issuer, Uri DeviceAuthorizationEndpoint, Uri TokenEndpoint, IList<SecurityKey> SigningKeys);
 

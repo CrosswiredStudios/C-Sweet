@@ -1,0 +1,23 @@
+{
+  "Phones.PageTitle": "cc2d50c6679e",
+  "Phones.Title": "cc2d50c6679e",
+  "Phones.Intro": "58bd2338d494",
+  "Phones.Loading": "de8119a9e0a4",
+  "Phones.Empty": "d4c897bc8074",
+  "Phones.Pending": "0a1ea5282f05",
+  "Phones.Decided": "7ee671ded191",
+  "Phones.Fingerprint": "dd21adaa24f2",
+  "Phones.Requested": "8649887a329e",
+  "Phones.State.Pending": "0a1ea5282f05",
+  "Phones.State.Active": "41b81eb8db1b",
+  "Phones.State.Denied": "63b16bd41e56",
+  "Phones.State.Revoked": "85f17ac049c4",
+  "Phones.Approve": "7b2c7f146aba",
+  "Phones.Deny": "53577bb5df0e",
+  "Phones.Revoke": "0be720759ff0",
+  "Phones.Refresh": "56e3badc4e6c",
+  "Phones.Compare": "f40dcf9d5686",
+  "Phones.LoadFailed": "bda2f312cfeb",
+  "Phones.ActionFailed": "9ae914fa5a75",
+  "Phones.Changed": "4a6f99114ac6"
+}

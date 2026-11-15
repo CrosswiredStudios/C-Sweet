@@ -43,7 +43,7 @@ public sealed record ResourceChangeRole(
 public sealed record ResourceChangeEvidence(
     [property: Required, MaxLength(80)] string Kind,
     [property: Required, MaxLength(128)] string SourceRevision,
-    [property: Required, MaxLength(2048)] string Summary,
+    [property: Required] string Summary,
     decimal? Value = null,
     [property: MaxLength(40)] string? Unit = null,
     DateTimeOffset? WindowStart = null,
@@ -129,7 +129,7 @@ public sealed record ResourceChangeReadResponse(IReadOnlyList<ResourceChangeRequ
 public sealed record ResourceChangeDecisionRequest(
     Guid RequestId,
     [property: Required, MaxLength(32)] string Decision,
-    [property: MaxLength(4000)] string? Comment,
+    string? Comment,
     [property: Required, MaxLength(160)] string IdempotencyKey);
 
 public sealed record ResourceChangeDecisionEvent(

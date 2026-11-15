@@ -26,6 +26,8 @@ public sealed class AppRealtimeState(HttpClient http) : IAsyncDisposable, IAppRe
         try
         {
             if (_connection is not null) return;
+            // The phone shell does not forward the realtime hub (it would leak event data); hints come later (TS-07).
+            if (ShellBridge.IsActive) return;
             var uri = new Uri(http.BaseAddress!, "hubs/app-events");
             _connection = new HubConnectionBuilder()
                 .WithUrl(uri, options =>

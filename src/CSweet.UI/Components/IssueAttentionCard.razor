@@ -1,0 +1,38 @@
+@using CSweet.Contracts.Core
+
+<AttentionRequestCard Kind="@(Item.RequiresUserAction ? "Input needed" : "Status")" Name="@Item.OwnerName"
+    Context="@Item.ProjectName" Prompt="@Item.Title" Description="@Item.Summary" Status="@Item.NextAction">
+    <BodyContent>
+        @if (Item.Unclassified) { <p>The accountable manager is checking the remaining responsibility and next actor.</p> }
+        @if (!Item.RequiresUserAction) { <p>No action needed from you.</p> }
+        <details class="issue-details">
+            <summary>Details and supporting evidence</summary>
+            @if (!string.IsNullOrWhiteSpace(Item.Detail)) { <ChatMarkdown Content="@Item.Detail" /> }
+            @foreach (var work in Item.Work) { <p><a href="@work.ActionUri">Open @work.Title</a></p> }
+            @foreach (var question in Item.Questions) { <p><a href="@($"/organizations/{OrganizationId}/communications/{question.ConversationId}?decision={question.Decision.Id}")">Read the recorded question and evidence</a></p> }
+            @foreach (var incident in Item.Incidents) { <p><a href="@incident.ActionUri">Read the manager report</a></p> }
+            @foreach (var related in Item.RelatedIssues) { <IssueAttentionCard Item="related" OrganizationId="OrganizationId" RefreshRequested="RefreshRequested" /> }
+        </details>
+    </BodyContent>
+    <ChildContent>
+        @if (Item.RequiresUserAction)
+        {
+            @foreach (var question in Item.Questions)
+            {
+                <AgentQuestionCard @key="question.Decision.Id" OrganizationId="OrganizationId" Question="question" ActionsOnly="true" Answered="AnsweredAsync" />
+            }
+            @foreach (var incident in Item.Incidents.Where(i => i.ResolutionDecision is not null && i.ReportConversationId.HasValue))
+            {
+                <IncidentResolutionChoices OrganizationId="OrganizationId" ConversationId="incident.ReportConversationId!.Value" Decision="incident.ResolutionDecision!" Answered="RefreshRequested" />
+            }
+            @foreach (var work in Item.Work.Where(w => w.CanRetry)) { <BlockedWorkAttentionCard OrganizationId="OrganizationId" Item="work" ActionsOnly="true" RefreshRequested="RefreshRequested" /> }
+        }
+    </ChildContent>
+</AttentionRequestCard>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter, EditorRequired] public OverviewIssueCard Item { get; set; } = default!;
+    [Parameter] public EventCallback RefreshRequested { get; set; }
+    private Task AnsweredAsync(Guid _) => RefreshRequested.InvokeAsync();
+}

@@ -168,6 +168,53 @@ public sealed class TransportTests : IAsyncDisposable
     }
 
     [Fact]
+    public void Device_assertions_verify_only_with_the_directory_key_and_parse_exactly()
+    {
+        using var directory = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var other = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var installation = Guid.NewGuid();
+        var body = Encoding.UTF8.GetBytes(RelayProtocol.DeviceAssertionMessage(installation, "market-user-1", "PIN", 1800000000));
+        string Signed(ECDsa key) => B64(body) + "." + B64(key.SignData(body, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
+        var parsed = RelayProtocol.ReadDeviceAssertion(Signed(directory), RelayProtocol.PublicKey(directory));
+        Assert.Equal((installation, "market-user-1", "PIN", 1800000000L), (parsed!.InstallationId, parsed.Subject, parsed.PhoneKeyThumbprint, parsed.ExpiresAt.ToUnixTimeSeconds()));
+        Assert.Null(RelayProtocol.ReadDeviceAssertion(Signed(other), RelayProtocol.PublicKey(directory)));
+        Assert.Null(RelayProtocol.ReadDeviceAssertion("garbage", RelayProtocol.PublicKey(directory)));
+        Assert.Equal("abcd efgh ijkl mnop", RelayProtocol.Fingerprint("abcdefghijklmnopqrstuvwxyz"));
+    }
+
+    [Fact]
+    public async Task Concurrent_requests_and_multi_megabyte_files_are_matched_by_id_over_the_secure_channel()
+    {
+        var big = RandomNumberGenerator.GetBytes(3 * 1024 * 1024 + 17);
+        _connector = new HeadquartersRelayConnector(_relay.Connect(), Route, _routeKey, _headquartersCertificate, pin => _enrolled(pin),
+            (tls, channel, ct) => HeadquartersTunnelServer.ServeAsync(tls, async (request, token) =>
+            {
+                if (request.Path == "/big.wasm") return new TunnelReply(200, "application/wasm", null, big);
+                await Task.Delay(request.Path == "/slow" ? 300 : 0, token);
+                return new TunnelReply(200, "application/json", null, Encoding.UTF8.GetBytes($"{{\"path\":\"{request.Path}\"}}"));
+            }, concurrency: 8, idle: TimeSpan.FromMinutes(1), ct));
+        await _connector.StartAsync(CancellationToken.None);
+        await using var session = await Phone();
+        await using var client = new PhoneTunnelClient(session.Stream);
+        client.Start();
+
+        var slow = client.SendAsync("GET", "/slow", 1024, CancellationToken.None);
+        var fast = client.SendAsync("GET", "/fast", 1024, CancellationToken.None);
+        var file = client.SendAsync("GET", "/big.wasm", 8 * 1024 * 1024, CancellationToken.None);
+        Assert.Equal("{\"path\":\"/fast\"}", Encoding.UTF8.GetString((await fast.WaitAsync(TimeSpan.FromSeconds(10))).Body));
+        Assert.False(slow.IsCompleted); // answered out of order
+        Assert.Equal("{\"path\":\"/slow\"}", Encoding.UTF8.GetString((await slow.WaitAsync(TimeSpan.FromSeconds(10))).Body));
+        var reply = await file.WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Equal(("application/wasm", big.Length), (reply.ContentType, reply.Body.Length));
+        Assert.Equal(big, reply.Body);
+
+        // A response larger than the caller allows is refused.
+        await Assert.ThrowsAsync<InvalidDataException>(() => client.SendAsync("GET", "/big.wasm", 1024, CancellationToken.None));
+    }
+
+    private static string B64(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    [Fact]
     public async Task Incoming_frames_wait_when_the_buffer_is_full_until_the_reader_catches_up()
     {
         var stream = new RelayChannelStream(_relay.Connect(), "c1", bufferedFrames: 2);

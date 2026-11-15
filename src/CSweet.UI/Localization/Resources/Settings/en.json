@@ -44,6 +44,8 @@
   "Settings.Section.Communications.Description": "Connect communication apps for your selected company.",
   "Settings.Section.Security.Title": "Security",
   "Settings.Section.Security.Description": "Manage account recovery and email delivery.",
+  "Settings.Section.Phones.Title": "Phones",
+  "Settings.Section.Phones.Description": "Approve or revoke the phones that use this Headquarters with your account.",
 
   "Settings.PageTitle": "Settings - C-Sweet",
   "Settings.Overline": "Your workspace",

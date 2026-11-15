@@ -42,6 +42,8 @@
   "Settings.Section.Communications.Description": "선택한 회사에 커뮤니케이션 앱을 연결합니다.",
   "Settings.Section.Security.Title": "보안",
   "Settings.Section.Security.Description": "계정 복구와 이메일 전송을 관리합니다.",
+  "Settings.Section.Phones.Title": "휴대폰",
+  "Settings.Section.Phones.Description": "내 계정으로 이 본부를 사용하는 휴대폰을 승인하거나 해제합니다.",
   "Settings.PageTitle": "설정 - C-Sweet",
   "Settings.Overline": "내 워크스페이스",
   "Settings.Heading": "나에게 맞게 설정하기",

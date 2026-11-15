@@ -6,16 +6,45 @@ using System.Security.Cryptography;
 namespace CSweet.UI.Mobile;
 
 /// <summary>A short-lived relay admission ticket from the C-Sweet directory, bound to this phone's key (H4).</summary>
-public sealed record ConnectionTicket(string Ticket, string RelayOrigin, string RouteId, string HeadquartersPin, DateTimeOffset ExpiresAt);
+public sealed record ConnectionTicket(string Ticket, string RelayOrigin, string RouteId, string HeadquartersPin, DateTimeOffset ExpiresAt, string? DeviceAssertion = null);
 
 public enum HeadquartersConnectStatus { Connected, NotConfigured, NoAccess, Unreachable, SecureConnectionFailed, Refused }
 
-public sealed record HeadquartersConnectResult(HeadquartersConnectStatus Status, string? Protocol = null, string? HeadquartersName = null, bool EnrollmentRequired = false);
+/// <summary>
+/// What a Connect achieved. When <see cref="Status"/> is Connected, <see cref="Enrollment"/> says whether this phone is
+/// pending, active, denied, revoked, rejected or without access; for an active phone <see cref="Businesses"/> holds the
+/// first live read.
+/// </summary>
+public sealed record HeadquartersConnectResult(
+    HeadquartersConnectStatus Status,
+    string? Protocol = null,
+    string? HeadquartersName = null,
+    string? Enrollment = null,
+    IReadOnlyList<string>? Businesses = null);
 
 /// <summary>Opens the relay channel and secure session to a Headquarters. Implemented by the native host.</summary>
 public interface IHeadquartersConnector
 {
-    Task<HeadquartersConnectResult> ConnectAsync(ConnectionTicket ticket, ECDsa deviceKey, CancellationToken ct);
+    /// <summary>Connects to the Headquarters of <paramref name="installationId"/>. An active session is kept open for the enterprise app.</summary>
+    Task<HeadquartersConnectResult> ConnectAsync(Guid installationId, ConnectionTicket ticket, ECDsa deviceKey, CancellationToken ct);
+}
+
+/// <summary>
+/// Opens the full C-Sweet web app for one enterprise inside the phone app (TS-13 thin-shell prototype), over the
+/// session the last Connect left open. The default host has no enterprise app.
+/// </summary>
+public interface IEnterpriseAppHost
+{
+    bool IsAvailable { get; }
+
+    /// <summary>Opens the enterprise app; false when its session has ended and a new Connect is needed first.</summary>
+    Task<bool> OpenAsync(Guid installationId, string displayName);
+}
+
+internal sealed class NoEnterpriseAppHost : IEnterpriseAppHost
+{
+    public bool IsAvailable => false;
+    public Task<bool> OpenAsync(Guid installationId, string displayName) => Task.FromResult(false);
 }
 
 /// <summary>The directory refused a ticket (<c>relay_not_configured</c>, <c>not_member</c>, <c>invalid_phone_key</c>).</summary>
@@ -63,6 +92,13 @@ public sealed class MobileDeviceKeyStore(ISecureValueStore store)
     }
 
     public static string PublicKey(ECDsa key) => AccountSignInClient.Base64Url(key.ExportSubjectPublicKeyInfo());
+
+    /// <summary>The phone's short fingerprint, as Headquarters shows it on Settings → Phones.</summary>
+    public static string Fingerprint(ECDsa key)
+    {
+        var pin = AccountSignInClient.Base64Url(SHA256.HashData(key.ExportSubjectPublicKeyInfo()));
+        return string.Join(' ', Enumerable.Range(0, 4).Select(i => pin.Substring(i * 4, 4)));
+    }
 }
 
 public static class DirectoryTicketClient

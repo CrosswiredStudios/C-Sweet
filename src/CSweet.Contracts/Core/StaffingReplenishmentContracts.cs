@@ -44,7 +44,7 @@ public sealed record StaffingReplenishmentReadResponse(
 public sealed record StaffingReplenishmentDecisionRequest(
     Guid RequestId,
     [property: Required, MaxLength(32)] string Decision,
-    [property: MaxLength(4000)] string? Comment,
+    string? Comment,
     [property: Required, MaxLength(160)] string IdempotencyKey);
 
 public sealed record StaffingReplenishmentResponse(

@@ -8,6 +8,16 @@ namespace CSweet.UnitTests;
 public sealed class CommunicationSdkSchemaTests
 {
     [Fact]
+    public void SdkDecisionContentHasNoBrokerLengthLimit()
+    {
+        var text = new string('x', 100_000);
+        var request = new AskUserRequest(Guid.NewGuid(), Guid.NewGuid(), text,
+            [new("proceed", text, text), new("revise", "Revise")], "proceed", "direction");
+        Validate(CommunicationHubCapabilities.AskUser,
+            JsonSerializer.SerializeToElement(request, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+    }
+
+    [Fact]
     public void SdkOpenEndedQuestionPassesHostSchemaValidation()
     {
         var request = new AskUserRequest(Guid.NewGuid(), Guid.NewGuid(), "What should I build?", [], "", "direction");

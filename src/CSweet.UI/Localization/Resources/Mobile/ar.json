@@ -37,5 +37,16 @@
   "Mobile.Connect.NoAccess": "لم يعد لديك وصول إلى {name}.",
   "Mobile.Connect.Unreachable": "تعذّر الوصول إلى {name}. تأكد من أنه يعمل وحاول مرة أخرى.",
   "Mobile.Connect.SecureFailed": "فشل الاتصال الآمن بـ {name}. إذا تكرر ذلك، توقف وتواصل مع مالك المقر الرئيسي.",
-  "Mobile.Connect.Refused": "رفضت خدمة الاتصال هذا الهاتف. حاول مرة أخرى."
+  "Mobile.Connect.Refused": "رفضت خدمة الاتصال هذا الهاتف. حاول مرة أخرى.",
+  "Mobile.Connect.HowToApprove": "على جهاز كمبيوتر مسجّل الدخول إلى {name}، افتح الإعدادات ← الهواتف ووافق على هذا الهاتف.",
+  "Mobile.Connect.Fingerprint": "بصمة هذا الهاتف: {fingerprint}",
+  "Mobile.Connect.CheckAgain": "تحقق مرة أخرى",
+  "Mobile.Connect.Open": "فتح {name}",
+  "Mobile.Enterprise.Back": "العودة إلى C-Sweet",
+  "Mobile.Connect.Businesses": "أعمالك",
+  "Mobile.Connect.NoBusinesses": "لا توجد أعمال بعد.",
+  "Mobile.Connect.Denied": "تم رفض هذا الهاتف في {name}.",
+  "Mobile.Connect.Revoked": "تم إلغاء وصول هذا الهاتف إلى {name}.",
+  "Mobile.Connect.NoAccountAccess": "حسابك في C-Sweet لا يملك وصولًا إلى {name}.",
+  "Mobile.Connect.Rejected": "لم يقبل {name} تسجيل دخول هذا الهاتف. سجّل الخروج ثم سجّل الدخول مرة أخرى وأعد المحاولة."
 }

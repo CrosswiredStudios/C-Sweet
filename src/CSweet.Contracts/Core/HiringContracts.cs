@@ -52,6 +52,7 @@ public sealed record HiringRecommendationResponse(
     DateTimeOffset UpdatedAt)
 {
     public long? CorrectionSourceRevision { get; init; }
+    public Guid? CorrectionSourceRequestId { get; init; }
     public int Priority { get; init; } = 50;
     public string HiringUrl { get; init; } = string.Empty;
     public string? SelectedCatalogAgentJson { get; init; }

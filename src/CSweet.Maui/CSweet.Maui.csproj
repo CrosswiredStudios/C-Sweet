@@ -72,6 +72,7 @@
         <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" />
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" />
         <PackageReference Include="MudBlazor" />
+        <PackageReference Include="Xamarin.AndroidX.WebKit" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'" />
     </ItemGroup>
 
     <ItemGroup>

@@ -28,8 +28,11 @@ public static class MauiProgram
         // Sign in with C-Sweet and My Headquarters (H3).
         builder.Services.AddSingleton<IBrowserAuthenticator, MauiBrowserAuthenticator>();
         builder.Services.AddSingleton<ISecureValueStore, MauiSecureValueStore>();
+        builder.Services.AddSingleton<HeadquartersTunnels>();
         builder.Services.AddSingleton<IHeadquartersConnector, MauiHeadquartersConnector>();
         builder.Services.AddCSweetMobileShell(AccountOptions());
+        // The enterprise web app over the Headquarters session (TS-13 thin-shell prototype, Android).
+        builder.Services.AddScoped<IEnterpriseAppHost, EnterpriseAppHost>(); // scoped: uses the localizer
 
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();

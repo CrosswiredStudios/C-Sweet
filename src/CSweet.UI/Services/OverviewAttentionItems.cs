@@ -1,4 +1,4 @@
-using CSweet.Contracts.Communications;
+﻿using CSweet.Contracts.Communications;
 using CSweet.Contracts.Compute;
 using CSweet.Contracts.Core;
 
@@ -35,7 +35,8 @@ public static class OverviewAttentionItems
 
     public static int Count(ApprovalDashboardResponse? approvals, HiringBacklogResponse? hiring,
         IReadOnlyList<PendingAgentQuestionResponse>? questions, ComputeDashboard? compute,
-        IReadOnlyList<BlockedWorkAttentionResponse>? blockedWork = null) =>
+        IReadOnlyList<BlockedWorkAttentionResponse>? blockedWork = null, OverviewIssueDirectory? issues = null) =>
+        issues is not null ? (approvals?.Items.Count(IsActionable) ?? 0) + (hiring?.Recommendations.Count(IsActionable) ?? 0) + ComputeRequests(compute).Count + issues.UserActions.Count :
         (approvals?.Items.Count(IsActionable) ?? 0) + (approvals?.ProjectIncidents.Count(IsActionable) ?? 0) +
         (hiring?.Recommendations.Count(IsActionable) ?? 0) +
         StandaloneQuestions(questions, approvals?.ProjectIncidents).Count(x => IsPending(x.Decision.Status)) + ComputeRequests(compute).Count +

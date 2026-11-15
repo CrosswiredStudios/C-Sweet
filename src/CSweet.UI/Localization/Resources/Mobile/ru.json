@@ -37,5 +37,16 @@
   "Mobile.Connect.NoAccess": "У вас больше нет доступа к {name}.",
   "Mobile.Connect.Unreachable": "Не удалось связаться с {name}. Убедитесь, что она работает, и попробуйте ещё раз.",
   "Mobile.Connect.SecureFailed": "Не удалось установить безопасное соединение с {name}. Если это повторяется, остановитесь и свяжитесь с владельцем штаб-квартиры.",
-  "Mobile.Connect.Refused": "Служба подключения отклонила этот телефон. Попробуйте ещё раз."
+  "Mobile.Connect.Refused": "Служба подключения отклонила этот телефон. Попробуйте ещё раз.",
+  "Mobile.Connect.HowToApprove": "На компьютере, где выполнен вход в {name}, откройте Настройки → Телефоны и одобрите этот телефон.",
+  "Mobile.Connect.Fingerprint": "Отпечаток этого телефона: {fingerprint}",
+  "Mobile.Connect.CheckAgain": "Проверить снова",
+  "Mobile.Connect.Open": "Открыть {name}",
+  "Mobile.Enterprise.Back": "Назад в C-Sweet",
+  "Mobile.Connect.Businesses": "Ваши предприятия",
+  "Mobile.Connect.NoBusinesses": "Предприятий пока нет.",
+  "Mobile.Connect.Denied": "Этот телефон отклонён в {name}.",
+  "Mobile.Connect.Revoked": "Доступ этого телефона к {name} отозван.",
+  "Mobile.Connect.NoAccountAccess": "У вашего аккаунта C-Sweet нет доступа к {name}.",
+  "Mobile.Connect.Rejected": "{name} не принял вход с этого телефона. Выйдите, войдите снова и повторите попытку."
 }

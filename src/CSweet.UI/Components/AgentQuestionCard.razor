@@ -1,9 +1,30 @@
-@using CSweet.Contracts.Communications
+﻿@using CSweet.Contracts.Communications
 @inject HttpClient Http
 @inject IJSRuntime JS
 @inject IAppLocalizer L
 
 @if (_submitted) { }
+else if (ActionsOnly)
+{
+    <div @ref="_dismissalElement" class="question-dismissal">
+        @if (OpenEnded) {
+            <label>Your answer<textarea rows="3" disabled="@_busy" @bind="_direction" @bind:event="oninput"></textarea></label>
+            <MudButton Disabled="@(_busy || string.IsNullOrWhiteSpace(_direction))" OnClick="SubmitAsync">Send response</MudButton>
+        } else {
+            <MudMenu Label="Choose an answer" Variant="Variant.Outlined" Disabled="_busy">
+                @foreach (var option in Question.Decision.Options) {
+                    @if (Question.Decision.AllowFreeText && option.Id == "provide-direction") {
+                        <MudMenuItem Href="@ConversationHref">@option.Label</MudMenuItem>
+                    } else {
+                        <MudMenuItem OnClick="() => AnswerOptionAsync(option.Id)"><strong>@option.Label</strong><div>@option.Description</div></MudMenuItem>
+                    }
+                }
+                @if (Question.Decision.AllowFreeText) { <MudMenuItem Href="@ConversationHref">Provide other direction</MudMenuItem> }
+            </MudMenu>
+        }
+        @if (_error is not null) { <MudText role="alert" Color="Color.Error">@_error</MudText> }
+    </div>
+}
 else
 {
 <div @ref="_dismissalElement" class="question-dismissal">
@@ -17,7 +38,7 @@ else
         <BodyContent>
             @if (OpenEnded)
             {
-                <label class="direction-label">@L["AgentQuestionCard.YourAnswer"]<textarea rows="4" maxlength="4000" disabled="@_busy" @bind="_direction" @bind:event="oninput"></textarea></label>
+                <label class="direction-label">@L["AgentQuestionCard.YourAnswer"]<textarea rows="4" disabled="@_busy" @bind="_direction" @bind:event="oninput"></textarea></label>
             }
         </BodyContent>
         <ChildContent>
@@ -78,7 +99,7 @@ else
         }
         @if (NeedsText)
         {
-            <label class="direction-label">@(OpenEnded ? "Your answer" : "Your direction")<textarea rows="4" maxlength="4000" @bind="_direction" @bind:event="oninput"></textarea></label>
+            <label class="direction-label">@(OpenEnded ? "Your answer" : "Your direction")<textarea rows="4" @bind="_direction" @bind:event="oninput"></textarea></label>
         }
     </fieldset>
     @if (_error is not null) { <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert> }
@@ -97,6 +118,7 @@ else
     [CascadingParameter] public EmployeePortraits? Portraits { get; set; }
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public bool Overview { get; set; }
+    [Parameter] public bool ActionsOnly { get; set; }
     [Parameter, EditorRequired] public PendingAgentQuestionResponse Question { get; set; } = default!;
     [Parameter] public EventCallback<Guid> Answered { get; set; }
     private const string Other = "__other__";

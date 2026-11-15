@@ -42,6 +42,8 @@
   "Settings.Section.Communications.Description": "Подключите приложения для общения к выбранной компании.",
   "Settings.Section.Security.Title": "Безопасность",
   "Settings.Section.Security.Description": "Управляйте восстановлением учётной записи и доставкой электронной почты.",
+  "Settings.Section.Phones.Title": "Телефоны",
+  "Settings.Section.Phones.Description": "Одобряйте или отзывайте телефоны, которые используют эту штаб-квартиру с вашим аккаунтом.",
   "Settings.PageTitle": "Настройки - C-Sweet",
   "Settings.Overline": "Ваше рабочее пространство",
   "Settings.Heading": "Настройте под себя",

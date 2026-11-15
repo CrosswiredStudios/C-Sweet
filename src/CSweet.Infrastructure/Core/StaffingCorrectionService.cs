@@ -14,7 +14,7 @@ public sealed class StaffingCorrectionService(CSweetDbContext db)
     public async Task<StaffingCorrectionResponse> RequestAsync(Guid organization, Guid recommendationId,
         Guid applicationUser, RequestStaffingCorrection request, CancellationToken token = default)
     {
-        if (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Length > 2048 ||
+        if (string.IsNullOrWhiteSpace(request.Reason) ||
             string.IsNullOrWhiteSpace(request.IdempotencyKey) || request.IdempotencyKey.Length > 160)
             throw new ArgumentException("A correction reason and idempotency key are required.");
         await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
@@ -25,23 +25,24 @@ public sealed class StaffingCorrectionService(CSweetDbContext db)
             ?? throw new UnauthorizedAccessException("An active organization member is required.");
         var plan = await db.WorkforcePlans.SingleOrDefaultAsync(x => x.Id == recommendationId && x.OrganizationId == organization, token)
             ?? throw new KeyNotFoundException("The hiring recommendation was not found.");
-        var source = await db.ResourceChangeRequests.Include(x => x.Roles).SingleOrDefaultAsync(x =>
-            x.OrganizationId == organization && x.Id == plan.SourceResourceChangeRequestId, token)
-            ?? throw new InvalidOperationException("This recommendation has no approved staffing plan to correct.");
+        var duplicate = await db.StaffingCorrections.SingleOrDefaultAsync(x => x.OrganizationId == organization && x.IdempotencyKey == request.IdempotencyKey, token);
+        if (duplicate is not null && (duplicate.RecommendationId != recommendationId || duplicate.RequestedByOrganizationUserId != actor.Id || duplicate.Reason != request.Reason.Trim()))
+            throw new InvalidOperationException("This correction key is already bound to another request.");
+        var lineage = duplicate is null ? await new ApprovedStaffingLineage(db, organization)
+            .ResolveAsync(plan.SourceResourceChangeRequestId, plan.RoleKey, token) : null;
+        var source = duplicate is null ? lineage?.Current : await db.ResourceChangeRequests.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.OrganizationId == organization && x.Id == duplicate.SourceRequestId, token);
+        if (source is null) throw new InvalidOperationException("This recommendation has no unambiguous current approved staffing plan to correct. Refresh and review current staffing.");
         if (!CanCorrect(actor, source)) throw new UnauthorizedAccessException("Only the owner or the staffing plan's accountable manager may request correction.");
         var author = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x => x.Id == source.RequesterOrganizationUserId &&
             x.OrganizationId == organization && x.IsActive && x.ArchivedAt == null, token)
             ?? throw new InvalidOperationException("The staffing author is no longer active. The owner must assign current staffing responsibility first.");
         if (actor.PermissionLevel != OrganizationPermissionLevel.Owner && author.ReportsToOrganizationUserId != actor.Id)
             throw new UnauthorizedAccessException("The current reporting manager or owner must request this correction.");
-        var duplicate = await db.StaffingCorrections.SingleOrDefaultAsync(x => x.OrganizationId == organization && x.IdempotencyKey == request.IdempotencyKey, token);
-        if (duplicate is not null)
-        {
-            if (duplicate.RecommendationId != recommendationId || duplicate.RequestedByOrganizationUserId != actor.Id || duplicate.Reason != request.Reason.Trim())
-                throw new InvalidOperationException("This correction key is already bound to another request.");
-            return Map(duplicate, source);
-        }
-        if (source.ContextRevision != request.ExpectedSourceRevision) throw new DbUpdateConcurrencyException("The staffing source changed. Refresh and review it again.");
+        if (duplicate is not null) return Map(duplicate, source);
+        if (source.ContextRevision != request.ExpectedSourceRevision ||
+            (request.ExpectedSourceRequestId is { } expectedId ? expectedId != source.Id : source.Id != plan.SourceResourceChangeRequestId))
+            throw new DbUpdateConcurrencyException("The staffing source changed. Refresh and review it again.");
         if (source.Status != ResourceChangeRequestStatus.Approved || plan.FulfilledHeadcount >= plan.Headcount ||
             plan.Status is not (ProposalStatus.Pending or ProposalStatus.Approved) || string.IsNullOrWhiteSpace(plan.RoleKey))
             throw new InvalidOperationException("Only an unfilled recommendation from the current approved staffing plan can be corrected.");
@@ -52,7 +53,8 @@ public sealed class StaffingCorrectionService(CSweetDbContext db)
             RecommendationId = plan.Id, RoleKey = plan.RoleKey, Reason = request.Reason.Trim(), RequestedByOrganizationUserId = actor.Id,
             IdempotencyKey = request.IdempotencyKey, CreatedAt = now, UpdatedAt = now };
         db.StaffingCorrections.Add(correction);
-        var affected = await db.WorkforcePlans.Where(x => x.OrganizationId == organization && x.SourceResourceChangeRequestId == source.Id &&
+        var lineageIds = lineage!.SourceIds.ToArray();
+        var affected = await db.WorkforcePlans.Where(x => x.OrganizationId == organization && x.SourceResourceChangeRequestId.HasValue && lineageIds.Contains(x.SourceResourceChangeRequestId.Value) &&
             x.RoleKey == correction.RoleKey && x.FulfilledHeadcount < x.Headcount).ToListAsync(token);
         foreach (var item in affected) await HiringRecommendationCancellation.CancelAsync(db, item, correction.Reason, token);
         // Existing pending proposals based on this source must not authorize the disputed slot.
@@ -94,12 +96,20 @@ public sealed class StaffingCorrectionService(CSweetDbContext db)
         var actor = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organization &&
             x.ApplicationUserId == applicationUser && x.IsActive && x.ArchivedAt == null, token);
         if (actor is null) return items;
-        var sources = await db.ResourceChangeRequests.AsNoTracking().Where(x => x.OrganizationId == organization && x.Status == ResourceChangeRequestStatus.Approved &&
-            db.CoreOrganizationUsers.Any(u => u.OrganizationId == organization && u.Id == x.RequesterOrganizationUserId && u.IsActive && u.ArchivedAt == null &&
-                (actor.PermissionLevel == OrganizationPermissionLevel.Owner || u.ReportsToOrganizationUserId == actor.Id))).ToListAsync(token);
+        var resolver = new ApprovedStaffingLineage(db, organization);
         var pending = await db.StaffingCorrections.Where(x => x.OrganizationId == organization && x.Status == "Pending").Select(x => x.SourceRequestId).ToListAsync(token);
-        return items.Select(item => item with { CorrectionSourceRevision = item.RemainingHeadcount > 0 && item.SourceResourceChangeRequestId is { } sourceId &&
-            !pending.Contains(sourceId) && sources.SingleOrDefault(x => x.Id == sourceId) is { } source && CanCorrect(actor, source) ? source.ContextRevision : null }).ToArray();
+        var result = new List<HiringRecommendationResponse>();
+        foreach (var item in items)
+        {
+            var source = item.RemainingHeadcount > 0 && item.Status is "Pending" or "Approved"
+                ? (await resolver.ResolveAsync(item.SourceResourceChangeRequestId, item.RoleKey, token))?.Current : null;
+            var allowed = source is not null && !pending.Contains(source.Id) && CanCorrect(actor, source) &&
+                await db.CoreOrganizationUsers.AnyAsync(u => u.OrganizationId == organization && u.Id == source.RequesterOrganizationUserId &&
+                    u.IsActive && u.ArchivedAt == null && (actor.PermissionLevel == OrganizationPermissionLevel.Owner || u.ReportsToOrganizationUserId == actor.Id), token);
+            result.Add(item with { CorrectionSourceRevision = allowed ? source!.ContextRevision : null,
+                CorrectionSourceRequestId = allowed ? source!.Id : null });
+        }
+        return result;
     }
 
     internal static StaffingCorrectionResponse Map(StaffingCorrection value, ResourceChangeRequestRecord source) =>

@@ -158,7 +158,7 @@ public sealed partial class CurrentActivityService(CSweetDbContext db, IScopedAc
         // or task from an employee's latest conversation or from protected payloads.
         var collaborations = await db.AgentCoordinationSessions.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
             x.CurrentAgentWorkItemId.HasValue && workIds.Contains(x.CurrentAgentWorkItemId.Value))
-            .Select(x => new AgentCoordinationSession { CurrentAgentWorkItemId = x.CurrentAgentWorkItemId,
+            .Select(x => new AgentCoordinationSession { Id = x.Id, CurrentAgentWorkItemId = x.CurrentAgentWorkItemId,
                 CurrentOrganizationUserId = x.CurrentOrganizationUserId, InitiatorOrganizationUserId = x.InitiatorOrganizationUserId,
                 InitiatorInstallationId = x.InitiatorInstallationId, TargetOrganizationUserId = x.TargetOrganizationUserId,
                 TargetInstallationId = x.TargetInstallationId, SourceWorkItemId = x.SourceWorkItemId,
@@ -285,10 +285,31 @@ public sealed partial class CurrentActivityService(CSweetDbContext db, IScopedAc
             execution[candidate.Key] = await ReadExecutionAsync(candidate, actor, people, now, token);
         var ordered = eligible.OrderBy(x => (execution.GetValueOrDefault(x.Key)?.State ?? BaseState(x, now)) == "Executing" ? 0 : 1)
             .ThenBy(x => x.Category == "Project" ? 0 : 1).ThenBy(x => x.Ticket?.CreatedAt ?? x.Work?.CreatedAt ?? x.StandaloneRun!.StartedAt).ThenBy(x => x.Key).ToList();
+        // Group only after access checks and execution ranking. A waiting tracking card
+        // must never hide the specialist's real running attempt or invent a model stream.
+        var commissionRows = await db.WorkIssueCommissions.AsNoTracking().Where(c => c.OrganizationId == organizationId && c.SessionId != null)
+            .Select(c => new { c.Id, c.SessionId }).ToListAsync(token);
+        string GroupKey(Candidate candidate)
+        {
+            PersonalTodoWorkContext? context = null;
+            if (candidate.Ticket?.PersonalWorkContextJson is { } raw)
+                try { context = JsonSerializer.Deserialize<PersonalTodoWorkContext>(raw, new JsonSerializerOptions(JsonSerializerDefaults.Web)); } catch (JsonException) { }
+            var session = candidate.Coordination?.Id ?? context?.CoordinationSessionId;
+            var commission = context?.IssueCommissionId ?? commissionRows.FirstOrDefault(c => c.SessionId == session)?.Id;
+            return commission is Guid c ? "commission:" + c.ToString("N") : session is Guid s ? "session:" + s.ToString("N") : candidate.Key;
+        }
+        var grouped = ordered.GroupBy(GroupKey).ToArray();
         var rows = new List<CurrentActivityItem>();
-        foreach (var candidate in ordered.Skip(Math.Max(0, offset)).Take(50))
-            rows.Add(await MapAsync(candidate, actor, people, now, token, execution.GetValueOrDefault(candidate.Key)));
-        return new(now, ordered.Count, rows, offset + rows.Count < ordered.Count ? offset + rows.Count : null);
+        foreach (var group in grouped.Skip(Math.Max(0, offset)).Take(50))
+        {
+            var candidate = group.First();
+            var item = await MapAsync(candidate, actor, people, now, token, execution.GetValueOrDefault(candidate.Key));
+            rows.Add(item with { RelatedWork = group.Skip(1).Select(c => new CurrentActivityRelatedWork(c.Key,
+                c.Ticket?.Title ?? c.Coordination?.Subject ?? "Related team work", execution.GetValueOrDefault(c.Key)?.State ?? BaseState(c, now),
+                c.Employee.Id, c.Employee.DisplayName, c.Ticket?.BoardId, c.Ticket?.Id,
+                c.Ticket?.Board?.Kind == WorkBoardKind.Personal ? c.Ticket.Board.OwnerOrganizationUserId : null, c.Ticket?.Board?.WorkstreamId)).ToArray() });
+        }
+        return new(now, grouped.Length, rows, offset + rows.Count < grouped.Length ? offset + rows.Count : null);
 
         Candidate Create(WorkTask? ticket, OrganizationUser employee, AgentWorkItem? work, AgentWorkAttempt? attempt)
         {

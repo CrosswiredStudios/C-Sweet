@@ -1,4 +1,4 @@
-# Model output contracts for agents
+﻿# Model output contracts for agents
 
 Rules for any agent step that asks a model for structured output and then submits it to the
 platform. They exist so that small local models succeed, not only strong hosted ones.
@@ -68,7 +68,15 @@ The model did what it was told. The contract was wrong.
   The reviewer gets one correction for invalid/unsupported evidence. GDD document layout
   remains unrestricted, and accepted state is saved only after platform acceptance is confirmed.
 
+Producer 6.13.0 `RoadmapOwnership.cs` follows this contract: code constructs ownership evidence
+identities, exact text and affected scope; the model judges meaningful coverage and selects supplied
+indexes. `BindOwnership` rejects invented references and ungrounded conflict evidence. The minimized
+conditional-FPS incident reply is retained as `Fixtures/conditional-fps-ownership-gap.json` in the
+Producer tests. A missing criterion is reconciled as planning responsibility, without fabricating a
+failed measurement or a user-reserved decision. Historical review feedback is not manager authority.
+
 ## Not yet applied
+
 
 - Producer project metadata (`profileData`) is still copied back by the model and checked for
   exact shape.

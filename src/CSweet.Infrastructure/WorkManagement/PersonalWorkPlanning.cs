@@ -134,8 +134,8 @@ public sealed partial class WorkItemMutationEngine
         Wire.ReportPersonalWorkPlanTaskRequest request, CancellationToken cancellationToken = default)
     {
         if (request.Status is not ("Running" or "Completed" or "Blocked") ||
-            request.Evidence?.Length > 4096 || string.IsNullOrWhiteSpace(request.IdempotencyKey))
-            throw new ArgumentException("A valid plan-task transition and bounded evidence are required.");
+            string.IsNullOrWhiteSpace(request.IdempotencyKey))
+            throw new ArgumentException("A valid plan-task transition and idempotency key are required.");
         if (request.Status != "Running" && string.IsNullOrWhiteSpace(request.Evidence))
             throw new ArgumentException("Completion or blocking requires evidence.");
         await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
@@ -227,15 +227,15 @@ public sealed partial class WorkItemMutationEngine
     private static void ValidatePlan(Wire.CreatePersonalWorkPlanRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey) || request.IdempotencyKey.Length > 160 ||
-            string.IsNullOrWhiteSpace(request.EpicTitle) || request.EpicTitle.Length > 160 ||
-            request.Stories is not { Count: >= 2 and <= 12 } || JsonSerializer.SerializeToUtf8Bytes(request).Length > 65536)
-            throw new ArgumentException("Provide a bounded MVP epic with 2–12 testable stories.");
+            string.IsNullOrWhiteSpace(request.EpicTitle) ||
+            request.Stories is not { Count: >= 2 and <= 12 })
+            throw new ArgumentException("Provide a bounded MVP epic with 2â€“12 testable stories.");
         var keys = new HashSet<string>(StringComparer.Ordinal);
         var tasks = new List<Wire.PersonalWorkPlanTask>();
         foreach (var story in request.Stories)
         {
             Check(story.Key, story.Title, story.Description, story.AcceptanceCriteria);
-            if (story.Tasks is not { Count: >= 2 and <= 12 }) throw new ArgumentException("Each story requires 2–12 small tasks.");
+            if (story.Tasks is not { Count: >= 2 and <= 12 }) throw new ArgumentException("Each story requires 2â€“12 small tasks.");
             foreach (var task in story.Tasks)
             {
                 Check(task.Key, task.Title, task.Description, task.AcceptanceCriteria);
@@ -251,8 +251,8 @@ public sealed partial class WorkItemMutationEngine
         {
             if (string.IsNullOrWhiteSpace(key) || key.Length > 64 || !keys.Add(key) ||
                 key.Any(x => !char.IsAsciiLetterOrDigit(x) && x is not '-' and not '_') ||
-                string.IsNullOrWhiteSpace(title) || title.Length > 160 || string.IsNullOrWhiteSpace(description) || description.Length > 4000 ||
-                criteria is not { Count: >= 1 and <= 8 } || criteria.Any(x => string.IsNullOrWhiteSpace(x) || x.Length > 1000))
+                string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(description) ||
+                criteria is not { Count: >= 1 and <= 8 } || criteria.Any(string.IsNullOrWhiteSpace))
                 throw new ArgumentException("Every story and task needs a unique key, bounded scope, and testable acceptance criteria.");
         }
     }

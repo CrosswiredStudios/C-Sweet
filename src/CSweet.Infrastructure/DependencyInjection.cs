@@ -568,6 +568,10 @@ public static class DependencyInjection
         builder.Services.AddScoped<CompanyDashboardService>();
         builder.Services.AddScoped<CurrentActivityService>();
         builder.Services.AddScoped<CSweet.Infrastructure.WorkManagement.BlockedWorkAttentionReader>();
+        builder.Services.AddScoped<CSweet.Infrastructure.WorkManagement.WorkIssueService>();
+        builder.Services.AddScoped<CSweet.Infrastructure.WorkManagement.OverviewIssueReader>();
+        builder.Services.AddScoped<CSweet.Infrastructure.WorkManagement.WorkIssueCommissionDispatcher>();
+        builder.Services.AddHostedService<CSweet.Infrastructure.WorkManagement.WorkIssueDispatchWorker>();
         builder.Services.AddScoped<ProjectHealthReader>();
         builder.Services.AddScoped<ProjectHealthService>();
         builder.Services.AddScoped<CurrentActivityFeedReader>();

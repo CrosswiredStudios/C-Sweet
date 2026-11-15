@@ -36,5 +36,16 @@
   "Mobile.Connect.NoAccess": "f4a7f4789e22",
   "Mobile.Connect.Unreachable": "71f1027a9328",
   "Mobile.Connect.SecureFailed": "855028e3f58b",
-  "Mobile.Connect.Refused": "ae1640bf7af3"
+  "Mobile.Connect.Refused": "ae1640bf7af3",
+  "Mobile.Connect.HowToApprove": "6ae304f6fb69",
+  "Mobile.Connect.Fingerprint": "c3d4fd771680",
+  "Mobile.Connect.CheckAgain": "e185048ce3c0",
+  "Mobile.Connect.Open": "7bac7999cae0",
+  "Mobile.Enterprise.Back": "ca8b55e37588",
+  "Mobile.Connect.Businesses": "ede8cd3e1a85",
+  "Mobile.Connect.NoBusinesses": "b5a472a8b22d",
+  "Mobile.Connect.Denied": "9b8f63d40c87",
+  "Mobile.Connect.Revoked": "7b2d284acb66",
+  "Mobile.Connect.NoAccountAccess": "c1479b577f55",
+  "Mobile.Connect.Rejected": "0dca2ffd4aab"
 }

@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
 
-public sealed class AgentOperatingStateCapabilityTests
+public sealed partial class AgentOperatingStateCapabilityTests
 {
     [Theory]
     [InlineData(128000, true)]

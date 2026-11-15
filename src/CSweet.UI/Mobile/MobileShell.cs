@@ -109,6 +109,8 @@ public sealed class MobileSessionCoordinator(
     public string? AccountEmail => account.Current?.Email;
     /// <summary>Result of the last Connect on the active enterprise; cleared when the selection changes.</summary>
     public HeadquartersConnectResult? LastConnection { get; private set; }
+    /// <summary>This phone's fingerprint, shown so the person can compare it with Settings → Phones.</summary>
+    public string? DeviceFingerprint { get; private set; }
     public event Action? Changed;
 
     public async Task StartAsync(CancellationToken ct = default)
@@ -191,8 +193,9 @@ public sealed class MobileSessionCoordinator(
         {
             var token = await account.GetAccessTokenAsync(ct);
             var key = await deviceKeys.GetOrCreateAsync();
+            DeviceFingerprint = MobileDeviceKeyStore.Fingerprint(key);
             var ticket = await directory.RequestTicketAsync(token, profile.HeadquartersId, MobileDeviceKeyStore.PublicKey(key), ct);
-            result = await connector.ConnectAsync(ticket, key, ct);
+            result = await connector.ConnectAsync(profile.HeadquartersId, ticket, key, ct);
         }
         catch (AccountSessionExpiredException)
         {
@@ -344,6 +347,7 @@ public static class MobileShellServiceCollectionExtensions
         options.Validate();
         services.AddSingleton(options);
         services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<IEnterpriseAppHost, NoEnterpriseAppHost>();
         var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
         services.AddSingleton(sp => new AccountSignInClient(http, options, sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton(_ => new HeadquartersDirectoryClient(http, options));

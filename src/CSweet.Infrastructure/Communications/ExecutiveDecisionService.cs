@@ -33,8 +33,7 @@ public sealed partial class ExecutiveDecisionService(
                 x.IdempotencyKey == idempotencyKey, cancellationToken);
         if (existing is not null) return ToCard(existing);
 
-        var prompt = Required(command.Prompt, command.WorkstreamDecisionId.HasValue ? 4000 : 2048, nameof(command.Prompt));
-        if (command.WorkstreamDecisionId.HasValue && prompt.Length > 2048) prompt = prompt[..2045] + "...";
+        var prompt = CSweet.Application.Common.AuthoredText.Required(command.Prompt, nameof(command.Prompt));
         var openEnded = command.Options.Count == 0;
         if (command.Options.Count == 1 || (!command.WorkstreamDecisionId.HasValue && command.Options.Count > 4))
             throw new ArgumentException("Supply no options for an open-ended question, or between two and four mutually exclusive options.");
@@ -43,8 +42,8 @@ public sealed partial class ExecutiveDecisionService(
 
         var options = command.Options.Select(option => new StoredOption(
                 Required(option.Id, 80, "option.id"),
-                Required(option.Label, command.WorkstreamDecisionId.HasValue ? int.MaxValue : 160, "option.label"),
-                Clean(option.Description, command.WorkstreamDecisionId.HasValue ? int.MaxValue : 500)))
+                CSweet.Application.Common.AuthoredText.Required(option.Label, "option.label"),
+                CSweet.Application.Common.AuthoredText.Optional(option.Description)))
             .ToList();
         if (options.Select(x => x.Id).Distinct(StringComparer.Ordinal).Count() != options.Count)
             throw new ArgumentException("Decision option IDs must be unique.");
@@ -261,7 +260,7 @@ public sealed partial class ExecutiveDecisionService(
         var storedOptions = ReadDecisionOptions(decision.OptionsJson);
         var options = storedOptions.Options;
         var optionId = Clean(request.OptionId, 80);
-        var freeText = Clean(request.SomethingElse, 4000);
+        var freeText = CSweet.Application.Common.AuthoredText.Optional(request.SomethingElse);
         if (storedOptions.ConfigurationChange is not null && freeText is not null)
             return Failure("validation_error", "Choose Switch or Leave unchanged for this configuration decision.");
         if ((optionId is null) == (freeText is null))
