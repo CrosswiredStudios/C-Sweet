@@ -542,6 +542,19 @@ internal static class CoreConfigurations
             entity.HasOne<OrganizationTeam>().WithMany().HasForeignKey(x => x.TeamId).OnDelete(DeleteBehavior.SetNull);
             entity.HasOne(x => x.Request).WithMany(x => x.Roles).HasForeignKey(x => x.ResourceChangeRequestId).OnDelete(DeleteBehavior.Cascade);
         });
+        modelBuilder.Entity<StaffingCorrection>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.OrganizationId, x.IdempotencyKey }).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.SourceRequestId, x.RoleKey, x.Status });
+            entity.Property(x => x.RoleKey).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.Reason).HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.Revision).IsConcurrencyToken();
+            entity.HasOne<ResourceChangeRequestRecord>().WithMany().HasForeignKey(x => x.SourceRequestId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<WorkforcePlan>().WithMany().HasForeignKey(x => x.RecommendationId).OnDelete(DeleteBehavior.Restrict);
+        });
         modelBuilder.Entity<StaffingReplenishmentRequestRecord>(entity =>
         {
             entity.HasKey(x => x.Id);

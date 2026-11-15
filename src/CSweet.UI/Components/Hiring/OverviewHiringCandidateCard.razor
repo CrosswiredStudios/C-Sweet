@@ -78,6 +78,10 @@
                 <MudButton Href="@Recommendation.HiringUrl" Disabled="IsHireDisabled" Variant="Variant.Outlined" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.ArrowForward">@L[NoSuitableAgent ? "HiringCandidateSelection.OpenMarketplace" : "OverviewHiringCandidateCard.BrowseCandidates"]</MudButton>
             }
         </div>
+        @if (Recommendation.CorrectionSourceRevision.HasValue)
+        {
+            <StaffingCorrectionButton OrganizationId="OrganizationId" Recommendation="Recommendation" Changed="Hired" />
+        }
     </ChildContent>
 </AttentionRequestCard>
 @if (_candidate is not null)

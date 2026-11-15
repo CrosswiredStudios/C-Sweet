@@ -21,6 +21,7 @@ public sealed class ResourceChangeRequestRecord
     public Guid ChatTurnId { get; set; }
     public Guid ConversationMessageId { get; set; }
     public Guid? SupersedesRequestId { get; set; }
+    public Guid? CorrectionId { get; set; }
     public string ProductGoal { get; set; } = string.Empty;
     public Guid? TeamId { get; set; }
     public Guid? WorkstreamId { get; set; }

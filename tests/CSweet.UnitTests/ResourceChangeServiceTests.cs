@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
 
-public sealed class ResourceChangeServiceTests
+public sealed partial class ResourceChangeServiceTests
 {
     [Theory]
     [InlineData(true, true)]

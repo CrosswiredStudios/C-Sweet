@@ -61,6 +61,7 @@ public sealed record ResourceChangeProposalRequest(
     Guid? SupersedesRequestId,
     [property: Required, MaxLength(160)] string IdempotencyKey)
 {
+    public Guid? CorrectionId { get; init; }
     [MaxLength(200)]
     public string? TeamKey { get; init; }
     [MaxLength(160)]
@@ -103,6 +104,7 @@ public sealed record ResourceChangeRequestResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset? DecidedAt)
 {
+    public Guid? CorrectionId { get; init; }
     public Guid? TeamId { get; init; }
     public string? TeamKey { get; init; }
     public string? TeamName { get; init; }
@@ -119,7 +121,10 @@ public sealed record ResourceChangeReadRequest(
     Guid? RequestId = null,
     IReadOnlyList<string>? Statuses = null);
 
-public sealed record ResourceChangeReadResponse(IReadOnlyList<ResourceChangeRequestResponse> Requests);
+public sealed record ResourceChangeReadResponse(IReadOnlyList<ResourceChangeRequestResponse> Requests)
+{
+    public IReadOnlyList<StaffingCorrectionResponse> Corrections { get; init; } = [];
+}
 
 public sealed record ResourceChangeDecisionRequest(
     Guid RequestId,

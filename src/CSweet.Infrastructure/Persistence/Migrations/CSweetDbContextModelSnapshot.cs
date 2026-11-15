@@ -6788,6 +6788,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("ConversationMessageId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("CorrectionId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -7255,6 +7258,71 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("StaffingActionProposals");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.StaffingCorrection", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<Guid>("RecommendationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ReplacementRequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RequestedByOrganizationUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("RoleKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid>("SourceRequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RecommendationId");
+
+                    b.HasIndex("SourceRequestId");
+
+                    b.HasIndex("OrganizationId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "SourceRequestId", "RoleKey", "Status");
+
+                    b.ToTable("StaffingCorrections");
                 });
 
             modelBuilder.Entity("CSweet.Domain.Core.StaffingReplenishmentRequestRecord", b =>
@@ -18625,6 +18693,21 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Organization");
+                });
+
+            modelBuilder.Entity("CSweet.Domain.Core.StaffingCorrection", b =>
+                {
+                    b.HasOne("CSweet.Domain.Core.WorkforcePlan", null)
+                        .WithMany()
+                        .HasForeignKey("RecommendationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CSweet.Domain.Core.ResourceChangeRequestRecord", null)
+                        .WithMany()
+                        .HasForeignKey("SourceRequestId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("CSweet.Domain.Core.StaffingReplenishmentRequestRecord", b =>

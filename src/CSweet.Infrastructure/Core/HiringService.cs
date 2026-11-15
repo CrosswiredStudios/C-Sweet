@@ -132,6 +132,14 @@ public sealed partial class HiringService(
             if (!string.IsNullOrWhiteSpace(request.RoleKey) &&
                 !approvedChange.Roles.Any(x => x.IsDesired && x.RoleKey == request.RoleKey && x.TeamId == approvedTeamId))
                 throw new UnauthorizedAccessException("The requested role is not part of the approved team plan.");
+            if (await db.StaffingCorrections.AnyAsync(x => x.OrganizationId == organizationId && x.SourceRequestId == approvedChange.Id &&
+                x.RoleKey == request.RoleKey && x.Status == "Pending", cancellationToken))
+            {
+                var stopped = await db.WorkforcePlans.SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
+                    x.RequestingInstallationId == requestingInstallationId && x.IdempotencyKey == key && x.Status == ProposalStatus.Cancelled, cancellationToken);
+                if (stopped is not null) return ToRecommendation(stopped, []);
+                throw new InvalidOperationException("This staffing slot is under correction. Await the replacement plan's approval.");
+            }
         }
         if (approvedTeamId.HasValue && !await db.OrganizationTeams.AsNoTracking().AnyAsync(x =>
                 x.Id == approvedTeamId && x.OrganizationId == organizationId && x.ArchivedAt == null,
@@ -285,53 +293,12 @@ public sealed partial class HiringService(
             cancellationToken) ?? throw new ArgumentException("The hiring recommendation was not found.");
         if (plan.Status == ProposalStatus.Pending)
         {
-            var now = DateTimeOffset.UtcNow;
-            plan.Status = ProposalStatus.Cancelled;
-            plan.DecidedAt = now;
-            plan.UpdatedAt = now;
-            await CancelSuggestedHiringActionsAsync(plan, request.Reason, now, cancellationToken);
-            await new WorkManagement.WorkItemMutationEngine(db, TimeProvider.System)
-                .SettleHiringRecommendationAsync(plan, cancellationToken);
+            await HiringRecommendationCancellation.CancelAsync(db, plan, request.Reason, cancellationToken);
             await db.SaveChangesAsync(cancellationToken);
             await audit.WriteAsync("hiring.recommendation.withdrawn", nameof(WorkforcePlan), plan.Id,
                 request.Reason, cancellationToken: cancellationToken);
         }
         return ToRecommendation(plan, []);
-    }
-
-    // Retires the actionable Marketplace suggestions for a withdrawn recommendation so no stale
-    // "Browse candidates" widget remains. Actions become Cancelled; a replacement suggestion created in
-    // the same conversation afterwards upgrades them to Superseded with replacement lineage.
-    private async Task CancelSuggestedHiringActionsAsync(
-        WorkforcePlan plan,
-        string? reason,
-        DateTimeOffset now,
-        CancellationToken cancellationToken)
-    {
-        var pending = await db.SuggestedUserActions
-            .Where(action =>
-                action.OrganizationId == plan.OrganizationId &&
-                action.WorkflowType == CSweet.Contracts.Communications.SuggestedUserActionWorkflows.BrowseHiringMarketplace &&
-                action.Status == CSweet.Contracts.Communications.SuggestedUserActionStatuses.Pending)
-            .ToListAsync(cancellationToken);
-        foreach (var action in pending.Where(action =>
-                     ReadSuggestedActionRecommendationId(action.ParametersJson) == plan.Id))
-        {
-            action.Status = CSweet.Contracts.Communications.SuggestedUserActionStatuses.Cancelled;
-            await Communications.SuggestedUserActionMaterializer.QueueStatusChangedEventAsync(
-                db,
-                action,
-                CSweet.Contracts.Communications.SuggestedUserActionEvents.Cancelled,
-                now,
-                new
-                {
-                    actionId = action.Id,
-                    recommendationId = plan.Id,
-                    messageId = action.ConversationMessageId,
-                    reason
-                },
-                cancellationToken);
-        }
     }
 
     public async Task<HiringWorkflowResponse> StageWorkflowAsync(

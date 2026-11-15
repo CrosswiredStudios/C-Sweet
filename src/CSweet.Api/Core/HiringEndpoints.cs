@@ -13,6 +13,19 @@ public static class HiringEndpoints
     {
         var group = endpoints.MapGroup("/api/core/organizations/{organizationId:guid}/hiring");
 
+        group.MapPost("/recommendations/{recommendationId:guid}/correction", async (Guid organizationId, Guid recommendationId,
+            RequestStaffingCorrection request, HttpContext http, CSweet.Infrastructure.Core.StaffingCorrectionService service, CancellationToken token) =>
+        {
+            var user = http.User.GetApplicationUserId();
+            if (!user.HasValue) return Results.Unauthorized();
+            try { return Results.Ok(await service.RequestAsync(organizationId, recommendationId, user.Value, request, token)); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (ArgumentException error) { return Results.BadRequest(new { message = error.Message }); }
+            catch (Exception error) when (error is InvalidOperationException or Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException)
+            { return Results.Conflict(new { message = error.Message }); }
+        });
+
         group.MapPost("/recommendations/{recommendationId:guid}/choose-manually", async (Guid organizationId,
             Guid recommendationId, HttpContext http, IHiringAutonomyService service, CancellationToken token) =>
         {

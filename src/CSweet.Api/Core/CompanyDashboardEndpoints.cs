@@ -32,12 +32,14 @@ public static class CompanyDashboardEndpoints
             catch (DbUpdateConcurrencyException e) { return Results.Conflict(new { message = e.Message }); }
         });
         group.MapGet("/hiring", async (Guid organizationId, HttpContext http, CSweetDbContext db,
-            CSweet.Application.Core.IHiringService hiring, CancellationToken token) =>
+            CSweet.Application.Core.IHiringService hiring, StaffingCorrectionService corrections, CancellationToken token) =>
         {
             var actor = await ActorAsync(organizationId, http, db, token);
             return actor is null || actor.PermissionLevel < OrganizationPermissionLevel.Manager
                 ? Results.Forbid()
-                : Results.Ok(new HiringBacklogResponse(await hiring.ListRecommendationsAsync(organizationId, token)));
+                : Results.Ok(new HiringBacklogResponse(await corrections.WithActionsAsync(organizationId,
+                    http.User.GetApplicationUserId()!.Value, await hiring.ListRecommendationsAsync(organizationId, token), token))
+                    { PendingCorrections = await corrections.PendingForUserAsync(organizationId, http.User.GetApplicationUserId()!.Value, token) });
         });
         group.MapGet("/activity", async (Guid organizationId, HttpContext http, CurrentActivityService activity,
             int? offset, bool? projectsOnly, CancellationToken token) =>

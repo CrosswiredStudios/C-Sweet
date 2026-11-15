@@ -70,6 +70,7 @@ public static class DependencyInjection
         });
 
         builder.Services.AddScoped<BusinessSuggestionService>();
+        builder.Services.AddScoped<StaffingCorrectionService>();
         builder.Services.AddScoped<CSweet.Infrastructure.Core.ResourceFulfillmentService>();
         builder.Services.AddScoped<CSweet.Infrastructure.Core.IResourceFulfillmentHandler, CSweet.Infrastructure.Core.NodeToolchainFulfillmentHandler>();
         builder.Services.AddDataProtection()

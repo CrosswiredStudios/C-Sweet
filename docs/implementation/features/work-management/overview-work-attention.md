@@ -51,15 +51,30 @@ respond automatically at his recorded review deadline. Event receipt alone did n
 future deadline. This incident's source changes do not claim to remove that delay.
 
 The actual model replies are retained in the Producer and Director test fixtures. Already approved
-requests are historical authorization records: upgrading agents does not rewrite a misclassified
-approval or silently hire its replacement. The existing incorrect hire recommendation needs to be
-withdrawn/rejected and a corrected staffing proposal submitted through the normal manager flow.
+requests remain historical authorization records. `StaffingCorrectionService` now gives the owner or
+accountable manager a **Request correction** action on an unfilled recommendation. It atomically stops
+the disputed recommendation and unfinished hire operations, records the exact direction, invalidates
+older pending proposals, and queues a durable wake for the original staffing author. Fulfilled hires
+and unrelated recommendations survive.
+
+Producer `StaffingCorrections` discovers pending corrections on events and reconnect. A separate
+personal commitment works before or after kickoff. The Producer reassesses named capabilities, removes
+only disputed unfilled capacity from the approved baseline, and binds the replacement to the correction
+identity/revision and exact owner evidence. `ResourceChangeService` checks that binding and preserves
+fulfilled positions. Marcus reviews the exact new proposal normally; approval completes the correction,
+supersedes the old plan, and enables ordinary hiring fulfillment. The actual roster then releases planning.
+
+Use Overview's **Request correction** on the incorrect slot, describe the intended work/capability, and
+choose **Submit correction**. Overview retains an in-progress status after the old hiring card disappears.
+The replacement hire then follows the configured manual or automatic hiring policy. No copied approval,
+direct data edit, business reset, or chat retry is part of this recovery.
 
 ## Release and verification
 
-Deploy the platform change normally, and publish/update Producer 6.12.3 and Director 0.8.3 through
+Deploy the platform change and its `AddStaffingCorrections` migration normally, and publish/update SDK
+5.29.0, Producer 6.12.4 and Director 0.8.3 through
 Installed Agents. No installed payloads, approved manifests, or stored approvals are patched.
-No SDK or WorkManagement package API changes are required for this repair.
+The SDK adds typed correction discovery and optional proposal binding. WorkManagement contracts remain unchanged.
 
 Regression coverage lives in `ChiefLeadershipServiceTests`, `BlockedWorkAttentionTests`,
 `CompanyDashboardRenderingTests`, `OverviewAttentionStateTests`, Producer `NamedStaffingChoiceTests`,

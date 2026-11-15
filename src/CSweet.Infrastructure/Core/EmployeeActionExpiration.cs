@@ -122,6 +122,13 @@ internal static class EmployeeActionExpiration
             request.UpdatedAt = now;
             request.DecidedAt = now;
         }
+        var corrections = await db.StaffingCorrections.Where(x => x.OrganizationId == organizationId && x.Status == "Pending" &&
+            db.ResourceChangeRequests.Any(r => r.Id == x.SourceRequestId && r.OrganizationId == organizationId &&
+                (employeeId.HasValue && r.RequesterOrganizationUserId == employeeId || installationId.HasValue && r.RequesterInstallationId == installationId))).ToListAsync(token);
+        foreach (var correction in corrections)
+        {
+            correction.Status = "Cancelled"; correction.Revision++; correction.UpdatedAt = now;
+        }
         var replenishments = await db.StaffingReplenishmentRequests.Where(x => x.OrganizationId == organizationId &&
             ((employeeId.HasValue && x.RequesterOrganizationUserId == employeeId) ||
              (installationId.HasValue && x.RequesterInstallationId == installationId)) &&

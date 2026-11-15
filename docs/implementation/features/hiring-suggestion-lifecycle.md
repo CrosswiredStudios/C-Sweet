@@ -105,6 +105,36 @@ Missing authority or required owner configuration retains the review action.
 
 ## Company overview hiring row
 
+### Correcting an approved, unfilled staffing slot
+
+`StaffingCorrectionService.RequestAsync` implements the Overview **Request correction** action.
+It authorizes the owner/accountable manager, checks the source revision, and serializes with hire
+commits using `HiringOrganizationLock`. `HiringRecommendationCancellation.CancelAsync` is shared
+with ordinary recommendation withdrawal. It cancels remaining hiring effects and suggested actions,
+retains completed effects, and settles execution cards. The correction, conversation evidence and
+notification outboxes commit together; retries reuse the correction identity.
+
+`ResourceChangeService.ReadForInstallationAsync` returns authorized pending corrections independently
+of the recent-request page. A replacement uses `CorrectionId`, the current correction revision and
+the exact direction in `staffing-correction` evidence. Unbound/stale proposals cannot approve that
+source; fulfilled positions must remain. Approval completes the correction and supersedes the old
+plan through the existing hiring path. The original approval is never edited into a different hire.
+
+Producer 6.12.4 creates a separate correction commitment on event/reconnect, reasons about the
+approaching work and current roster, and selects named capabilities. Its replacement removes the
+disputed unfilled capacity while retaining occupied positions, including unavailable employees.
+An unchanged blocked correction stays blocked; a new authorized manager decision can release its
+specific wait. Other waits and unaffected work keep their own eligibility.
+
+`StaffingCorrectionResponse` and optional proposal binding are additive SDK 5.29.0 contracts.
+Other staffing-author agents adopting this pattern must discover their authorized pending corrections,
+retain owner direction, submit a normally reviewed replacement, and continue from the actual roster.
+The platform does not infer a replacement role, approve hiring, or impose a game-specific team.
+
+Regression maps: `StaffingCorrectionTests`, `StaffingCorrectionButtonTests`,
+Producer `StaffingCorrectionRecoveryTests` and the corrected/fresh kickoff journeys in
+`PitchRefinementTests`. Deploy the API/AgentHost and migration before updated agent requests.
+
 `HiringService.WithCurrentCandidateBrandingAsync`, used by both recommendation list paths,
 refreshes name, portrait, logo and accent in the response from the embedded first-party catalog
 only when the saved candidate's reference and agent ID still match. This repairs cards selected

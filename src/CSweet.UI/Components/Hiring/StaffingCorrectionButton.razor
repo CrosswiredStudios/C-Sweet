@@ -1,0 +1,54 @@
+@using System.Net.Http.Json
+@using System.Text.Json
+@using CSweet.Contracts.Core
+@inject HttpClient Http
+
+@if (!_editing && !_submitted)
+{
+    <MudButton Variant="Variant.Text" OnClick="() => _editing = true">Request correction</MudButton>
+}
+@if (_editing)
+{
+    <div role="group" aria-label="Correct staffing request">
+        <MudText>The disputed unfilled hire will stop. Existing employees stay assigned, and the team will submit a replacement for manager review.</MudText>
+        <MudTextField T="string" Label="What should change?" HelperText="Describe the intended work or capability and why the current request is incorrect."
+            Lines="3" @bind-Value="_reason" Disabled="_busy" />
+        <MudButton OnClick="SubmitAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_reason) || _reason.Length > 2048)" Color="Color.Primary">@(_busy ? "Requesting…" : "Submit correction")</MudButton>
+        <MudButton OnClick="() => _editing = false" Disabled="_busy">Cancel</MudButton>
+    </div>
+}
+@if (_submitted) { <MudText role="status">Correction recorded. The disputed hire has stopped and the team has been notified.</MudText> }
+@if (_error is not null) { <MudText Color="Color.Error" role="alert">@_error</MudText> }
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter, EditorRequired] public HiringRecommendationResponse Recommendation { get; set; } = default!;
+    [Parameter] public EventCallback Changed { get; set; }
+    private bool _editing, _busy, _submitted;
+    private string _reason = "";
+    private string? _error;
+    private readonly string _key = $"staffing-correction:{Guid.NewGuid():N}";
+
+    private async Task SubmitAsync()
+    {
+        if (_busy || _submitted || Recommendation.CorrectionSourceRevision is not { } revision || string.IsNullOrWhiteSpace(_reason)) return;
+        _busy = true; _error = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync($"api/core/organizations/{OrganizationId:D}/hiring/recommendations/{Recommendation.Id:D}/correction",
+                new RequestStaffingCorrection(revision, _reason.Trim(), _key));
+            if (!response.IsSuccessStatusCode)
+            {
+                _error = "The correction could not be recorded. Refresh and review the current request before retrying.";
+                try { using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                    if (body.RootElement.TryGetProperty("message", out var message)) _error = message.GetString() ?? _error; }
+                catch (JsonException) { }
+                return;
+            }
+            _submitted = true; _editing = false;
+            await Changed.InvokeAsync();
+        }
+        catch (HttpRequestException) { _error = "The result could not be confirmed. Refresh to check whether the correction was recorded."; }
+        finally { _busy = false; }
+    }
+}

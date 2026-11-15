@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.Core;
 
-public sealed class ResourceChangeService(
+public sealed partial class ResourceChangeService(
     CSweetDbContext db,
     IAuditEventWriter audit,
     ITeamService? teams = null) : IResourceChangeService
@@ -26,6 +26,9 @@ public sealed class ResourceChangeService(
         ResourceChangeProposalRequest request,
         CancellationToken cancellationToken = default)
     {
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        await HiringOrganizationLock.AcquireAsync(db, organizationId, cancellationToken);
         var key = Required(request.IdempotencyKey, 160, nameof(request.IdempotencyKey));
         var existing = await db.ResourceChangeRequests.AsNoTracking().Include(x => x.Roles)
             .SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
@@ -98,6 +101,7 @@ public sealed class ResourceChangeService(
             throw new ArgumentException("Team-scoped capacity changes require trusted evidence and an expected effect.");
         var previous = await ResolvePreviousAsync(
             organizationId, requester.Id, request.TeamId, request.SupersedesRequestId, cancellationToken);
+        var correction = await ValidateCorrectionAsync(organizationId, requester.Id, previous, request.CorrectionId, cancellationToken);
         var inheritedReporting = previous?.Roles.Where(x => x.IsDesired && x.ReportsToOrganizationUserId.HasValue)
             .ToDictionary(x => x.RoleKey, x => x.ReportsToOrganizationUserId!.Value)
             ?? new Dictionary<string, Guid>();
@@ -105,6 +109,19 @@ public sealed class ResourceChangeService(
             .Select(role => request.TeamId.HasValue ? role with { TeamId = request.TeamId } : role)
             .ToList();
         var deltas = ComputeDeltas(desired, previous?.Roles.Where(x => x.IsDesired).Select(ToRole).ToList() ?? []);
+        if (correction is not null)
+        {
+            if (!evidence.Any(x => x.Kind == "staffing-correction" && x.SourceRevision == $"{correction.Id:N}:{correction.Revision}" && x.Summary == correction.Reason))
+                throw new ArgumentException("Include the current correction identity, revision and exact owner/manager direction as staffing-correction evidence.");
+            if (request.TeamId != previous!.TeamId || request.WorkstreamId != previous.WorkstreamId)
+                throw new UnauthorizedAccessException("A correction must remain bound to its source team and project.");
+            var fulfilled = await db.WorkforcePlans.Where(x => x.OrganizationId == organizationId &&
+                (previous.TeamId != null ? x.TeamId == previous.TeamId : x.SourceResourceChangeRequestId == previous.Id) &&
+                x.FulfilledHeadcount > 0 && x.RoleKey != null).Select(x => new { x.RoleKey, x.FulfilledHeadcount }).ToListAsync(cancellationToken);
+            foreach (var slot in fulfilled.GroupBy(x => x.RoleKey))
+                if (desired.SingleOrDefault(x => x.RoleKey == slot.Key)?.Headcount is not { } count || count < slot.Sum(x => x.FulfilledHeadcount))
+                    throw new ArgumentException("A correction must retain fulfilled staffing positions; it cannot dismiss existing employees.");
+        }
         if (deltas.Count == 0)
             throw new InvalidOperationException("The proposed team matches the currently approved team.");
 
@@ -120,6 +137,7 @@ public sealed class ResourceChangeService(
             ChatTurnId = request.ChatTurnId,
             ConversationMessageId = Guid.NewGuid(),
             SupersedesRequestId = previous?.Id,
+            CorrectionId = correction?.Id,
             ProductGoal = Required(request.ProductGoal, 2048, nameof(request.ProductGoal)),
             TeamId = scopedTeam?.Id,
             WorkstreamId = request.WorkstreamId,
@@ -163,6 +181,7 @@ public sealed class ResourceChangeService(
 
         var summary = BuildSummary(record, deltas);
         db.ResourceChangeRequests.Add(record);
+        if (correction is not null) { correction.ReplacementRequestId = record.Id; correction.Revision++; correction.UpdatedAt = now; }
         db.CoreConversationMessages.Add(new ConversationMessage
         {
             Id = record.ConversationMessageId,
@@ -212,6 +231,7 @@ public sealed class ResourceChangeService(
         }
 
         await db.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         await audit.WriteAsync("management.resource-change.requested", nameof(ResourceChangeRequestRecord), record.Id,
             $"Requested manager approval for {desired.Count} role(s).", cancellationToken: cancellationToken);
         return ToResponse(record);
@@ -241,7 +261,8 @@ public sealed class ResourceChangeService(
             query = query.Where(x => statuses.Contains(x.Status));
         }
         return new ResourceChangeReadResponse((await query.OrderByDescending(x => x.CreatedAt).Take(100)
-            .ToListAsync(cancellationToken)).Select(ToResponse).ToList());
+            .ToListAsync(cancellationToken)).Select(ToResponse).ToList())
+        { Corrections = await ReadCorrectionsAsync(organizationId, actor.Id, request.RequestId, cancellationToken) };
     }
 
     public async Task<ResourceChangeRequestResponse> DecideForInstallationAsync(
@@ -338,6 +359,14 @@ public sealed class ResourceChangeService(
             _ => throw new ArgumentException("Decision must be Approve, RequestRevision, or Reject.")
         };
         record.DecisionComment = Clean(request.Comment, 4000);
+        if (record.CorrectionId is { } correctionId)
+        {
+            var correction = await db.StaffingCorrections.SingleAsync(x => x.Id == correctionId && x.OrganizationId == organizationId, token);
+            if (correction.Status != "Pending" || correction.ReplacementRequestId != record.Id)
+                throw new InvalidOperationException("This correction proposal is no longer the current revision.");
+            if (record.Status == ResourceChangeRequestStatus.Approved) correction.Status = "Completed";
+            correction.Revision++; correction.UpdatedAt = DateTimeOffset.UtcNow;
+        }
         record.DecidedByOrganizationUserId = managerId;
         record.DecisionIdempotencyKey = decisionKey;
         record.DecidedAt = DateTimeOffset.UtcNow;
@@ -644,6 +673,7 @@ public sealed class ResourceChangeService(
             ReadStrings(record.AssumptionsJson), ReadStrings(record.ConstraintsJson), record.SupersedesRequestId,
             record.Status.ToString(), record.DeliveryStatus, record.DecisionComment, record.CreatedAt, record.DecidedAt)
         {
+            CorrectionId = record.CorrectionId,
             TeamId = record.TeamId,
             TeamKey = record.TeamKey,
             TeamName = record.TeamName,

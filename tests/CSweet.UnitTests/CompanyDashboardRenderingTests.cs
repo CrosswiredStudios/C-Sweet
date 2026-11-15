@@ -18,6 +18,28 @@ public sealed class CompanyDashboardRenderingTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
+    public async Task HiringCardShowsCorrectionOnlyWhenTheServerAuthorizesIt(bool canCorrect)
+    {
+        var recommendation = new HiringRecommendationResponse(Guid.NewGuid(), null, "Incorrect staffing slot", "Technical planning", "Pending", null, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)
+            { RemainingHeadcount = 1, CorrectionSourceRevision = canCorrect ? 3 : null };
+        var html = await Render(false, recommendations: [recommendation]);
+        Assert.Equal(canCorrect, html.Contains("Request correction"));
+    }
+
+    [Fact]
+    public async Task SubmittedCorrectionRemainsVisibleAsTeamOwnedProgressAfterTheOldHireStops()
+    {
+        var correction = new StaffingCorrectionResponse(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null, null,
+            "misclassified-role", "Use technical planning capacity instead.", "Pending", null, 1, DateTimeOffset.UtcNow);
+        var html = await Render(false, corrections: [correction]);
+        Assert.Contains("Staffing correction in progress", html);
+        Assert.Contains(correction.Reason, html); Assert.Contains("View responsible agent", html);
+        Assert.DoesNotContain("Request correction", html);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
     public async Task BlockedWorkHasAnOverviewCardWithOnlyAuthorizedRecoveryChoices(bool canRetry)
     {
         var item = new BlockedWorkAttentionResponse(Guid.NewGuid(), Guid.NewGuid(), "Gabriel", "Marcus",
@@ -301,12 +323,13 @@ public sealed class CompanyDashboardRenderingTests
         IReadOnlyList<ApprovalDashboardItemResponse>? approvals = null, IReadOnlyList<HiringRecommendationResponse>? recommendations = null,
         bool failApprovals = false, bool failHiring = false, ComputeDashboard? compute = null, bool failCompute = false,
         IReadOnlyList<ProjectIncidentAttentionResponse>? incidents = null,
-        IReadOnlyList<BlockedWorkAttentionResponse>? blockedWork = null, bool failBlockedWork = false)
+        IReadOnlyList<BlockedWorkAttentionResponse>? blockedWork = null, bool failBlockedWork = false,
+        IReadOnlyList<StaffingCorrectionResponse>? corrections = null)
     {
         var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
         services.AddCSweetApiClients();
         services.AddSingleton<IJSRuntime, NoJavaScript>(); services.AddSingleton<NavigationManager, TestNavigation>();
-        services.AddSingleton(new HttpClient(new Handler(populated, failReports, approvals, recommendations, failApprovals, failHiring, compute, failCompute, incidents, blockedWork, failBlockedWork)) { BaseAddress = new Uri("http://localhost") });
+        services.AddSingleton(new HttpClient(new Handler(populated, failReports, approvals, recommendations, failApprovals, failHiring, compute, failCompute, incidents, blockedWork, failBlockedWork, corrections)) { BaseAddress = new Uri("http://localhost") });
         services.AddScoped<AppRealtimeState>();
         services.AddScoped<IAgentApiClient, AgentApiClient>();
         await using var provider = services.BuildServiceProvider();
@@ -321,7 +344,8 @@ public sealed class CompanyDashboardRenderingTests
         IReadOnlyList<ApprovalDashboardItemResponse>? approvals, IReadOnlyList<HiringRecommendationResponse>? recommendations,
         bool failApprovals, bool failHiring, ComputeDashboard? compute, bool failCompute,
         IReadOnlyList<ProjectIncidentAttentionResponse>? incidents,
-        IReadOnlyList<BlockedWorkAttentionResponse>? blockedWork, bool failBlockedWork) : HttpMessageHandler
+        IReadOnlyList<BlockedWorkAttentionResponse>? blockedWork, bool failBlockedWork,
+        IReadOnlyList<StaffingCorrectionResponse>? corrections) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
@@ -341,7 +365,7 @@ public sealed class CompanyDashboardRenderingTests
             else if (path.EndsWith("/dashboard/hiring"))
             {
                 if (failHiring) return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable));
-                result = new HiringBacklogResponse(recommendations ?? []);
+                result = new HiringBacklogResponse(recommendations ?? []) { PendingCorrections = corrections ?? [] };
             }
             else if (path.EndsWith("/dashboard/activity")) result = new CurrentActivityPage(DateTimeOffset.UtcNow, 0, [], null);
             else if (path.EndsWith("/users") || path.EndsWith("/installations")) result = Array.Empty<object>();

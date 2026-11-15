@@ -58,6 +58,13 @@
                 {
                     @foreach (var suggestion in _suggestions) { <BusinessSuggestionCard @key="suggestion.Id" OrganizationId="OrganizationId" Suggestion="suggestion" Changed="RefreshAsync" /> }
                     @if (_errors.GetValueOrDefault("suggestions") is { } suggestionError) { <MudAlert Severity="Severity.Warning">@suggestionError</MudAlert> }
+                    @foreach (var correction in _hiring?.PendingCorrections ?? [])
+                    {
+                        <AttentionRequestCard @key="correction.Id" Kind="Status" Name="Project team" Prompt="Staffing correction in progress"
+                            Description="@correction.Reason" Status="The producer owns this revision. Any replacement requires manager review before hiring continues.">
+                            <MudButton Href="@($"/organizations/{OrganizationId:D}/employees/{correction.RequesterOrganizationUserId:D}?tab=personal-board")">View responsible agent</MudButton>
+                        </AttentionRequestCard>
+                    }
                     <EmployeePortraitScope OrganizationId="OrganizationId">
                         @* Setup the platform cannot finish without a person (for example a provider release it
                            cannot reach) belongs here, not only on the Approvals page. *@

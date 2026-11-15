@@ -221,6 +221,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     public DbSet<ManagementStatusReportRecord> ManagementStatusReports => Set<ManagementStatusReportRecord>();
     public DbSet<ResourceNeedReportRecord> ResourceNeedReports => Set<ResourceNeedReportRecord>();
     public DbSet<ResourceChangeRequestRecord> ResourceChangeRequests => Set<ResourceChangeRequestRecord>();
+    public DbSet<StaffingCorrection> StaffingCorrections => Set<StaffingCorrection>();
     public DbSet<StaffingReplenishmentRequestRecord> StaffingReplenishmentRequests => Set<StaffingReplenishmentRequestRecord>();
     public DbSet<ResourceChangeRoleRecord> ResourceChangeRoles => Set<ResourceChangeRoleRecord>();
     public DbSet<ExecutiveBriefingDeliveryRecord> ExecutiveBriefingDeliveries => Set<ExecutiveBriefingDeliveryRecord>();

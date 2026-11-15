@@ -51,6 +51,7 @@ public sealed record HiringRecommendationResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt)
 {
+    public long? CorrectionSourceRevision { get; init; }
     public int Priority { get; init; } = 50;
     public string HiringUrl { get; init; } = string.Empty;
     public string? SelectedCatalogAgentJson { get; init; }
@@ -72,7 +73,10 @@ public sealed record HiringRecommendationResponse(
     public string? ActualDecisionMaker { get; init; }
 }
 
-public sealed record HiringBacklogResponse(IReadOnlyList<HiringRecommendationResponse> Recommendations);
+public sealed record HiringBacklogResponse(IReadOnlyList<HiringRecommendationResponse> Recommendations)
+{
+    public IReadOnlyList<StaffingCorrectionResponse> PendingCorrections { get; init; } = [];
+}
 
 public sealed record UpsertHiringRecommendationRequest(
     [property: Required, MaxLength(256)] string Title,
