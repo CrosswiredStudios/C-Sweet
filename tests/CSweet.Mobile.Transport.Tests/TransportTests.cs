@@ -190,6 +190,9 @@ public sealed class TransportTests : IAsyncDisposable
             (tls, channel, ct) => HeadquartersTunnelServer.ServeAsync(tls, async (request, token) =>
             {
                 if (request.Path == "/big.wasm") return new TunnelReply(200, "application/wasm", null, big);
+                if (request.Method == "POST")
+                    return new TunnelReply(200, "text/plain", null, Encoding.UTF8.GetBytes(
+                        $"{request.OperationKey}|{request.ContentType}|{Convert.FromBase64String(request.Body!).Length}"));
                 await Task.Delay(request.Path == "/slow" ? 300 : 0, token);
                 return new TunnelReply(200, "application/json", null, Encoding.UTF8.GetBytes($"{{\"path\":\"{request.Path}\"}}"));
             }, concurrency: 8, idle: TimeSpan.FromMinutes(1), ct));
@@ -207,6 +210,13 @@ public sealed class TransportTests : IAsyncDisposable
         var reply = await file.WaitAsync(TimeSpan.FromSeconds(30));
         Assert.Equal(("application/wasm", big.Length), (reply.ContentType, reply.Body.Length));
         Assert.Equal(big, reply.Body);
+
+        // A write carries its body, content type and operation key; bodies over 256 KiB are refused before sending.
+        var write = await client.SendAsync(new MobileRequest("", 0, "POST", "/api/x", "application/json",
+            Convert.ToBase64String(new byte[200 * 1024]), "op-1"), 1024, CancellationToken.None);
+        Assert.Equal($"op-1|application/json|{200 * 1024}", Encoding.UTF8.GetString(write.Body));
+        await Assert.ThrowsAsync<InvalidDataException>(() => client.SendAsync(new MobileRequest("", 0, "POST", "/api/x", "application/json",
+            Convert.ToBase64String(new byte[300 * 1024]), "op-2"), 1024, CancellationToken.None));
 
         // A response larger than the caller allows is refused.
         await Assert.ThrowsAsync<InvalidDataException>(() => client.SendAsync("GET", "/big.wasm", 1024, CancellationToken.None));

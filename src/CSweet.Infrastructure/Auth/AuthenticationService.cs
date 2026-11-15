@@ -175,6 +175,94 @@ public sealed class AuthenticationService : IAuthenticationService
         }
     }
 
+    public async Task<AuthActionResponse> LinkExistingAsync(Guid administratorId, string password, HostedAdministratorLink link, CancellationToken cancellationToken = default)
+    {
+        var user = await _userManager.FindByIdAsync(administratorId.ToString());
+        if (user is null || !await _userManager.IsInRoleAsync(user, AdministratorRole))
+            return Failure("not_administrator", "Only an administrator can link this Headquarters to C-Sweet.");
+        if (string.IsNullOrEmpty(password) || !await _userManager.CheckPasswordAsync(user, password))
+            return Validation("invalid_password", "The password is incorrect.", "Password");
+
+        await RegistrationLock.WaitAsync(cancellationToken);
+        try
+        {
+            var transaction = _dbContext.Database.IsRelational()
+                ? await _dbContext.Database.BeginTransactionAsync(cancellationToken)
+                : null;
+            await using (transaction)
+            {
+                var owner = await _userManager.FindByLoginAsync(link.Issuer, link.Subject);
+                if (owner is not null && owner.Id != user.Id)
+                    return Failure("account_in_use", "That C-Sweet account is already linked to another person on this Headquarters.");
+                if (owner is null)
+                {
+                    // One C-Sweet account per issuer for this person: a different account of the same issuer replaces the old one.
+                    foreach (var previous in (await _userManager.GetLoginsAsync(user)).Where(x => x.LoginProvider == link.Issuer))
+                    {
+                        var removed = await _userManager.RemoveLoginAsync(user, previous.LoginProvider, previous.ProviderKey);
+                        if (!removed.Succeeded) return IdentityFailure(removed);
+                    }
+                    var added = await _userManager.AddLoginAsync(user, new UserLoginInfo(link.Issuer, link.Subject, HostedLoginProviderDisplayName));
+                    if (!added.Succeeded) return IdentityFailure(added);
+                }
+
+                var now = DateTimeOffset.UtcNow;
+                foreach (var active in await _dbContext.InstallationLinks.Where(x => x.State == InstallationLinkState.Active).ToListAsync(cancellationToken))
+                {
+                    active.State = InstallationLinkState.Retired;
+                    active.Revision++;
+                }
+                _dbContext.InstallationLinks.Add(new InstallationLink
+                {
+                    Id = Guid.NewGuid(),
+                    Issuer = link.Issuer,
+                    InstallationId = link.InstallationId,
+                    DisplayName = link.InstallationName,
+                    ProtectedInstallationKey = Convert.ToBase64String(_installationKeyProtector.Protect(link.PrivateKey)),
+                    LinkedByApplicationUserId = user.Id,
+                    LinkedAt = now,
+                    State = InstallationLinkState.Active
+                });
+
+                // Directory rows of other issuers' accounts belonged to the retired link; never send them to this issuer.
+                var foreignSubjects = await _dbContext.UserLogins.Where(x => x.LoginProvider != link.Issuer).Select(x => x.ProviderKey).ToListAsync(cancellationToken);
+                _dbContext.DirectoryPublications.RemoveRange(await _dbContext.DirectoryPublications
+                    .Where(x => foreignSubjects.Contains(x.Subject)).ToListAsync(cancellationToken));
+                var publication = await _dbContext.DirectoryPublications.SingleOrDefaultAsync(x => x.Subject == link.Subject, cancellationToken);
+                if (publication is null)
+                {
+                    _dbContext.DirectoryPublications.Add(new DirectoryPublication
+                    {
+                        Id = Guid.NewGuid(),
+                        Subject = link.Subject,
+                        ApplicationUserId = user.Id,
+                        Role = DirectoryOwnerRole,
+                        State = DirectoryPublicationState.Active,
+                        Revision = 1,
+                        NextAttemptAt = now,
+                        UpdatedAt = now
+                    });
+                }
+                else
+                {
+                    // A new installation at the issuer has never seen it: publish again.
+                    publication.State = DirectoryPublicationState.Active;
+                    publication.Revision = Math.Max(publication.Revision, publication.PublishedRevision) + 1;
+                    publication.PublishedRevision = 0;
+                    publication.NextAttemptAt = now;
+                    publication.UpdatedAt = now;
+                }
+                await _dbContext.SaveChangesAsync(cancellationToken);
+                if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+                return new AuthActionResponse(true, null, "This Headquarters is linked to C-Sweet.");
+            }
+        }
+        finally
+        {
+            RegistrationLock.Release();
+        }
+    }
+
     private async Task<AuthActionResponse> RegisterCoreAsync(
         RegisterAdminRequest request,
         CancellationToken cancellationToken,

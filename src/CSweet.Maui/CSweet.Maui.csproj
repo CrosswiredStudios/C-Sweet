@@ -75,6 +75,14 @@
         <PackageReference Include="Xamarin.AndroidX.WebKit" Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'" />
     </ItemGroup>
 
+    <!-- Optional sign-in service override, for example <CSweetIssuer>https://account.c-sweet.com/</CSweetIssuer> in CSweet.Maui.csproj.user. -->
+    <ItemGroup Condition="'$(CSweetIssuer)' != ''">
+        <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+            <_Parameter1>CSweetIssuer</_Parameter1>
+            <_Parameter2>$(CSweetIssuer)</_Parameter2>
+        </AssemblyAttribute>
+    </ItemGroup>
+
     <ItemGroup>
         <ProjectReference Include="..\CSweet.UI\CSweet.UI.csproj" />
         <ProjectReference Include="..\CSweet.Mobile.Transport\CSweet.Mobile.Transport.csproj" />

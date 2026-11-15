@@ -334,7 +334,9 @@
     private void OnRealtimeEvent(AppRealtimeEventEnvelope envelope)
     {
         if (_disposed || envelope.OrganizationId != OrganizationId) return;
-        if (envelope.EventType is AppRealtimeEvents.SuggestionsChanged or AppRealtimeEvents.ProjectImportChanged or AppRealtimeEvents.ComputeChanged or AppRealtimeEvents.ProjectIncidentChanged or AppRealtimeEvents.ApprovalChanged or AppRealtimeEvents.HiringRecommendationsChanged or AppRealtimeEvents.EmployeeDirectoryChanged or AppRealtimeEvents.WorkBoardChanged or CompanyReportingCapabilities.ReportChanged || Projects.IsProjectResourceEvent(envelope.EventType))
+        if (OverviewAttentionItems.IsInvalidationEvent(envelope.EventType) ||
+            envelope.EventType is AppRealtimeEvents.EmployeeDirectoryChanged or CompanyReportingCapabilities.ReportChanged ||
+            Projects.IsProjectResourceEvent(envelope.EventType))
             QueueRefresh();
     }
     private void QueueRefresh() => _ = InvokeAsync(async () =>

@@ -180,6 +180,23 @@ public sealed class OverviewAttentionStateTests
         }
     }
 
+    [Fact]
+    public async Task DecisionEventsRefreshTheGroupedQuestionBadgeAndReconnectRecoversMissedQuestions()
+    {
+        await using var fixture = new Fixture(); fixture.Api.Issues = new([]);
+        await fixture.State.InitializeAsync(); Assert.Equal(3, fixture.State.PendingCount);
+        var question = Question("Pending") with { AgentName = "Evelyn Brooks" };
+        fixture.Api.Questions = [question]; fixture.Api.Issues = new([
+            new("question:" + question.Decision.Id, null, null, "Company", "Hiring preferences", "Evelyn needs a response", question.AgentName,
+                "Respond to the question", true, false, [], [question], [], question.Decision.Prompt)]);
+        fixture.Publish(fixture.OrganizationId, CommunicationEvents.DecisionUpdated); Assert.Equal(4, fixture.State.PendingCount);
+        fixture.Api.Issues = new([]); fixture.Api.Questions = [];
+        fixture.Publish(fixture.OrganizationId, CommunicationEvents.DecisionUpdated); Assert.Equal(3, fixture.State.PendingCount);
+        fixture.Api.Issues = new([new("question:recovered", null, null, "Company", "Hiring preferences", "Evelyn needs a response", question.AgentName,
+            "Respond to the question", true, false, [], [question], [], question.Decision.Prompt)]);
+        fixture.Reconnect(); Assert.Equal(4, fixture.State.PendingCount);
+    }
+
     private static PendingAgentQuestionResponse Question(string status) => new(Guid.NewGuid(), Guid.NewGuid(), "Producer",
         new(Guid.NewGuid(), "Direction?", status, [], "", null, null, DateTimeOffset.UtcNow, null));
 
@@ -219,6 +236,7 @@ public sealed class OverviewAttentionStateTests
             ProjectIncidents = [new(Guid.NewGuid(), Guid.NewGuid(), "Project", "Lead", "Stall", "Facts", "Review", "/report", Now)]
         };
         public HiringBacklogResponse Hiring { get; set; } = new([Hire("Pending", 1), Hire("Pending", 0), Hire("Completed", 1)]);
+        public OverviewIssueDirectory? Issues { get; set; }
         public List<BusinessSuggestionResponse> Suggestions { get; set; } = [];
         public List<BlockedWorkAttentionResponse> BlockedWork { get; set; } = [];
         public List<PendingAgentQuestionResponse> Questions { get; set; } = [Question("Pending"), Question("Answered")];
@@ -236,6 +254,11 @@ public sealed class OverviewAttentionStateTests
                 data = Empty ? new HiringBacklogResponse([]) : Hiring;
                 if (++HiringReads == 1) { FirstToken = token; if (FirstHiringRead is not null) await FirstHiringRead(); }
                 if (HiringStatus != HttpStatusCode.OK) return new(HiringStatus);
+            }
+            else if (path.EndsWith("/personal-todos/issues"))
+            {
+                if (Issues is null) return new(HttpStatusCode.NotFound);
+                data = Empty ? new OverviewIssueDirectory([]) : Issues;
             }
             else if (path.EndsWith("/personal-todos/attention")) data = Empty ? new List<BlockedWorkAttentionResponse>() : BlockedWork;
             else if (path.EndsWith("/dashboard/suggestions")) data = Empty ? new List<BusinessSuggestionResponse>() : Suggestions;

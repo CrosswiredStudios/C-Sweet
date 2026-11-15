@@ -1,0 +1,46 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="d9680d7b-1577-41a8-837f-54a0fbd0f839" name="PC@DESKTOP-1LDJV2J 2026-11-14 23:19:54" runUser="DESKTOP-1LDJV2J\PC" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Times creation="2026-11-14T23:19:54.2989510-08:00" queuing="2026-11-14T23:19:54.2989512-08:00" start="2026-11-14T23:19:50.1616059-08:00" finish="2026-11-14T23:19:54.3043184-08:00" />
+  <TestSettings name="default" id="7496b15e-912c-46ee-adc5-18208d4b1355">
+    <Deployment runDeploymentRoot="PC_DESKTOP-1LDJV2J_2026-11-14_23_19_54" />
+  </TestSettings>
+  <Results>
+    <UnitTestResult executionId="a0858b14-dec6-4b99-a8d1-d5b093c0df28" testId="1ac8c5aa-1b4d-c8ae-9628-209e17bef6e6" testName="CSweet.UnitTests.CompanyDashboardRealtimeTests.QuestionArrivingDuringAnOverviewLoadRefreshesItsOlderIssueSnapshot" computerName="DESKTOP-1LDJV2J" duration="00:00:00.4384009" startTime="2026-11-14T23:19:53.7101576-08:00" endTime="2026-11-14T23:19:54.1282165-08:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="a0858b14-dec6-4b99-a8d1-d5b093c0df28" />
+    <UnitTestResult executionId="de36006d-ba64-47ab-894f-1772b5a7032a" testId="310459cc-e6e5-36ba-7671-6b8cbcf6cbf7" testName="CSweet.UnitTests.CompanyDashboardRealtimeTests.NewOwnerQuestionAppearsAndClearsInTheMountedGroupedOverview(openEnded: True)" computerName="DESKTOP-1LDJV2J" duration="00:00:00.0198342" startTime="2026-11-14T23:19:54.1389935-08:00" endTime="2026-11-14T23:19:54.1485318-08:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="de36006d-ba64-47ab-894f-1772b5a7032a" />
+    <UnitTestResult executionId="ace6c796-cbc4-466b-95a0-96366e468679" testId="d39351a8-94b9-e323-897b-67ef8536882b" testName="CSweet.UnitTests.CompanyDashboardRealtimeTests.NewOwnerQuestionAppearsAndClearsInTheMountedGroupedOverview(openEnded: False)" computerName="DESKTOP-1LDJV2J" duration="00:00:00.0648553" startTime="2026-11-14T23:19:54.1492752-08:00" endTime="2026-11-14T23:19:54.2135379-08:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="ace6c796-cbc4-466b-95a0-96366e468679" />
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="CSweet.UnitTests.CompanyDashboardRealtimeTests.NewOwnerQuestionAppearsAndClearsInTheMountedGroupedOverview(openEnded: True)" storage="c:\users\pc\documents\github\csweet\tests\csweet.unittests\bin\release\net10.0\csweet.unittests.dll" id="310459cc-e6e5-36ba-7671-6b8cbcf6cbf7">
+      <Execution id="de36006d-ba64-47ab-894f-1772b5a7032a" />
+      <TestMethod codeBase="C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.UnitTests\bin\Release\net10.0\CSweet.UnitTests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="CSweet.UnitTests.CompanyDashboardRealtimeTests" name="NewOwnerQuestionAppearsAndClearsInTheMountedGroupedOverview" />
+    </UnitTest>
+    <UnitTest name="CSweet.UnitTests.CompanyDashboardRealtimeTests.QuestionArrivingDuringAnOverviewLoadRefreshesItsOlderIssueSnapshot" storage="c:\users\pc\documents\github\csweet\tests\csweet.unittests\bin\release\net10.0\csweet.unittests.dll" id="1ac8c5aa-1b4d-c8ae-9628-209e17bef6e6">
+      <Execution id="a0858b14-dec6-4b99-a8d1-d5b093c0df28" />
+      <TestMethod codeBase="C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.UnitTests\bin\Release\net10.0\CSweet.UnitTests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="CSweet.UnitTests.CompanyDashboardRealtimeTests" name="QuestionArrivingDuringAnOverviewLoadRefreshesItsOlderIssueSnapshot" />
+    </UnitTest>
+    <UnitTest name="CSweet.UnitTests.CompanyDashboardRealtimeTests.NewOwnerQuestionAppearsAndClearsInTheMountedGroupedOverview(openEnded: False)" storage="c:\users\pc\documents\github\csweet\tests\csweet.unittests\bin\release\net10.0\csweet.unittests.dll" id="d39351a8-94b9-e323-897b-67ef8536882b">
+      <Execution id="ace6c796-cbc4-466b-95a0-96366e468679" />
+      <TestMethod codeBase="C:\Users\PC\Documents\GitHub\csweet\tests\CSweet.UnitTests\bin\Release\net10.0\CSweet.UnitTests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="CSweet.UnitTests.CompanyDashboardRealtimeTests" name="NewOwnerQuestionAppearsAndClearsInTheMountedGroupedOverview" />
+    </UnitTest>
+  </TestDefinitions>
+  <TestEntries>
+    <TestEntry testId="1ac8c5aa-1b4d-c8ae-9628-209e17bef6e6" executionId="a0858b14-dec6-4b99-a8d1-d5b093c0df28" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="310459cc-e6e5-36ba-7671-6b8cbcf6cbf7" executionId="de36006d-ba64-47ab-894f-1772b5a7032a" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="d39351a8-94b9-e323-897b-67ef8536882b" executionId="ace6c796-cbc4-466b-95a0-96366e468679" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+  </TestEntries>
+  <TestLists>
+    <TestList name="Results Not in a List" id="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestList name="All Loaded Results" id="19431567-8539-422a-85d7-44ee4e166bda" />
+  </TestLists>
+  <ResultSummary outcome="Completed">
+    <Counters total="3" executed="3" passed="3" failed="0" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
+    <Output>
+      <StdOut>[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v3.1.5+1b188a7b0a (64-bit .NET 10.0.12)&#xD;
+[xUnit.net 00:00:01.97]   Discovering: CSweet.UnitTests&#xD;
+[xUnit.net 00:00:02.83]   Discovered:  CSweet.UnitTests&#xD;
+[xUnit.net 00:00:02.87]   Starting:    CSweet.UnitTests&#xD;
+[xUnit.net 00:00:03.43]   Finished:    CSweet.UnitTests&#xD;
+</StdOut>
+    </Output>
+  </ResultSummary>
+</TestRun>

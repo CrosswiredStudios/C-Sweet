@@ -1,0 +1,208 @@
+@page "/settings/c-sweet"
+@layout SettingsLayout
+@implements IDisposable
+@using CSweet.Contracts.Auth
+@inject InstallationLinkApiClient Link
+@inject AppCulture Culture
+@inject IAppLocalizer L
+
+<PageTitle>@L["Linking.PageTitle"]</PageTitle>
+<section class="link-settings">
+    <MudText Typo="Typo.overline">@L["Settings.Group.Account"]</MudText>
+    <MudText Typo="Typo.h4">@L["Linking.Title"]</MudText>
+    <p>@L["Linking.Intro"]</p>
+
+    @if (_status is null)
+    {
+        <p role="status">@(_error is null ? L["Linking.Loading"] : L[_error])</p>
+    }
+    else
+    {
+        <div class="link-settings-card">
+            @if (_status.Linked)
+            {
+                <p>@L.Format("Linking.LinkedTo", new { issuer = _status.Issuer, name = _status.DisplayName, time = Format(_status.LinkedAt!.Value) })</p>
+                <p class="link-settings-detail">@L.Format("Linking.InstallationId", new { id = _status.InstallationId })</p>
+                @if (!_status.MatchesConfiguredIssuer)
+                {
+                    <MudAlert Severity="Severity.Warning" Class="my-2">@L.Format("Linking.Mismatch", new { linked = _status.Issuer, configured = _status.ConfiguredIssuer })</MudAlert>
+                }
+            }
+            else
+            {
+                <p>@L["Linking.NotLinked"]</p>
+            }
+        </div>
+
+        @if (_done)
+        {
+            <MudAlert Severity="Severity.Success" Class="my-2">@L["Linking.Done"]</MudAlert>
+        }
+
+        @if (!_status.LinkingEnabled)
+        {
+            <p class="link-settings-detail">@L["Linking.Disabled"]</p>
+        }
+        else if (!_status.Linked || !_status.MatchesConfiguredIssuer)
+        {
+            @switch (_attempt?.Status)
+            {
+                case "waiting":
+                    <h2 class="link-settings-heading">@L["Linking.Waiting.Title"]</h2>
+                    <p>@L["Linking.Waiting.Lead"]</p>
+                    <p class="link-settings-code" aria-label="@L["Linking.Waiting.CodeLabel"]">@_attempt.UserCode</p>
+                    <div class="link-settings-actions">
+                        @if (_attempt.VerificationUri is { } approve)
+                        {
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="@approve" Target="_blank" EndIcon="@Icons.Material.Outlined.OpenInNew">@L["Linking.Waiting.Open"]</MudButton>
+                        }
+                        <MudButton Variant="Variant.Text" OnClick="CancelAsync">@L["Linking.Cancel"]</MudButton>
+                    </div>
+                    <p class="link-settings-detail" role="status">@L["Linking.Waiting.Status"]</p>
+                    break;
+                case "approved":
+                    <h2 class="link-settings-heading">@L["Linking.Approved.Title"]</h2>
+                    <p>@L.Format("Linking.Approved.Lead", new { email = _attempt.Email ?? string.Empty })</p>
+                    <MudTextField @bind-Value="_password" Label="@L["Linking.Password"]" InputType="InputType.Password" Variant="Variant.Outlined"
+                                  Error="@(_fieldError is not null)" ErrorText="@(_fieldError is null ? null : L[_fieldError])" autocomplete="current-password" />
+                    <div class="link-settings-actions">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || string.IsNullOrEmpty(_password))" OnClick="CompleteAsync">
+                            @(_busy ? L["Linking.Finishing"] : L["Linking.Finish"])
+                        </MudButton>
+                        <MudButton Variant="Variant.Text" Disabled="_busy" OnClick="CancelAsync">@L["Linking.Cancel"]</MudButton>
+                    </div>
+                    break;
+                default:
+                    @if (EndedKey is { } ended)
+                    {
+                        <MudAlert Severity="Severity.Warning" Class="my-2">@L.Format(ended, new { message = _attempt?.Message ?? string.Empty })</MudAlert>
+                    }
+                    <MudTextField @bind-Value="_name" Label="@L["Linking.NameLabel"]" HelperText="@L["Linking.NameHint"]" MaxLength="80" Variant="Variant.Outlined" />
+                    <div class="link-settings-actions">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || string.IsNullOrWhiteSpace(_name))" OnClick="StartAsync">
+                            @(_busy ? L["Linking.Starting"] : _status.Linked ? L["Linking.Relink"] : L["Linking.Connect"])
+                        </MudButton>
+                    </div>
+                    break;
+            }
+        }
+        @if (_error is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="my-2">@L[_error]</MudAlert>
+        }
+    }
+</section>
+
+@code {
+    private InstallationLinkStatusResponse? _status;
+    private HostedSetupStatusResponse? _attempt;
+    private CancellationTokenSource? _polling;
+    private string _name = string.Empty;
+    private string _password = string.Empty;
+    private string? _error;
+    private string? _fieldError;
+    private bool _busy;
+    private bool _done;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _status = await Link.GetAsync();
+            _error = null;
+            if (string.IsNullOrWhiteSpace(_name)) _name = _status?.DisplayName ?? string.Empty;
+        }
+        catch (HttpRequestException) { _error = "Linking.LoadFailed"; }
+    }
+
+    private string? EndedKey => _attempt?.Status switch
+    {
+        "denied" => "Linking.Denied",
+        "expired" => "Linking.Expired",
+        "failed" => "Linking.Failed",
+        "unavailable" or "missing" => "Linking.Unavailable",
+        _ => null
+    };
+
+    private async Task StartAsync()
+    {
+        _busy = true; _error = null; _done = false;
+        try
+        {
+            _attempt = await Link.StartAsync(_name.Trim());
+            if (_attempt.Status == "waiting") StartPolling();
+        }
+        catch (HttpRequestException) { _attempt = new HostedSetupStatusResponse("unavailable"); }
+        finally { _busy = false; }
+    }
+
+    private void StartPolling()
+    {
+        StopPolling();
+        _polling = new CancellationTokenSource();
+        _ = PollLoopAsync(_polling.Token);
+    }
+
+    private void StopPolling()
+    {
+        _polling?.Cancel();
+        _polling?.Dispose();
+        _polling = null;
+    }
+
+    private async Task PollLoopAsync(CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested && _attempt?.Status == "waiting")
+            {
+                await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(_attempt.PollSeconds, 1, 60)), ct);
+                HostedSetupStatusResponse next;
+                try { next = await Link.PollAsync(ct); }
+                catch (HttpRequestException) { continue; } // transient; try again on the next tick
+                _attempt = next;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task CompleteAsync()
+    {
+        _busy = true; _error = null; _fieldError = null;
+        try
+        {
+            var result = await Link.CompleteAsync(_password);
+            if (result.Succeeded)
+            {
+                _password = string.Empty;
+                _attempt = null;
+                _done = true;
+                await LoadAsync();
+                return;
+            }
+            switch (result.ErrorCode)
+            {
+                case "invalid_password": _fieldError = "Linking.PasswordIncorrect"; break;
+                case "account_in_use": _error = "Linking.AccountInUse"; break;
+                case "hosted_not_approved": _attempt = new HostedSetupStatusResponse("expired"); break;
+                default: _error = "Linking.LinkFailed"; break;
+            }
+        }
+        catch (HttpRequestException) { _error = "Linking.LinkFailed"; }
+        finally { _busy = false; }
+    }
+
+    private async Task CancelAsync()
+    {
+        StopPolling();
+        _attempt = null;
+        try { await Link.CancelAsync(); } catch (HttpRequestException) { }
+    }
+
+    private string Format(DateTimeOffset value) => value.ToOffset(Culture.TimeZone.GetUtcOffset(value)).ToString("g", Culture.Culture);
+
+    public void Dispose() => StopPolling();
+}

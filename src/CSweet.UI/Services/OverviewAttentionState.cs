@@ -106,9 +106,7 @@ public sealed class OverviewAttentionState(HttpClient http, IBusinessContext bus
     private void OnRealtimeEvent(AppRealtimeEventEnvelope envelope)
     {
         if (envelope.OrganizationId == businesses.SelectedBusiness?.Id &&
-            envelope.EventType is AppRealtimeEvents.SuggestionsChanged or AppRealtimeEvents.ProjectImportChanged or AppRealtimeEvents.ApprovalChanged or AppRealtimeEvents.HiringRecommendationsChanged or
-                AppRealtimeEvents.ProjectIncidentChanged or AppRealtimeEvents.ComputeChanged or CommunicationEvents.DecisionUpdated or
-                AppRealtimeEvents.WorkBoardChanged)
+            OverviewAttentionItems.IsInvalidationEvent(envelope.EventType))
             _ = ReloadAsync();
     }
 

@@ -18,7 +18,7 @@ public sealed record TunnelReply(int Status, string? ContentType, string? Conten
 internal static class TunnelFrames
 {
     public const int ChunkBytes = 48 * 1024;
-    public const int MaxLine = 128 * 1024;
+    public const int MaxLine = 512 * 1024; // a 256 KiB request body is about 342 KiB of base64
 
     public sealed record Head(
         [property: JsonPropertyName("type")] string Type,
@@ -135,8 +135,14 @@ public sealed class PhoneTunnelClient : IAsyncDisposable
 
     public void Start() => _readLoop ??= Task.Run(ReadLoopAsync);
 
-    public async Task<TunnelReply> SendAsync(string method, string path, long maxBytes, CancellationToken ct)
+    public Task<TunnelReply> SendAsync(string method, string path, long maxBytes, CancellationToken ct) =>
+        SendAsync(new MobileRequest("request", 0, method, path), maxBytes, ct);
+
+    /// <summary>Sends a request (its id is assigned here) and waits for the matching response.</summary>
+    public async Task<TunnelReply> SendAsync(MobileRequest template, long maxBytes, CancellationToken ct)
     {
+        if (template.Body is { } body && body.Length > (MobileRequest.MaxBodyBytes + 2) / 3 * 4)
+            throw new InvalidDataException("Request body too large.");
         if (EndedReason is not null) throw new IOException($"The Headquarters session ended ({EndedReason}).");
         var id = Interlocked.Increment(ref _nextId);
         var pending = new Pending(maxBytes);
@@ -144,7 +150,7 @@ public sealed class PhoneTunnelClient : IAsyncDisposable
         try
         {
             await _writeLock.WaitAsync(ct);
-            try { await TunnelFrames.WriteAsync(_stream, new MobileRequest("request", id, method, path), ct); }
+            try { await TunnelFrames.WriteAsync(_stream, template with { Type = "request", Id = id }, ct); }
             finally { _writeLock.Release(); }
             return await pending.Completion.Task.WaitAsync(ct);
         }

@@ -44,6 +44,8 @@
   "Settings.Section.Security.Description": "أدِر استرداد الحساب وتسليم البريد الإلكتروني.",
   "Settings.Section.Phones.Title": "الهواتف",
   "Settings.Section.Phones.Description": "وافق على الهواتف التي تستخدم هذا المقر الرئيسي بحسابك أو ألغِ وصولها.",
+  "Settings.Section.CSweetAccount.Title": "حساب C-Sweet",
+  "Settings.Section.CSweetAccount.Description": "اربط هذا المقر الرئيسي بحساب C-Sweet حتى يتمكن هاتفك من العثور عليه.",
   "Settings.PageTitle": "الإعدادات - C-Sweet",
   "Settings.Overline": "مساحة عملك",
   "Settings.Heading": "اجعلها على طريقتك",

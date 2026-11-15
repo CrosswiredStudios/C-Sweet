@@ -69,12 +69,28 @@ public sealed class EnterpriseAssets(PhoneTunnelClient client, string cacheDirec
         return new Served(200, entry.ContentType, File.OpenRead(cached));
     }
 
-    /// <summary>An API call from the web app (bridge or intercepted GET). Only reads cross in the prototype.</summary>
-    public async Task<TunnelReply> ApiAsync(string method, string pathAndQuery, CancellationToken ct)
+    public Task<TunnelReply> ApiAsync(string method, string pathAndQuery, CancellationToken ct) =>
+        ApiAsync(method, pathAndQuery, null, null, null, ct);
+
+    /// <summary>
+    /// An API call from the web app. A write needs a JSON body within 256 KiB and an operation key (the body's
+    /// idempotency key); Headquarters only accepts it on routes marked for phone writes. After a lost response the
+    /// page's retry sends the same key, and the domain service returns the first result instead of acting twice.
+    /// </summary>
+    public async Task<TunnelReply> ApiAsync(string method, string pathAndQuery, string? contentType, string? body, string? operationKey, CancellationToken ct)
     {
-        if (!string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase)) return TunnelReply.Empty(405);
         if (!pathAndQuery.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)) return TunnelReply.Empty(404);
-        var reply = await client.SendAsync("GET", pathAndQuery, MaxApiBytes, ct);
+        method = method.ToUpperInvariant();
+        MobileRequest request;
+        if (method == "GET") request = new MobileRequest("", 0, "GET", pathAndQuery);
+        else if (method is "POST" or "PUT" or "PATCH" or "DELETE")
+        {
+            if (string.IsNullOrWhiteSpace(operationKey) || operationKey.Length > MobileRequest.MaxOperationKeyLength) return TunnelReply.Empty(428);
+            if (body is { } encoded && encoded.Length > (MobileRequest.MaxBodyBytes + 2) / 3 * 4) return TunnelReply.Empty(413);
+            request = new MobileRequest("", 0, method, pathAndQuery, contentType ?? "application/json", body ?? "", operationKey);
+        }
+        else return TunnelReply.Empty(405);
+        var reply = await client.SendAsync(request, MaxApiBytes, ct);
         return reply with { ContentEncoding = null, Body = Decode(reply) };
     }
 

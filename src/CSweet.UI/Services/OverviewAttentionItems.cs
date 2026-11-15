@@ -1,12 +1,19 @@
 ﻿using CSweet.Contracts.Communications;
 using CSweet.Contracts.Compute;
 using CSweet.Contracts.Core;
+using CSweet.Contracts.Realtime;
 
 namespace CSweet.UI.Services;
 
 /// <summary>Shared eligibility rules for the Overview queue and its navigation badge.</summary>
 public static class OverviewAttentionItems
 {
+    // Every consumer of the shared attention projection must invalidate on the
+    // same source changes, including standalone executive questions without a board.
+    public static bool IsInvalidationEvent(string eventType) => eventType is
+        AppRealtimeEvents.SuggestionsChanged or AppRealtimeEvents.ProjectImportChanged or AppRealtimeEvents.ApprovalChanged or
+        AppRealtimeEvents.HiringRecommendationsChanged or AppRealtimeEvents.ProjectIncidentChanged or AppRealtimeEvents.ComputeChanged or
+        CommunicationEvents.DecisionUpdated or AppRealtimeEvents.WorkBoardChanged;
     public static bool IsPending(string status) =>
         string.Equals(status, "Pending", StringComparison.OrdinalIgnoreCase);
 

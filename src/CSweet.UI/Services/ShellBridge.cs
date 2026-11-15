@@ -24,10 +24,15 @@ public sealed class ShellBridgeHttpHandler(IJSRuntime js) : HttpMessageHandler
 {
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        var body = request.Content is null ? null : Convert.ToBase64String(await request.Content.ReadAsByteArrayAsync(cancellationToken));
+        var bytes = request.Content is null ? null : await request.Content.ReadAsByteArrayAsync(cancellationToken);
         var contentType = request.Content?.Headers.ContentType?.ToString();
+        // A write's operation key is the idempotency key the page already puts in the body, so a retry after a lost
+        // response is deduplicated by the same service that handles desktop retries.
+        var operationKey = request.Method == HttpMethod.Get ? null
+            : request.Headers.TryGetValues("X-CSweet-Operation-Key", out var keys) ? keys.FirstOrDefault()
+            : IdempotencyKey(bytes);
         var reply = await js.InvokeAsync<BridgeReply>("csweetShellBridge.request", cancellationToken,
-            request.Method.Method, request.RequestUri!.PathAndQuery, contentType, body);
+            request.Method.Method, request.RequestUri!.PathAndQuery, contentType, bytes is null ? null : Convert.ToBase64String(bytes), operationKey);
         var response = new HttpResponseMessage((HttpStatusCode)reply.Status)
         {
             RequestMessage = request,
@@ -35,6 +40,23 @@ public sealed class ShellBridgeHttpHandler(IJSRuntime js) : HttpMessageHandler
         };
         if (!string.IsNullOrEmpty(reply.ContentType)) response.Content.Headers.TryAddWithoutValidation("Content-Type", reply.ContentType);
         return response;
+    }
+
+    internal static string? IdempotencyKey(byte[]? json)
+    {
+        if (json is not { Length: > 0 }) return null;
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) return null;
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                if (string.Equals(property.Name, "idempotencyKey", StringComparison.OrdinalIgnoreCase) && property.Value.ValueKind == System.Text.Json.JsonValueKind.String)
+                    return property.Value.GetString()?.Trim();
+            }
+        }
+        catch (System.Text.Json.JsonException) { }
+        return null;
     }
 
     private sealed record BridgeReply(int Status, string? ContentType, string? Body);

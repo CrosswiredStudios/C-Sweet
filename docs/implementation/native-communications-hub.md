@@ -69,6 +69,17 @@ Errors keep the card actionable for retry. **Something Else** (when free text is
 and `provide-direction` options open the question's conversation for text entry without
 posting an answer. The normal Approvals decision inbox retains its expanded response form.
 
+`OverviewAttentionItems.IsInvalidationEvent` is shared by `CommandCenter` and
+`OverviewAttentionState`. `CommunicationEvents.DecisionUpdated` must reload the grouped
+`OverviewIssueDirectory` as well as the pending-question list, including standalone Chief
+questions with no project or board. Reloading only `PendingAgentQuestions._questions` leaves
+Overview's grouped cards stale until navigation. Existing refresh coalescing handles questions
+arriving during an earlier read; reconnect rediscovers current state. The rendered dashboard
+regressions cover new open-ended and option questions, wrong-business events, resolution and
+in-flight refreshes without remounting the page; the shared badge uses the same trigger.
+Verification: 38 focused dashboard, badge, question and issue-card tests passed.
+
+
 `WorkstreamGovernanceCapabilityHandler.RequestDecisionAsync` records a decision and emits
 `DecisionRequestedV1` for subscribed project agents. `WorkstreamDecisionChatReview.PresentAsync`
 creates a human review card only when the requesting agent reports directly to an active

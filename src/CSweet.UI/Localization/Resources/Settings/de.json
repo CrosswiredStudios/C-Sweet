@@ -44,6 +44,8 @@
   "Settings.Section.Security.Description": "Kontowiederherstellung und E-Mail-Zustellung verwalten.",
   "Settings.Section.Phones.Title": "Telefone",
   "Settings.Section.Phones.Description": "Telefone freigeben oder sperren, die diese Zentrale mit deinem Konto nutzen.",
+  "Settings.Section.CSweetAccount.Title": "C-Sweet-Konto",
+  "Settings.Section.CSweetAccount.Description": "Verknüpfen Sie diese Zentrale mit Ihrem C-Sweet-Konto, damit Ihr Telefon sie findet.",
   "Settings.PageTitle": "Einstellungen - C-Sweet",
   "Settings.Overline": "Ihr Arbeitsbereich",
   "Settings.Heading": "Passen Sie alles an",

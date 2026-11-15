@@ -20,6 +20,10 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+[Current planning context and reply recovery](planning-context-and-reply-recovery.md) maps typed
+planning advice, current staffing/resource facts, agent-owned decision reassessment and retained
+Prism Break recovery, with package versions and rollout steps.
+
 [Agent CI dependency fallback](agent-ci-dependency-fallback.md) maps exact-version
 NuGet resolution, reviewed SDK/contracts source commits, temporary package feeds,
 workflow coverage and dependency provenance across standalone agent repositories.

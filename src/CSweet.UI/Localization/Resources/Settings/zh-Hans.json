@@ -44,6 +44,8 @@
   "Settings.Section.Security.Description": "管理账户恢复和电子邮件发送。",
   "Settings.Section.Phones.Title": "手机",
   "Settings.Section.Phones.Description": "批准或撤销使用你的账户访问此总部的手机。",
+  "Settings.Section.CSweetAccount.Title": "C-Sweet 账户",
+  "Settings.Section.CSweetAccount.Description": "将此总部关联到你的 C-Sweet 账户，以便手机找到它。",
   "Settings.PageTitle": "设置 - C-Sweet",
   "Settings.Overline": "您的工作区",
   "Settings.Heading": "打造专属于您的工作区",

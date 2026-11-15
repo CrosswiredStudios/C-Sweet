@@ -12,6 +12,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ILlmProviderApiClient, LlmProviderApiClient>();
         services.AddScoped<PersonalAssistantApiClient>();
         services.AddScoped<MobileDeviceApiClient>();
+        services.AddScoped<InstallationLinkApiClient>();
         services.AddScoped<IGenAiProviderApiClient, GenAiProviderApiClient>();
         services.AddScoped<IAgentRuntimeSettingsApiClient, AgentRuntimeSettingsApiClient>();
         services.AddScoped<IPluginAccountApiClient, PluginAccountApiClient>();

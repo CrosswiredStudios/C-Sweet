@@ -23,14 +23,16 @@ public sealed class DirectoryPublicationSignal
 }
 
 /// <summary>The directory outbox over the Headquarters database (IL-12).</summary>
-internal sealed class EfDirectoryPublicationStore(CSweetDbContext db, IDataProtectionProvider protection, TimeProvider time) : IDirectoryPublicationStore
+internal sealed class EfDirectoryPublicationStore(CSweetDbContext db, IDataProtectionProvider protection, TimeProvider time,
+    IOptions<HostedAccountOptions> options) : IDirectoryPublicationStore
 {
     private readonly IDataProtector _keyProtector = protection.CreateProtector(AuthenticationService.InstallationKeyProtectionPurpose);
 
     public async Task<LinkedInstallation?> GetActiveLinkAsync(CancellationToken ct)
     {
         var link = await ActiveLinkAsync(ct);
-        if (link is null) return null;
+        // A link to another issuer (before relinking in Settings) publishes nothing to the configured one.
+        if (link is null || !InstallationLinkEndpoints.SameIssuer(link.Issuer, options.Value.Issuer)) return null;
         var key = _keyProtector.Unprotect(Convert.FromBase64String(link.ProtectedInstallationKey));
         return new LinkedInstallation(link.InstallationId, link.Issuer, key);
     }

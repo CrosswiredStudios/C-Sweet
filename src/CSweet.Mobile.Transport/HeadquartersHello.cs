@@ -15,12 +15,23 @@ public sealed record PhoneHello(
     [property: JsonPropertyName("assertion")] string? Assertion = null,
     [property: JsonPropertyName("deviceLabel")] string? DeviceLabel = null);
 
-/// <summary>Phone → Headquarters on an enrolled session: one API request.</summary>
+/// <summary>
+/// Phone → Headquarters on an enrolled session: one API request. A write carries a JSON body (base64, at most
+/// <see cref="MaxBodyBytes"/>) and an operation key; Headquarters refuses writes without one.
+/// </summary>
 public sealed record MobileRequest(
     [property: JsonPropertyName("type")] string Type,
     [property: JsonPropertyName("id")] int Id,
     [property: JsonPropertyName("method")] string Method,
-    [property: JsonPropertyName("path")] string Path);
+    [property: JsonPropertyName("path")] string Path,
+    [property: JsonPropertyName("contentType")] string? ContentType = null,
+    [property: JsonPropertyName("body")] string? Body = null,
+    [property: JsonPropertyName("operationKey")] string? OperationKey = null)
+{
+    /// <summary>JSON request bodies are capped at 256 KiB (operations register); files use a separate lane later.</summary>
+    public const int MaxBodyBytes = 256 * 1024;
+    public const int MaxOperationKeyLength = 160;
+}
 
 /// <summary>
 /// Headquarters → phone. Before enrollment Headquarters says who it is and whether this phone still needs approval;

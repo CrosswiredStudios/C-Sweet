@@ -134,7 +134,9 @@ public static class CommunicationEndpoints
             {
                 return Results.Conflict(new CommunicationHubActionResponse(false, "turn_active", exception.Message));
             }
-        });
+        })
+        // SendAsync deduplicates per actor and idempotency key, and requires active membership of the chat.
+        .AllowFromMobile(MobileAccess.Write, "TS-05 2026-11-15: CommunicationHubService.SendAsync");
 
         group.MapGet("/hub/chats/{chatId:guid}/coordination-sessions", async (
             Guid organizationId, Guid chatId, bool? activeOnly, Guid? perspectiveOrganizationUserId, HttpContext http,
@@ -237,7 +239,9 @@ public static class CommunicationEndpoints
             {
                 return Results.Conflict(new AnswerExecutiveDecisionResponse(false, "turn_active", exception.Message));
             }
-        });
+        })
+        // AnswerAsync keeps one immutable answer per decision, matched by idempotency key; checks the decider.
+        .AllowFromMobile(MobileAccess.Write, "TS-05 2026-11-15: ExecutiveDecisionService.AnswerAsync");
 
         group.MapGet("/providers/{providerKey}", async (Guid organizationId, string providerKey,
             ICommunicationWorkspaceService service, CancellationToken cancellationToken) =>

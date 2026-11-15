@@ -40,6 +40,7 @@ internal sealed class MobileRelayConnectorService(
     IDataProtectionProvider protection,
     MobileRequestDispatcher dispatcher,
     MobileWebAssets webAssets,
+    InstallationLinkSignal linkSignal,
     ILogger<MobileRelayConnectorService> logger) : BackgroundService
 {
     private const string TlsKeyProtectionPurpose = "CSweet.InstallationLink.TlsKey.v1";
@@ -63,6 +64,7 @@ internal sealed class MobileRelayConnectorService(
             {
                 try
                 {
+                    var linkChanged = linkSignal.Token; // taken before loading, so a change during the load is not missed
                     var identity = await LoadIdentityAsync(stoppingToken);
                     if (identity is null)
                     {
@@ -84,8 +86,16 @@ internal sealed class MobileRelayConnectorService(
                         await connector.StartAsync(stoppingToken);
                         failures = 0;
                         logger.LogInformation("Attached to the mobile relay as route {RouteId}.", settings.RouteId);
-                        var reason = await connector.Ended.WaitAsync(stoppingToken);
-                        logger.LogWarning("Mobile relay connection ended ({Reason}); reconnecting.", reason);
+                        using var ended = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, linkChanged);
+                        try
+                        {
+                            var reason = await connector.Ended.WaitAsync(ended.Token);
+                            logger.LogWarning("Mobile relay connection ended ({Reason}); reconnecting.", reason);
+                        }
+                        catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+                        {
+                            logger.LogInformation("The C-Sweet link changed; reattaching to the mobile relay with the new installation.");
+                        }
                     }
                 }
                 catch (Exception error) when (!stoppingToken.IsCancellationRequested && error is not OperationCanceledException)
@@ -139,6 +149,13 @@ internal sealed class MobileRelayConnectorService(
         var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
         var link = await db.InstallationLinks.Where(x => x.State == InstallationLinkState.Active).OrderByDescending(x => x.LinkedAt).FirstOrDefaultAsync(ct);
         if (link is null) return null;
+        // Linked to a different C-Sweet service than the one configured now: wait for Settings → C-Sweet account to relink
+        // rather than announcing that installation to the wrong issuer.
+        if (!InstallationLinkEndpoints.SameIssuer(link.Issuer, hostedOptions.Value.Issuer))
+        {
+            logger.LogWarning("Linked to {LinkedIssuer} but configured for {Issuer}; link again in Settings → C-Sweet account.", link.Issuer, hostedOptions.Value.Issuer);
+            return null;
+        }
 
         var installationKey = protection.CreateProtector(AuthenticationService.InstallationKeyProtectionPurpose)
             .Unprotect(Convert.FromBase64String(link.ProtectedInstallationKey));

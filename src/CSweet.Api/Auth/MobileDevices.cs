@@ -171,23 +171,57 @@ public sealed class MobileRequestDispatcher(IServiceScopeFactory scopes, IHttpCo
 
     public RequestDelegate? Pipeline { get; set; }
 
+    private sealed class RequestBodyDetection(bool canHaveBody) : IHttpRequestBodyDetectionFeature
+    {
+        public bool CanHaveBody { get; } = canHaveBody;
+    }
+
+    /// <summary>Only these request headers exist on a dispatched request; cookies, Authorization, Origin never cross.</summary>
+    private static HeaderDictionary RequestHeaders(MobileRequest request, int bodyLength)
+    {
+        var headers = new HeaderDictionary { ["Accept"] = "application/json", ["Host"] = "mobile.headquarters.internal" };
+        if (request.Body is not null)
+        {
+            headers["Content-Type"] = request.ContentType;
+            headers.ContentLength = bodyLength;
+        }
+        if (request.OperationKey is { } key) headers[MobileDispatchGateMiddleware.OperationKeyHeader] = key;
+        return headers;
+    }
+
     /// <summary>API responses are capped at 4 MiB in the prototype (the register's 256 KiB is for request bodies).</summary>
     public const int MaxApiResponseBytes = 4 * 1024 * 1024;
 
     /// <summary>Whether a phone may send this request at all: GET only, and an allowlisted path (or any /api read in the prototype).</summary>
     public bool IsAllowed(MobileRequest request)
     {
-        if (!string.Equals(request.Method, "GET", StringComparison.Ordinal)) return false;
         var path = request.Path.Split('?', 2)[0];
-        if (path.StartsWith("/api/mobile/", StringComparison.OrdinalIgnoreCase)) return false; // never approve or list devices from a phone
+        // Never approve or list devices, or change the C-Sweet link, from a phone.
+        if (path.StartsWith("/api/mobile/", StringComparison.OrdinalIgnoreCase) || path.StartsWith("/api/installation/", StringComparison.OrdinalIgnoreCase)) return false;
+        if (WriteMethods.Contains(request.Method))
+        {
+            // Writes: JSON body within the cap and an operation key; the route marker and key binding are checked
+            // after routing by MobileDispatchGateMiddleware.
+            return path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase) && !path.Contains("..", StringComparison.Ordinal)
+                && request.OperationKey is { Length: > 0 and <= MobileRequest.MaxOperationKeyLength }
+                && request.ContentType?.StartsWith("application/json", StringComparison.OrdinalIgnoreCase) == true
+                && request.Body is { } body && body.Length <= (MobileRequest.MaxBodyBytes + 2) / 3 * 4;
+        }
+        if (!string.Equals(request.Method, "GET", StringComparison.Ordinal)) return false;
         return shellOptions.Value.AllowAllReads
             ? path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase) && !path.Contains("..", StringComparison.Ordinal)
             : !request.Path.Contains('?') && AllowedReads.Contains(path);
     }
 
+    private static readonly HashSet<string> WriteMethods = new(StringComparer.Ordinal) { "POST", "PUT", "PATCH", "DELETE" };
+
     public async Task<TunnelReply> DispatchAsync(MobileRequest request, string phonePin, CancellationToken ct)
     {
         if (!IsAllowed(request)) return TunnelReply.Empty(StatusCodes.Status404NotFound);
+        byte[] requestBody;
+        try { requestBody = request.Body is null ? [] : Convert.FromBase64String(request.Body); }
+        catch (FormatException) { return TunnelReply.Empty(StatusCodes.Status400BadRequest); }
+        if (requestBody.Length > MobileRequest.MaxBodyBytes) return TunnelReply.Empty(StatusCodes.Status413PayloadTooLarge);
         if (Pipeline is null) return TunnelReply.Empty(StatusCodes.Status503ServiceUnavailable);
 
         await using var scope = scopes.CreateAsyncScope();
@@ -204,15 +238,17 @@ public sealed class MobileRequestDispatcher(IServiceScopeFactory scopes, IHttpCo
         var features = new FeatureCollection();
         features.Set<IHttpRequestFeature>(new HttpRequestFeature
         {
-            Method = "GET",
+            Method = request.Method,
             Scheme = "https",
             Protocol = "HTTP/1.1",
             PathBase = string.Empty,
             Path = request.Path.Split('?', 2)[0],
             QueryString = request.Path.Contains('?') ? "?" + request.Path.Split('?', 2)[1] : string.Empty,
-            Headers = new HeaderDictionary { ["Accept"] = "application/json", ["Host"] = "mobile.headquarters.internal" },
-            Body = Stream.Null
+            Headers = RequestHeaders(request, requestBody.Length),
+            Body = requestBody.Length == 0 ? Stream.Null : new MemoryStream(requestBody, writable: false)
         });
+        // Without this, minimal APIs treat the request as bodiless and never bind the JSON body (every phone write failed).
+        features.Set<IHttpRequestBodyDetectionFeature>(new RequestBodyDetection(requestBody.Length > 0));
         features.Set<IHttpResponseFeature>(new HttpResponseFeature());
         features.Set<IHttpResponseBodyFeature>(new StreamResponseBodyFeature(body));
         using var aborted = CancellationTokenSource.CreateLinkedTokenSource(ct);

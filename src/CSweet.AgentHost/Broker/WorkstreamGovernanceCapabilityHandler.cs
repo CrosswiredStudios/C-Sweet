@@ -740,7 +740,8 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
         ReadList<W.DecisionOption>(value.OptionsJson), value.RecommendedOptionId, value.SelectedOptionId,
         value.Status, value.Rationale, ReadList<W.EvidenceReference>(value.EvidenceJson),
         value.SupersedesDecisionId, value.SupersededByDecisionId, value.DueAt, value.Revision, value.CreatedAt, value.UpdatedAt,
-        string.IsNullOrWhiteSpace(value.TypeDataJson) ? null : JsonSerializer.Deserialize<JsonElement>(value.TypeDataJson));
+        string.IsNullOrWhiteSpace(value.TypeDataJson) ? null : JsonSerializer.Deserialize<JsonElement>(value.TypeDataJson))
+        { RequestedByOrganizationUserId = value.RequestedByOrganizationUserId, DecidedByOrganizationUserId = value.DecidedByOrganizationUserId };
 
     private static IReadOnlyList<T> ReadList<T>(string? json)
     {

@@ -20,6 +20,7 @@ public static class SettingsSections
         new("Settings.Group.Platform", "Settings.Section.ToolchainSetup.Title", "/settings/toolchains", "Settings.Section.ToolchainSetup.Description", Icons.Material.Outlined.Build),
         new("Settings.Group.Platform", "Settings.Section.Communications.Title", "/settings/communications", "Settings.Section.Communications.Description", Icons.Material.Outlined.Forum),
         new("Settings.Group.Account", "Settings.Section.Security.Title", "/settings/security", "Settings.Section.Security.Description", Icons.Material.Outlined.Security),
-        new("Settings.Group.Account", "Settings.Section.Phones.Title", "/settings/phones", "Settings.Section.Phones.Description", Icons.Material.Outlined.PhoneIphone)
+        new("Settings.Group.Account", "Settings.Section.Phones.Title", "/settings/phones", "Settings.Section.Phones.Description", Icons.Material.Outlined.PhoneIphone),
+        new("Settings.Group.Account", "Settings.Section.CSweetAccount.Title", "/settings/c-sweet", "Settings.Section.CSweetAccount.Description", Icons.Material.Outlined.Cloud)
     ];
 }

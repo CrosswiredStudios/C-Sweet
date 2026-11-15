@@ -21,6 +21,25 @@ How to find out why a Communications answer failed. The user-visible text is del
 ("The agent couldn't complete that request. Please try again."); the cause is persisted on the turn,
 its trace, and agent-side records.
 
+## Published state-write fix versus an older installed Director
+
+A November 14 pitch submission and its retry failed before generation with
+`idempotency.content_mismatch` on `video-game-direction:portfolio`. The audit's
+`actorPackageVersion` and the current business installation both identified Director
+0.8.3; the global definition used by the fresh hire was also 0.8.3. That version reused
+`portfolio-index:<conversation>:intake:<phase>` while changing `updatedAt` and the payload
+fingerprint. The conflict is a changed-content replay, rather than ordinary concurrent
+revision contention. Retrying the same package cannot repair that mutation identity.
+
+Director 0.9.0 already moves `SaveStateAsync` and `UpsertPortfolioIndexAsync` to the shared
+`DurableAgentState` helpers. The normal Installed Agents check offered 0.9.0 for this
+installation. Apply that reviewed definition update and let normal installation
+synchronization finish before retrying the failed chat turn from its diagnostic dialog.
+The saved answer remains in the conversation; no business reset or direct record repair
+is needed. A terminal nonretryable chat fallback is not automatically replayed merely
+because periodic manager reviews are running. Confirm the deployed employee package
+version as well as the published release when diagnosing a fresh business.
+
 ## Turn lifecycle
 
 ### Agent handoffs are not personal-memory sources

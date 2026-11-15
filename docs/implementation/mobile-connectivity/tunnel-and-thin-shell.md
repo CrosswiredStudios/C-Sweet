@@ -146,16 +146,21 @@ Built over the real relay and pinned TLS rather than a desktop stand-in, since H
 - **Headquarters.** `MobileShell:WebRoot` points at the published `CSweet.App` `wwwroot`. `MobileWebAssets` builds a manifest (path, SHA-256, size, content type) at `/.csweet/manifest`, serves only listed files, and sends the `.br` sibling when present. API paths go through the dispatcher; `MobileShell:AllowAllReads` (prototype only) lets any `GET /api/*` through with the real authorization, writes stay refused, and `/api/mobile/*` is never reachable from a phone.
 - **Web app.** At an origin ending `.csweet.invalid` the app registers `ShellBridgeHttpHandler`: API calls go to `shell-bridge.js`, which posts them to the native shell. The realtime hub is not started in shell mode.
 - **Phone (Android).** "Open {name}" appears once the phone is active. The enterprise page is a WebView at `https://hq-{installation}.csweet.invalid/`. `ShouldInterceptRequest` serves that origin from the manifest (hash-checked, cached by hash, client routes fall back to `index.html`), forwards `GET /api/*` and returns 403 for every other origin. The bridge object is injected only for that origin (`WebViewCompat.AddWebMessageListener`, AndroidX WebKit 1.14.0) and answers main-frame calls only.
-- **Not in the prototype.** Writes (need operation keys, TS-05), realtime hints, per-enterprise WebView profiles (isolation is per origin only), iPhone.
+- **Writes, first cut (TS-04/TS-05, 2026-11-15).** Three routes carry `.AllowFromMobile(MobileAccess.Write, …)`: document decision, chat message send and executive decision answer. Each service already deduplicates (or, for document decisions, repeating a decision returns the decided revision) and checks the actor. A phone write carries a JSON body (at most 256 KiB) and an operation key. The shell sets the key to the body's own `idempotencyKey`, and `MobileDispatchGateMiddleware` requires them to match, so the key the phone retries with is the key the service deduplicates on; no second ledger. Unmarked writes are 404; a missing or mismatched key is 428. Antiforgery is skipped only when the dispatcher feature and the device scheme are both present; cookie requests and a device-looking principal without the feature still need the token (`MobileDispatchGateTests`).
+- **Finding (first phone write, 2026-11-15).** A request built in process must also set `IHttpRequestBodyDetectionFeature`; without it minimal APIs treat the request as bodiless, and in Development (`ThrowOnBadRequest`) the bind failure surfaces as a generic 500. TS-03's dispatcher must set it.
+- **Not yet.** Persisted pending keys and automatic recovery after a lost response (today the page's own retry, with the same key, is the recovery), the chat-send loss-and-recovery proof, the agent-action approval route (no client key yet), realtime hints, per-enterprise WebView profiles (isolation is per origin only), iPhone.
 
 Local check: the real published app (212 files, 41 MiB uncompressed) went through manifest, Brotli decode and hash check with no mismatches.
 
+**First run on Android (2026-11-14).** The app booted and the Enterprise page showed live data (QFN Games, counts on Overview and Approvals). Finding: the URLs a published app requests are not its file names. The component styles are requested as `CSweet.UI.bundle.scp.css` but published as `CSweet.UI.{fingerprint}.bundle.scp.css`, so the first manifest (built from files) left the page without its scoped CSS. The manifest now comes from the publish step's `*.staticwebassets.endpoints.json` (424 URLs over 212 files). TS-14 must do the same. Approving a decision fails as expected: writes are not in the prototype.
+
 | Check | Result |
 | --- | --- |
-| Real published `CSweet.App` loads, changed only by shell-mode detection | Android: pending |
-| First open to usable business list | Pending |
-| Cold start, Headquarters unchanged | Pending |
+| Real published `CSweet.App` loads, changed only by shell-mode detection | Android: yes, styled correctly after the endpoints-manifest fix (2026-11-15) |
+| First open to usable business list | Android over Wi-Fi via the local relay: owner reports quick enough (not timed); cellular pending |
+| Cold start, Headquarters unchanged | Android over Wi-Fi: owner reports quick (cached files); cellular pending |
 | Navigation between visited pages | Pending |
+| Phone write (chat message send) through the shell | Android: works after the body-detection fix (2026-11-15) |
 | Requests to other origins blocked | Pending (logged as `CSweetShell` in logcat) |
 | Data written by A not readable from B | Pending; needs two enterprises |
 

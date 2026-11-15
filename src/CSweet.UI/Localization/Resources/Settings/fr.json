@@ -44,6 +44,8 @@
   "Settings.Section.Security.Description": "Gérez la récupération du compte et l’envoi des e-mails.",
   "Settings.Section.Phones.Title": "Téléphones",
   "Settings.Section.Phones.Description": "Approuvez ou révoquez les téléphones qui utilisent ce Siège avec votre compte.",
+  "Settings.Section.CSweetAccount.Title": "Compte C-Sweet",
+  "Settings.Section.CSweetAccount.Description": "Associez ce Siège à votre compte C-Sweet pour que votre téléphone le trouve.",
   "Settings.PageTitle": "Paramètres - C-Sweet",
   "Settings.Overline": "Votre espace de travail",
   "Settings.Heading": "Personnalisez-le",

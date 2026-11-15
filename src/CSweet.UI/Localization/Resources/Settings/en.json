@@ -46,6 +46,8 @@
   "Settings.Section.Security.Description": "Manage account recovery and email delivery.",
   "Settings.Section.Phones.Title": "Phones",
   "Settings.Section.Phones.Description": "Approve or revoke the phones that use this Headquarters with your account.",
+  "Settings.Section.CSweetAccount.Title": "C-Sweet account",
+  "Settings.Section.CSweetAccount.Description": "Link this Headquarters to your C-Sweet account so your phone can find it.",
 
   "Settings.PageTitle": "Settings - C-Sweet",
   "Settings.Overline": "Your workspace",

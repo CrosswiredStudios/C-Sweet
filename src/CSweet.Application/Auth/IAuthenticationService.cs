@@ -11,6 +11,12 @@ public interface IAuthenticationService
     /// account as an external login and records the installation link, all in one transaction. The request's email is ignored.
     /// </summary>
     Task<AuthActionResponse> RegisterHostedAsync(RegisterAdminRequest request, HostedAdministratorLink link, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Links an existing installation (IL-11): checks the administrator's local password, adds the C-Sweet login,
+    /// retires any previous link and records the new one with its owner directory publication, in one transaction.
+    /// Local accounts, passwords and recovery codes are unchanged.
+    /// </summary>
+    Task<AuthActionResponse> LinkExistingAsync(Guid administratorId, string password, HostedAdministratorLink link, CancellationToken cancellationToken = default);
     Task<AuthActionResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default);
     Task<AuthActionResponse> ConfirmEmailAsync(ConfirmEmailRequest request, CancellationToken cancellationToken = default);
     Task<AuthActionResponse> ResendConfirmationAsync(EmailRequest request, CancellationToken cancellationToken = default);

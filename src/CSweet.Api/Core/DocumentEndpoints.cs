@@ -44,7 +44,9 @@ public static class DocumentEndpoints
         group.MapPost("/{artifactId:guid}/decisions", async (Guid organizationId, Guid artifactId,
             DecideArtifactRevisionRequest request, HttpContext http, IArtifactDocumentService service,
             CancellationToken token) => await ExecuteAsync(http, async actor => Results.Ok(
-                await service.DecideAsync(organizationId, actor, artifactId, request, token))));
+                await service.DecideAsync(organizationId, actor, artifactId, request, token))))
+            // Repeating a decision returns the decided revision; the opposite decision conflicts. Decide permission per artifact.
+            .AllowFromMobile(MobileAccess.Write, "TS-05 2026-11-15: ArtifactDocumentService.DecideAsync");
 
         group.MapPost("/{artifactId:guid}/move", async (Guid organizationId, Guid artifactId,
             MoveArtifactRequest request, HttpContext http, IArtifactDocumentService service,

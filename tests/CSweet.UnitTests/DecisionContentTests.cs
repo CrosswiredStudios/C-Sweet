@@ -65,11 +65,15 @@ public sealed class DecisionContentTests
         Assert.Single(await db.AgentPlatformEventOutbox.Where(x => x.EventType == W.WorkstreamEventNames.DecisionRequestedV1).ToListAsync());
         var read = await Execute(W.DecisionCapabilityNames.ReadV1, new W.ReadDecisionRequest(DecisionId: stored.Id));
         Assert.Equal(text, read[0].GetProperty("summary").GetString());
+        Assert.Equal(actor, read[0].GetProperty("requestedByOrganizationUserId").GetGuid());
+        Assert.Equal(JsonValueKind.Null, read[0].GetProperty("decidedByOrganizationUserId").ValueKind);
         var rationale = string.Concat(Enumerable.Repeat("Preserve the approved criterion and document the evidence. 🎮\n", 200));
         await Execute(W.DecisionCapabilityNames.DecideV1, new W.DecideDecisionRequest(stored.Id, stored.Revision, "proceed", rationale, "approve-direction"));
         db.ChangeTracker.Clear();
         stored = await db.WorkstreamDecisions.SingleAsync();
         Assert.Equal(rationale.Trim(), stored.Rationale); Assert.Equal("Decided", stored.Status);
+        var decided = await Execute(W.DecisionCapabilityNames.ReadV1, new W.ReadDecisionRequest(DecisionId: stored.Id));
+        Assert.Equal(actor, decided[0].GetProperty("decidedByOrganizationUserId").GetGuid());
         var notification = Assert.Single(await db.AgentPlatformEventOutbox.Where(x => x.EventType == W.WorkstreamEventNames.DecisionDecidedV1).ToListAsync());
         using var notificationJson = JsonDocument.Parse(notification.DataJson);
         Assert.Equal(rationale.Trim(), notificationJson.RootElement.GetProperty("metadata").GetProperty("rationale").GetString());

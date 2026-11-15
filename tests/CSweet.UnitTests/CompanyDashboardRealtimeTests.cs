@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Reflection;
 using System.Text.Json;
 using CSweet.Contracts.Core;
+using CSweet.Contracts.Communications;
 using CSweet.Contracts.Compute;
 using CSweet.Contracts.Realtime;
 using CSweet.UI.Components.Hiring;
@@ -162,6 +163,55 @@ public sealed class CompanyDashboardRealtimeTests
         Assert.DoesNotContain(">Suggestion 5<", html);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task NewOwnerQuestionAppearsAndClearsInTheMountedGroupedOverview(bool openEnded)
+    {
+        var org = Guid.NewGuid();
+        var handler = new Handler { ItemCount = 0, Issues = new([]) };
+        await using var fixture = new Fixture(handler);
+        var output = await fixture.RenderAsync(org);
+        var page = fixture.Activator.Page;
+        var question = OwnerQuestion(openEnded);
+        handler.Questions = [question]; handler.Issues = QuestionIssues(question);
+        var reads = handler.IssueReads;
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => fixture.Publish(Guid.NewGuid(), CommunicationEvents.DecisionUpdated));
+        Assert.Equal(reads, handler.IssueReads);
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => fixture.Publish(org, CommunicationEvents.DecisionUpdated));
+        var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
+        Assert.Contains("Evelyn Brooks", html); Assert.Contains(question.Decision.Prompt, html);
+        Assert.Contains(openEnded ? "Send response" : "Choose an answer", html);
+        Assert.Same(page, fixture.Activator.Page); Assert.Equal(reads + 1, handler.IssueReads);
+        handler.Questions = []; handler.Issues = new([]);
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => fixture.Publish(org, CommunicationEvents.DecisionUpdated));
+        html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
+        Assert.DoesNotContain(question.Decision.Prompt, html); Assert.Contains("Nothing needs your attention", html);
+    }
+
+    [Fact]
+    public async Task QuestionArrivingDuringAnOverviewLoadRefreshesItsOlderIssueSnapshot()
+    {
+        var org = Guid.NewGuid(); var question = OwnerQuestion(true);
+        var handler = new Handler { ItemCount = 0, Issues = new([]) };
+        await using var fixture = new Fixture(handler);
+        handler.OnFirstHiringRead = () => {
+            handler.Questions = [question]; handler.Issues = QuestionIssues(question);
+            fixture.Publish(org, CommunicationEvents.DecisionUpdated);
+        };
+        var output = await fixture.RenderAsync(org);
+        Assert.Equal(2, handler.IssueReads);
+        Assert.Contains(question.Decision.Prompt, await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString));
+    }
+
+    private static PendingAgentQuestionResponse OwnerQuestion(bool openEnded) => new(Guid.NewGuid(), Guid.NewGuid(), "Evelyn Brooks",
+        new(Guid.NewGuid(), "How would you like hiring approvals handled?", "Pending",
+            openEnded ? [] : [new("review", "Review each hire", "Review candidates before hiring", true)], openEnded ? "" : "review",
+            null, null, DateTimeOffset.UtcNow, null));
+    private static OverviewIssueDirectory QuestionIssues(PendingAgentQuestionResponse question) => new([
+        new("question:" + question.Decision.Id.ToString("N"), null, null, "Business direction", "Hiring preferences need your response",
+            "Evelyn needs your direction.", question.AgentName, "Respond to the current question", true, false, [], [question], [], question.Decision.Prompt)]);
+
     private sealed class Fixture : IAsyncDisposable
     {
         private readonly ServiceProvider _services;
@@ -212,6 +262,9 @@ public sealed class CompanyDashboardRealtimeTests
         public CancellationToken FirstToken { get; private set; }
         public int HiringReads { get; private set; }
         public int ItemCount { get; set; } = 1;
+        public OverviewIssueDirectory? Issues { get; set; }
+        public IReadOnlyList<PendingAgentQuestionResponse> Questions { get; set; } = [];
+        public int IssueReads { get; private set; }
         public bool IncludeCompute { get; set; }
         public bool IncludeIncident { get; set; }
         public bool ComputeAllowed { get; set; }
@@ -235,7 +288,13 @@ public sealed class CompanyDashboardRealtimeTests
                 return new(GrantStatus);
             }
             object result;
-            if (path.EndsWith("/dashboard/hiring"))
+            if (path.EndsWith("/personal-todos/issues"))
+            {
+                IssueReads++;
+                if (Issues is null) return new(System.Net.HttpStatusCode.NotFound);
+                result = Issues;
+            }
+            else if (path.EndsWith("/dashboard/hiring"))
             {
                 var read = ++HiringReads;
                 if (read == 1)
@@ -262,7 +321,7 @@ public sealed class CompanyDashboardRealtimeTests
             else if (path.EndsWith("/dashboard/activity")) result = new CurrentActivityPage(DateTimeOffset.UtcNow, 0, [], null);
             else if (path.EndsWith("/users") || path.EndsWith("/installations")) result = Array.Empty<object>();
             else if (path.EndsWith("/inspection")) result = new ProjectPortfolioResponse(DateTimeOffset.UtcNow, 0, 0, []);
-            else if (path.EndsWith("/questions/pending")) result = Array.Empty<CSweet.Contracts.Communications.PendingAgentQuestionResponse>();
+            else if (path.EndsWith("/questions/pending")) result = Questions;
             else if (path.EndsWith("/approvals")) result = new ApprovalDashboardResponse(Guid.NewGuid(), ItemCount,
                 Enumerable.Range(0, ItemCount).Select(i => new ApprovalDashboardItemResponse(Guid.NewGuid(), ApprovalDashboardKinds.ResourceChange,
                     $"Plan {i}", "Summary", "Pending", "Producer", "Owner", DateTimeOffset.UtcNow, null, "/approvals", true)).ToArray())

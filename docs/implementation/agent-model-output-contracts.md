@@ -60,6 +60,13 @@ The model did what it was told. The contract was wrong.
 
 ## Applied
 
+- SDK 5.32.0 `PlanningResourceContext` copies current staffing and resource facts from authorized
+  platform reads. Director 0.10.0 planning review authors only judgment and rationale; request/decider
+  identities, context fingerprints, decision replacements and idempotency keys are owned by code.
+  The actual Prism Break prohibition reply is retained as `Fixtures/prism-planning-authority-loop.json`.
+  Typed planning receipt/finalization requires no model output. Reassessment preserves human answers,
+  including answered predecessors, and checks current facts before applying its judgment.
+
 - Producer 6.4.2 `ProjectProposalDraft.cs`, `ProjectFoundation.cs`: staffing authority fixed to the
   template, milestone details merged in code, one platform-rejection correction, cached drafts and
   frozen commands healed before dispatch.

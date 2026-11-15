@@ -41,7 +41,13 @@ internal sealed class EnterpriseWebPage : ContentPage
         Title = displayName;
         var origin = Origin(installationId);
         var web = new WebView();
-        var back = new Button { Text = backLabel, HorizontalOptions = LayoutOptions.Start, Margin = new Thickness(8, 4) };
+        // A slim native bar above the web app, in the app header's colour; TS-15 replaces it with the enterprise selector.
+        BackgroundColor = Color.FromArgb("#1E1B33");
+        var back = new Button
+        {
+            Text = "‹  " + backLabel, HorizontalOptions = LayoutOptions.Start, BackgroundColor = Colors.Transparent,
+            TextColor = Colors.White, FontSize = 14, Padding = new Thickness(12, 0), HeightRequest = 40, CornerRadius = 0
+        };
         back.Clicked += async (_, _) => await Navigation.PopModalAsync();
         var grid = new Grid { RowDefinitions = { new RowDefinition(GridLength.Auto), new RowDefinition(GridLength.Star) } };
         grid.Add(back, 0, 0);
@@ -134,7 +140,7 @@ internal sealed class EnterpriseWebViewClient(string host, EnterpriseAssets asse
 /// <summary>Answers the web app's API calls (shell-bridge.js) through the Headquarters session.</summary>
 internal sealed class BridgeListener(string origin, EnterpriseAssets assets) : Java.Lang.Object, AndroidX.WebKit.WebViewCompat.IWebMessageListener
 {
-    private sealed record Request(int Id, string Method, string Path, string? ContentType, string? Body);
+    private sealed record Request(int Id, string Method, string Path, string? ContentType, string? Body, string? OperationKey);
 
     public void OnPostMessage(Android.Webkit.WebView view, AndroidX.WebKit.WebMessageCompat message, Android.Net.Uri sourceOrigin,
         bool isMainFrame, AndroidX.WebKit.JavaScriptReplyProxy replyProxy)
@@ -149,7 +155,7 @@ internal sealed class BridgeListener(string origin, EnterpriseAssets assets) : J
             string reply;
             try
             {
-                var response = await assets.ApiAsync(request.Method, request.Path, CancellationToken.None);
+                var response = await assets.ApiAsync(request.Method, request.Path, request.ContentType, request.Body, request.OperationKey, CancellationToken.None);
                 reply = System.Text.Json.JsonSerializer.Serialize(new { id = request.Id, status = response.Status, contentType = response.ContentType, body = Convert.ToBase64String(response.Body) });
             }
             catch (Exception error)

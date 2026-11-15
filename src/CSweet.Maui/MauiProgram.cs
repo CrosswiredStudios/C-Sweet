@@ -42,11 +42,18 @@ public static class MauiProgram
         return builder.Build();
     }
 
-    private static MobileAccountOptions AccountOptions() =>
+    private static MobileAccountOptions AccountOptions()
+    {
+        // Build with CSweetIssuer set (msbuild property, for example in CSweet.Maui.csproj.user) to sign in against
+        // another C-Sweet service, such as https://account.c-sweet.com/ from a debug build.
+        var issuer = typeof(MauiProgram).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false)
+            .OfType<System.Reflection.AssemblyMetadataAttribute>().FirstOrDefault(x => x.Key == "CSweetIssuer")?.Value;
+        if (!string.IsNullOrWhiteSpace(issuer)) return new() { Issuer = new Uri(issuer) };
 #if DEBUG
         // The local Aspire Market. On Android run `adb reverse tcp:5163 tcp:5163` so the phone's localhost reaches it.
-        new() { Issuer = new Uri("http://localhost:5163/"), AllowHttpIssuer = true };
+        return new() { Issuer = new Uri("http://localhost:5163/"), AllowHttpIssuer = true };
 #else
-        new();
+        return new();
 #endif
+    }
 }

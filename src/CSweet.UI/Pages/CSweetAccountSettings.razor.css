@@ -1,0 +1,7 @@
+.link-settings { max-width: 52rem; }
+.link-settings-card { padding: 0.9rem 1rem; border: 1px solid var(--mud-palette-lines-default); border-radius: 0.75rem; margin: 1rem 0; }
+.link-settings-card p { margin: 0.25rem 0; }
+.link-settings-heading { font-size: 1.1rem; margin: 1.5rem 0 0.5rem; }
+.link-settings-detail { color: var(--mud-palette-text-secondary); font-size: 0.9rem; }
+.link-settings-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1.6rem; letter-spacing: 0.2em; margin: 0.5rem 0 1rem; }
+.link-settings-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.75rem 0; }

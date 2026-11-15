@@ -13,11 +13,11 @@
         resolve({ status: reply.status, contentType: reply.contentType || null, body: reply.body || null });
     });
     window.csweetShellBridge = {
-        request: function (method, path, contentType, body) {
+        request: function (method, path, contentType, body, operationKey) {
             return new Promise(function (resolve) {
                 var id = next++;
                 pending.set(id, resolve);
-                window.csweetShell.postMessage(JSON.stringify({ id: id, method: method, path: path, contentType: contentType, body: body }));
+                window.csweetShell.postMessage(JSON.stringify({ id: id, method: method, path: path, contentType: contentType, body: body, operationKey: operationKey || null }));
             });
         }
     };

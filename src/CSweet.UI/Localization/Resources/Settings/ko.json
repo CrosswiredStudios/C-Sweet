@@ -44,6 +44,8 @@
   "Settings.Section.Security.Description": "계정 복구와 이메일 전송을 관리합니다.",
   "Settings.Section.Phones.Title": "휴대폰",
   "Settings.Section.Phones.Description": "내 계정으로 이 본부를 사용하는 휴대폰을 승인하거나 해제합니다.",
+  "Settings.Section.CSweetAccount.Title": "C-Sweet 계정",
+  "Settings.Section.CSweetAccount.Description": "휴대폰에서 찾을 수 있도록 이 본부를 C-Sweet 계정에 연결합니다.",
   "Settings.PageTitle": "설정 - C-Sweet",
   "Settings.Overline": "내 워크스페이스",
   "Settings.Heading": "나에게 맞게 설정하기",

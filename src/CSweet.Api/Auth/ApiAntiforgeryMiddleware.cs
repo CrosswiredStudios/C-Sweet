@@ -17,6 +17,7 @@ public sealed class ApiAntiforgeryMiddleware
     {
         if (!environment.IsEnvironment("Testing") &&
             context.User.Identity?.IsAuthenticated == true &&
+            !IsMobileDispatch(context) &&
             context.Request.Path.StartsWithSegments("/api") &&
             !SafeMethods.Contains(context.Request.Method))
         {
@@ -38,4 +39,12 @@ public sealed class ApiAntiforgeryMiddleware
 
         await _next(context);
     }
+
+    /// <summary>
+    /// Phone requests carry no cookie and no token: they come from the in-process dispatcher (a request feature that
+    /// ordinary HTTP cannot set) with the device scheme's principal. Cookie requests are never exempt.
+    /// </summary>
+    private static bool IsMobileDispatch(HttpContext context) =>
+        context.Features.Get<MobileDispatchFeature>() is not null &&
+        context.User.Identity?.AuthenticationType == MobileRequestDispatcher.AuthenticationType;
 }

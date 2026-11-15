@@ -49,21 +49,76 @@ public sealed class MobileWebAssets(IOptions<MobileShellOptions> options, ILogge
     {
         if (string.IsNullOrWhiteSpace(webRoot) || !Directory.Exists(webRoot)) return new Dictionary<string, Asset>();
         var root = Path.GetFullPath(webRoot);
+        // The URLs a published app requests are not its file names: fingerprinted files are asked for by plain name
+        // (and the other way round), as the publish step's endpoints manifest records. Use it when it is there.
+        var endpoints = Directory.GetParent(root) is { } parent
+            ? Directory.EnumerateFiles(parent.FullName, "*.staticwebassets.endpoints.json").FirstOrDefault()
+            : null;
+        var assets = endpoints is null ? FromFiles(root) : FromEndpoints(root, endpoints);
+        logger.LogInformation("Mobile shell: {Count} published web paths from {Root} ({Source}).", assets.Count, root,
+            endpoints is null ? "files" : Path.GetFileName(endpoints));
+        return assets;
+    }
+
+    private static Dictionary<string, Asset> FromFiles(string root)
+    {
         var assets = new Dictionary<string, Asset>(StringComparer.Ordinal);
+        var hashes = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
         {
             if (file.EndsWith(".br", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".gz", StringComparison.OrdinalIgnoreCase)) continue;
             var relative = "/" + Path.GetRelativePath(root, file).Replace('\\', '/');
-            if (relative.Contains("/..", StringComparison.Ordinal)) continue;
-            using var stream = File.OpenRead(file);
-            var hash = Convert.ToHexStringLower(SHA256.HashData(stream));
             var type = Types.TryGetContentType(file, out var known) ? known : "application/octet-stream";
-            var brotli = File.Exists(file + ".br") ? file + ".br" : null;
-            assets[relative] = new Asset(relative, file, hash, new FileInfo(file).Length, type, brotli);
+            assets[relative] = Describe(relative, file, type, File.Exists(file + ".br") ? file + ".br" : null, hashes);
         }
-        logger.LogInformation("Mobile shell: {Count} published web files from {Root}.", assets.Count, root);
         return assets;
     }
+
+    private static Dictionary<string, Asset> FromEndpoints(string root, string manifestPath)
+    {
+        using var stream = File.OpenRead(manifestPath);
+        var manifest = JsonSerializer.Deserialize<EndpointManifest>(stream, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+            ?? throw new InvalidDataException("Empty endpoints manifest.");
+        string? Header(Endpoint endpoint, string name) =>
+            endpoint.ResponseHeaders?.FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase))?.Value;
+        string? FileOf(Endpoint endpoint)
+        {
+            var full = Path.GetFullPath(Path.Combine(root, endpoint.AssetFile));
+            return full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal) && File.Exists(full) ? full : null;
+        }
+
+        var brotli = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var endpoint in manifest.Endpoints)
+        {
+            if (endpoint.Selectors is [{ Name: "Content-Encoding", Value: "br" }] && FileOf(endpoint) is { } file)
+                brotli["/" + endpoint.Route] = file;
+        }
+        var assets = new Dictionary<string, Asset>(StringComparer.Ordinal);
+        var hashes = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var endpoint in manifest.Endpoints)
+        {
+            // The plain response of each URL; skip encoded variants and the .br/.gz files' own URLs.
+            if (endpoint.Selectors is { Count: > 0 } || Header(endpoint, "Content-Encoding") is not null) continue;
+            if (FileOf(endpoint) is not { } file) continue;
+            var path = "/" + endpoint.Route;
+            assets[path] = Describe(path, file, Header(endpoint, "Content-Type") ?? "application/octet-stream", brotli.GetValueOrDefault(path), hashes);
+        }
+        return assets;
+    }
+
+    private static Asset Describe(string path, string file, string contentType, string? brotliPath, Dictionary<string, string> hashes)
+    {
+        if (!hashes.TryGetValue(file, out var hash))
+        {
+            using var stream = File.OpenRead(file);
+            hashes[file] = hash = Convert.ToHexStringLower(SHA256.HashData(stream));
+        }
+        return new Asset(path, file, hash, new FileInfo(file).Length, contentType, brotliPath);
+    }
+
+    private sealed record EndpointManifest(List<Endpoint> Endpoints);
+    private sealed record Endpoint(string Route, string AssetFile, List<NameValue>? Selectors, List<NameValue>? ResponseHeaders);
+    private sealed record NameValue(string Name, string Value);
 
     private static FileExtensionContentTypeProvider CreateTypes()
     {

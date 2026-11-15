@@ -99,7 +99,7 @@ public static class HostedSetupEndpoints
         IsEssential = true
     };
 
-    private static HostedSetupStatusResponse Map(HostedSetupSnapshot snapshot) => new(
+    internal static HostedSetupStatusResponse Map(HostedSetupSnapshot snapshot) => new(
         snapshot.State switch
         {
             HostedSetupState.Waiting => "waiting",

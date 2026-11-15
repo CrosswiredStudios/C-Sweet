@@ -59,12 +59,14 @@ builder.Services.AddSingleton(sp => new CSweet.HostedAccount.DirectoryPublisher(
 builder.Services.AddSingleton<CSweet.Api.Auth.DirectoryPublicationSignal>();
 builder.Services.AddScoped<CSweet.HostedAccount.IDirectoryPublicationStore>(sp => new CSweet.Api.Auth.EfDirectoryPublicationStore(
     sp.GetRequiredService<CSweet.Infrastructure.Persistence.CSweetDbContext>(),
-    sp.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>(), TimeProvider.System));
+    sp.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>(), TimeProvider.System,
+    sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<CSweet.HostedAccount.HostedAccountOptions>>()));
 builder.Services.AddHostedService<CSweet.Api.Auth.DirectoryPublicationService>();
 builder.Services.Configure<CSweet.Api.Auth.HeadquartersRelayOptions>(builder.Configuration.GetSection(CSweet.Api.Auth.HeadquartersRelayOptions.Section));
 builder.Services.AddHostedService<CSweet.Api.Auth.MobileRelayConnectorService>();
 builder.Services.AddScoped<CSweet.Api.Auth.MobileDeviceService>();
 builder.Services.AddSingleton<CSweet.Api.Auth.MobileRequestDispatcher>();
+builder.Services.AddSingleton<CSweet.Api.Auth.InstallationLinkSignal>();
 builder.Services.Configure<CSweet.Api.Auth.MobileShellOptions>(builder.Configuration.GetSection(CSweet.Api.Auth.MobileShellOptions.Section));
 builder.Services.AddSingleton<CSweet.Api.Auth.MobileWebAssets>();
 CSweet.Api.Compute.ComputeProviderEndpoints.AddComputeProviderIngress(builder.Services);
@@ -189,6 +191,7 @@ app.Use(next =>
     return next;
 });
 app.UseRouting();
+app.UseMiddleware<CSweet.Api.Auth.MobileDispatchGateMiddleware>();
 app.UseForwardedHeaders();
 app.UseExceptionHandler();
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
@@ -221,6 +224,7 @@ app.MapHealthChecks("/health").AllowAnonymous();
 app.MapAuthenticationEndpoints();
 app.MapHostedSetupEndpoints();
 app.MapMobileDeviceEndpoints();
+app.MapInstallationLinkEndpoints();
 
 app.MapLlmProviderProfileEndpoints();
 app.MapGenAiEndpoints();
