@@ -25,6 +25,8 @@ public sealed class WorkIssueCapabilityHandler(CSweetDbContext db, WorkIssueServ
                 WorkIssueCapabilities.Read => await issues.ReadAsync(org, actor.Id, Read<ReadWorkIssuesRequest>(request), ct),
                 WorkIssueCapabilities.Reconcile => await issues.ReconcileAsync(org, actor.Id, Read<ReconcileWorkIssuesRequest>(request), ct),
                 WorkIssueCapabilities.Commission => await issues.CommissionAsync(org, actor.Id, installation, Read<CommissionWorkIssuesRequest>(request), ct),
+                WorkIssueCapabilities.Propose => await issues.ProposeAsync(org, actor.Id, installation, Read<ReconcileWorkIssuesRequest>(request), ct),
+                WorkIssueCapabilities.DecideProposal => await issues.DecideProposalAsync(org, actor.Id, Read<DecideWorkIssueProposalRequest>(request), ct),
                 _ => throw new UnauthorizedAccessException()
             };
             result = new() { RequestId = request.RequestId, Succeeded = true, ContentType = "application/json", Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(response, Json)) };

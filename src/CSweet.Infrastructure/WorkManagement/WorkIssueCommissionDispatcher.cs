@@ -11,8 +11,55 @@ namespace CSweet.Infrastructure.WorkManagement;
 public sealed class WorkIssueCommissionDispatcher(CSweetDbContext db, WorkIssueService issues, IAgentCoordinationService coordination,
     IPersonalTodoService todos, TimeProvider clock)
 {
+    private async Task<string> AuthorityBasisAsync(CSweet.Domain.WorkManagement.WorkIssueCommission row, CancellationToken ct)
+    {
+        var board = await db.WorkBoards.AsNoTracking().SingleOrDefaultAsync(b => b.Id == row.BoardId && b.OrganizationId == row.OrganizationId, ct);
+        var source = WorkIssueService.Read<Wire.WorkApprovedSource>(row.SourceJson);
+        var boardManager = board?.ManagerOrganizationUserId; var boardTeam = board?.TeamId;
+        var related = new HashSet<Guid> { row.InitiatorEmployeeId, row.TargetEmployeeId };
+        var cursor = boardManager; var seen = new HashSet<Guid>();
+        while (cursor is Guid person && seen.Add(person))
+        {
+            related.Add(person);
+            cursor = await db.CoreOrganizationUsers.AsNoTracking().Where(p => p.OrganizationId == row.OrganizationId && p.Id == person)
+                .Select(p => p.ReportsToOrganizationUserId).SingleOrDefaultAsync(ct);
+        }
+        var relatedIds = related.ToArray();
+        var people = await db.CoreOrganizationUsers.AsNoTracking().Where(p => p.OrganizationId == row.OrganizationId &&
+            relatedIds.Contains(p.Id))
+            .OrderBy(p => p.Id).Select(p => new { p.Id, p.AgentInstallationId, p.IsActive, p.ArchivedAt, p.ReportsToOrganizationUserId }).ToArrayAsync(ct);
+        var subjects = people.Select(p => p.AgentInstallationId ?? p.Id).ToArray();
+        var grants = await db.ScopedActionGrants.AsNoTracking().Where(g => g.OrganizationId == row.OrganizationId && subjects.Contains(g.SubjectId) &&
+            (g.ScopeKind == CSweet.Domain.Security.GrantScopeKind.Organization || g.ScopeId == row.BoardId || g.ScopeId == boardTeam || g.ScopeId == source.DocumentId))
+            .OrderBy(g => g.Id).Select(g => new { g.Id, g.Revision, g.RevokedAt, g.ExpiresAt }).ToArrayAsync(ct);
+        var installations = await db.AgentInstallations.AsNoTracking().Where(i => subjects.Contains(i.Id)).OrderBy(i => i.Id)
+            .Select(i => new { i.Id, i.PackageVersionId, i.IsEnabled, i.RevisionStatus, i.SetupState, grantRevision = i.Grant == null ? (long?)null : i.Grant.GrantRevision }).ToArrayAsync(ct);
+        var document = await db.CoreArtifacts.AsNoTracking().Where(a => a.Id == source.DocumentId && a.OrganizationId == row.OrganizationId)
+            .Select(a => a.AcceptedRevisionId).SingleOrDefaultAsync(ct);
+        return MutationContent.Digest(new { policy = "issue-commission-authority.v1", row.InitiatorInstallationId, people, grants, installations,
+            board = board == null ? null : new { board.Id, board.TeamId, board.ManagerOrganizationUserId, board.ArchivedAt }, document, source });
+    }
     public async Task DispatchAsync(CancellationToken ct)
     {
+        // Platform discovery is bounded and current-state based. A denied commission is retried only
+        // once per relevant authority basis; it does not become permanently undiscoverable.
+        var parked = await db.WorkIssueCommissions.Where(x => x.Status == "NeedsAuthority" && x.NextAttemptAt <= clock.GetUtcNow())
+            .OrderBy(x => x.NextAttemptAt).Take(50).ToListAsync(ct);
+        foreach (var row in parked)
+        {
+            var basis = await AuthorityBasisAsync(row, ct);
+            var key = row.Id.ToString("N") + ":" + basis;
+            if (!await db.DurableMutationReceipts.AnyAsync(r => r.OrganizationId == row.OrganizationId && r.PrincipalId == row.InitiatorEmployeeId &&
+                r.ResourceKey == "issue-commission-authority" && r.MutationKey == key, ct))
+            {
+                row.Status = row.SessionId is null ? "Pending" : "Dispatched"; row.Revision++;
+                row.NextAttemptAt = clock.GetUtcNow();
+                continue;
+            }
+            row.NextAttemptAt = clock.GetUtcNow().AddMinutes(1);
+        }
+        await db.SaveChangesAsync(ct);
+
         var pending = await db.WorkIssueCommissions.Where(x => (x.Status == "Pending" || x.Status == "Dispatched" || x.Status == "RetirementPending") && x.NextAttemptAt <= clock.GetUtcNow())
             .OrderBy(x => x.NextAttemptAt).Take(50).ToListAsync(ct);
         foreach (var row in pending)
@@ -42,6 +89,13 @@ public sealed class WorkIssueCommissionDispatcher(CSweetDbContext db, WorkIssueS
                             await issues.QueueChangedAsync(failed.OrganizationId, board, owner, ct);
                     }
                 }
+                if (failed.Status == "NeedsAuthority")
+                {
+                    var basis = await AuthorityBasisAsync(failed, ct); var key = failed.Id.ToString("N") + ":" + basis;
+                    if (!await db.DurableMutationReceipts.AnyAsync(r => r.OrganizationId == failed.OrganizationId && r.PrincipalId == failed.InitiatorEmployeeId && r.ResourceKey == "issue-commission-authority" && r.MutationKey == key, ct))
+                        db.DurableMutationReceipts.Add(new() { Id = Guid.NewGuid(), OrganizationId = failed.OrganizationId, PrincipalId = failed.InitiatorEmployeeId,
+                            ResourceKey = "issue-commission-authority", MutationKey = key, ContentDigest = basis, ResultJson = "{}", CreatedAt = clock.GetUtcNow() });
+                }
                 await db.SaveChangesAsync(ct);
             }
         }
@@ -55,6 +109,11 @@ public sealed class WorkIssueCommissionDispatcher(CSweetDbContext db, WorkIssueS
         if (dispatch is not null) await db.Entry(row).ReloadAsync(ct);
         if (row.Status is not ("Pending" or "Dispatched" or "RetirementPending")) return;
         var board = await issues.RequireBoardAsync(row.OrganizationId, row.InitiatorEmployeeId, row.BoardId, true, ct);
+        var currentInstallation = await db.CoreOrganizationUsers.Where(p => p.OrganizationId == row.OrganizationId && p.Id == row.InitiatorEmployeeId && p.IsActive && p.ArchivedAt == null)
+            .Select(p => p.AgentInstallationId).SingleOrDefaultAsync(ct) ?? throw new UnauthorizedAccessException("The commission initiator is unavailable.");
+        // The intent belongs to the employee. A published runtime update may replace its installation,
+        // but only the current authorized principal can continue it; old grants are never restored.
+        row.InitiatorInstallationId = currentInstallation;
         var source = WorkIssueService.Read<Wire.WorkApprovedSource>(row.SourceJson);
         if (!await issues.CanReadSourceAsync(row.OrganizationId, row.InitiatorEmployeeId, source, ct)) throw new UnauthorizedAccessException("The commission owner no longer has source access.");
         await issues.RequireSourceAsync(row.OrganizationId, board, source, ct);

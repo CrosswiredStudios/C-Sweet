@@ -3102,34 +3102,9 @@ public sealed partial class WorkManagementCapabilityHandler(
         Guid? boardId,
         CancellationToken cancellationToken)
     {
-        var decision = await authorization.AuthorizeAsync(
-            organizationId,
-            GrantSubjectKind.AgentInstallation,
-            installationId,
-            action,
-            boardId.HasValue ? GrantScopeKind.Board : GrantScopeKind.Organization,
-            boardId,
-            cancellationToken);
+        var decision = await CSweet.Infrastructure.Security.WorkResourceAuthorization.AuthorizeBoardAsync(
+            db, authorization, organizationId, GrantSubjectKind.AgentInstallation, installationId, action, boardId, cancellationToken);
         if (decision.Allowed) return decision;
-        if (boardId.HasValue)
-        {
-            var teamId = await db.WorkBoards.AsNoTracking()
-                .Where(x => x.OrganizationId == organizationId && x.Id == boardId.Value)
-                .Select(x => x.TeamId)
-                .SingleOrDefaultAsync(cancellationToken);
-            if (teamId.HasValue)
-            {
-                decision = await authorization.AuthorizeAsync(
-                    organizationId,
-                    GrantSubjectKind.AgentInstallation,
-                    installationId,
-                    action,
-                    GrantScopeKind.Team,
-                    teamId,
-                    cancellationToken);
-                if (decision.Allowed) return decision;
-            }
-        }
         await WriteAuditAsync(
             organizationId, installationId, boardId, action, null,
             new { action, boardId }, cancellationToken, outcome: "Denied");

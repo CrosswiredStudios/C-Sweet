@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using CSweet.Application.Security;
 using CSweet.Domain.Core;
 using CSweet.Domain.Notifications;
@@ -14,28 +14,31 @@ using Wire = CSweet.WorkManagement.Contracts;
 namespace CSweet.Infrastructure.WorkManagement;
 
 /// <summary>Source-bound responsibility and commission registry. It never grants execution or product acceptance.</summary>
-public sealed class WorkIssueService(CSweetDbContext db, IScopedActionAuthorizationService authorization, TimeProvider clock)
+public sealed partial class WorkIssueService(CSweetDbContext db, IScopedActionAuthorizationService authorization, TimeProvider clock)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     public async Task<Wire.WorkIssueDirectory> ReadAsync(Guid organization, Guid actor, Wire.ReadWorkIssuesRequest request, CancellationToken ct)
     {
         Wire.WorkIssueValidation.Validate(request);
-        _ = await RequireBoardAsync(organization, actor, request.BoardId, false, ct);
+        var board = await RequireBoardAsync(organization, actor, request.BoardId, false, ct);
         if (request.Page < 1 || request.PageSize is < 1 or > 100) throw new ArgumentException("Invalid issue discovery page.");
         var all = db.WorkIssueCases.AsNoTracking().Where(x => x.OrganizationId == organization && x.BoardId == request.BoardId);
         if (!request.IncludeHistory) all = all.Where(x => x.Status == "Open");
         var rows = await all.OrderBy(x => x.Id).Skip((request.Page - 1) * request.PageSize).Take(request.PageSize + 1).ToListAsync(ct);
         var ids = rows.Take(request.PageSize).Select(x => x.Id).ToHashSet();
         var commissions = await db.WorkIssueCommissions.AsNoTracking().Where(x => x.OrganizationId == organization && x.BoardId == request.BoardId)
-            .OrderBy(x => x.Id).ToListAsync(ct);
+            .OrderBy(x => x.Id).Skip((request.Page - 1) * request.PageSize).Take(request.PageSize + 1).ToListAsync(ct);
         var visible = new List<WorkIssueCase>();
         foreach (var row in rows.Take(request.PageSize)) if (await CanReadSourceAsync(organization, actor, Read<Wire.WorkApprovedSource>(row.SourceJson), ct)) visible.Add(row);
         var visibleIds = visible.Select(x => x.Id).ToHashSet();
         var visibleCommissions = new List<Wire.WorkIssueCommissionResponse>();
-        foreach (var c in commissions.Where(c => Read<Guid[]>(c.IssueIdsJson).Any(visibleIds.Contains)))
-            if (await CanReadSourceAsync(organization, actor, Read<Wire.WorkApprovedSource>(c.SourceJson), ct)) visibleCommissions.Add(Map(c));
-        return new(visible.Select(Map).ToArray(), visibleCommissions, rows.Count > request.PageSize);
+        foreach (var c in commissions.Take(request.PageSize))
+            if (await CanReadSourceAsync(organization, actor, Read<Wire.WorkApprovedSource>(c.SourceJson), ct)) visibleCommissions.Add(Map(c) with {
+                OriginSessionIds = actor == c.InitiatorEmployeeId && c.Status is "Proposed" or "Accepted" or "Rejected"
+                    ? Read<Wire.ReconcileWorkIssuesRequest>(c.Question).Issues.SelectMany(i => i.Links).Where(l => l.Kind == "Coordination").Select(l => l.Id).Distinct().ToArray() : null });
+        return new(visible.Select(Map).ToArray(), visibleCommissions, rows.Count > request.PageSize || commissions.Count > request.PageSize) {
+            CanReconcile = await CanReconcileAsync(organization, actor, board.Id, ct), AccountableEmployeeId = board.ManagerOrganizationUserId };
     }
 
     public async Task<Wire.WorkIssueDirectory> ReconcileAsync(Guid organization, Guid actor, Wire.ReconcileWorkIssuesRequest request, CancellationToken ct)
@@ -242,5 +245,7 @@ public sealed class WorkIssueService(CSweetDbContext db, IScopedActionAuthorizat
     private static void ValidateKey(string key) { if (string.IsNullOrWhiteSpace(key) || key.Length > 160) throw new ArgumentException("Provide a bounded opaque mutation or obligation identity."); }
     internal static Wire.WorkIssueCaseResponse Map(WorkIssueCase x) => new(x.Id, x.BoardId, x.WorkstreamId, x.ObligationKey, x.Statement, x.Detail, x.Status, x.Phase,
         x.AccountableEmployeeId, x.NextAction, Read<Wire.WorkApprovedSource>(x.SourceJson), Read<string[]>(x.ScopeKeysJson), Read<Wire.WorkIssueLink[]>(x.LinksJson), x.ResolutionEvidence, x.Revision, x.UpdatedAt) { Episode = x.Episode, PreviousIssueId = x.PreviousIssueId, BriefTitle = x.BriefTitle, BriefSummary = x.BriefSummary };
-    internal static Wire.WorkIssueCommissionResponse Map(WorkIssueCommission x) => new(x.Id, x.BoardId, x.TargetEmployeeId, Read<Guid[]>(x.IssueIdsJson), Read<Wire.WorkApprovedSource>(x.SourceJson), x.Status, x.SessionId, x.Failure, x.Revision);
+    internal static Wire.WorkIssueCommissionResponse Map(WorkIssueCommission x) => new(x.Id, x.BoardId, x.TargetEmployeeId, Read<Guid[]>(x.IssueIdsJson), Read<Wire.WorkApprovedSource>(x.SourceJson), x.Status, x.SessionId, x.Status is "Accepted" or "Rejected" ? null : x.Failure, x.Revision) {
+        RequestedByEmployeeId = x.InitiatorEmployeeId, DecisionReason = x.Status is "Accepted" or "Rejected" ? x.Failure : null,
+        ProposedChanges = x.Status is "Proposed" or "Accepted" or "Rejected" ? Read<Wire.ReconcileWorkIssuesRequest>(x.Question).Issues.Select(c => c with { Links = c.Links.Where(l => l.Kind != "Coordination").ToArray() }).ToArray() : null };
 }

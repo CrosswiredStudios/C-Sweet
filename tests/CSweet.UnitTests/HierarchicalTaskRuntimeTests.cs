@@ -120,7 +120,7 @@ public sealed class HierarchicalTaskRuntimeTests
         Func<Fixture,string,Task<DeliveryBranchResult>>? publishCandidate = null,
         Func<Fixture,SourceControlPublication,DeliveryBranchResult,Task<WorkExecutionOutcomeV1>>? technicalReview = null,
         Func<Fixture,string,bool,Task<WorkExecutionOutcomeV1>>? qualityReview = null,
-        bool identicalStageTimestamps = false, bool integrationConflict = false, bool oldPolicy = false, bool targetChange = false)
+        bool identicalStageTimestamps = false, bool integrationConflict = false, bool oldPolicy = false, bool targetChange = false, int publicSprintSequence = 0)
     {
         foreach (var person in new[] { f.Author, f.Qa, f.Technical })
         {
@@ -135,8 +135,17 @@ public sealed class HierarchicalTaskRuntimeTests
         }
         var policy = new WorkOrchestrationPolicyRevision { Id = Guid.NewGuid(), OrganizationId = f.Org, BoardId = f.Board.Id,
             PolicyId = Guid.NewGuid(), InitialStageKey = "ready", IsPublished = true };
-        f.Db.WorkOrchestrationPolicies.Add(new() { Id = policy.PolicyId, OrganizationId = f.Org, BoardId = f.Board.Id, Name = "Hierarchical task policy" });
-        var definitions = HierarchicalWorkflows.Software(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        var retainedPolicy = publicSprintSequence > 0 ? await f.Db.WorkOrchestrationPolicies.SingleOrDefaultAsync(p => p.BoardId == f.Board.Id) : null;
+        if (retainedPolicy is null) f.Db.WorkOrchestrationPolicies.Add(new() { Id = policy.PolicyId, OrganizationId = f.Org, BoardId = f.Board.Id, Name = "Hierarchical task policy" });
+        else { policy.PolicyId = retainedPolicy.Id; policy.Revision = publicSprintSequence; }
+        var columns = publicSprintSequence > 0 ? await f.Db.WorkBoardColumns.Where(c => c.BoardId == f.Board.Id).ToArrayAsync() : [];
+        var definitions = publicSprintSequence > 0 ? HierarchicalWorkflows.Software(
+            columns.First(c => c.Category == WorkBoardColumnCategory.ToDo).Id,
+            columns.First(c => c.Category == WorkBoardColumnCategory.InProgress).Id,
+            columns.First(c => c.Category == WorkBoardColumnCategory.InProgress).Id,
+            columns.First(c => c.Category == WorkBoardColumnCategory.InProgress).Id,
+            columns.First(c => c.Category == WorkBoardColumnCategory.Done).Id)
+            : HierarchicalWorkflows.Software(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
         foreach (var stage in definitions.Stages)
             policy.Stages.Add(new() { Id = Guid.NewGuid(), PolicyRevisionId = policy.Id, Key = stage.Key == "development" ? authorKey : stage.Key, Name = stage.Name,
                 Type = Enum.Parse<WorkOrchestrationStageType>(stage.StageType), PlatformAction = stage.PlatformAction, IsSuccessfulTerminal = stage.IsSuccessfulTerminal });
@@ -145,7 +154,9 @@ public sealed class HierarchicalTaskRuntimeTests
                 ToStageKey = edge.ToStageKey == "development" ? authorKey : edge.ToStageKey, OutcomeCode = edge.OutcomeCode, MaximumTraversals = edge.MaximumTraversals,
                 FromStageKey = edge.FromStageKey == "development" ? authorKey : edge.FromStageKey });
         f.Db.WorkOrchestrationPolicyRevisions.Add(policy);
-        var plan = await f.Configure(); await f.Activate(plan);
+        var plan = await f.Configure(publicSprintSequence == 0 ? null : f.Request() with { IdempotencyKey = "configure-increment-" + publicSprintSequence });
+        if (publicSprintSequence == 0) await f.Activate(plan);
+        else await f.Service.ControlAsync(f.Org, f.Manager.Id, new(plan.Id, plan.Revision, "activate", "activate-increment-" + publicSprintSequence));
         var sprint = new WorkSprint { Id = Guid.NewGuid(), OrganizationId = f.Org, BoardId = f.Board.Id, Name = "Task sprint", Status = WorkSprintStatus.Active };
         var execution = new WorkSprintExecution { Id = Guid.NewGuid(), OrganizationId = f.Org, BoardId = f.Board.Id,
             SprintId = sprint.Id, PolicyRevisionId = policy.Id, Status = WorkSprintExecutionStatus.Active };
@@ -158,8 +169,43 @@ public sealed class HierarchicalTaskRuntimeTests
         WorkStageExecution Initial() => new() { Id = Guid.NewGuid(), StageKey = authorKey, StageType = WorkOrchestrationStageType.MemberExecution,
             PrincipalKind = WorkOrchestrationPrincipalKind.Human, OrganizationUserId = f.Author.Id, Status = WorkStageExecutionStatus.WaitingForHuman,
             CreatedAt = DateTimeOffset.UtcNow, ItemExecutionId = item.Id, ItemExecution = item };
-        var authorStage = Initial(); item.Stages.Add(authorStage); f.Db.WorkStageExecutions.Add(authorStage);
-        await f.Db.SaveChangesAsync();
+        if (publicSprintSequence == 0)
+        {
+            var authorStage = Initial(); item.Stages.Add(authorStage); f.Db.WorkStageExecutions.Add(authorStage);
+            await f.Db.SaveChangesAsync();
+        }
+        else
+        {
+            // This acceptance path starts through the same public readiness service used by the broker.
+            f.Db.Entry(execution).State = EntityState.Detached; f.Db.Entry(sprint).State = EntityState.Detached;
+            foreach (var entry in f.Db.ChangeTracker.Entries<WorkItemExecution>().Where(e => e.Entity.Id == item.Id).ToArray()) entry.State = EntityState.Detached;
+            f.Manager.ApplicationUserId ??= Guid.NewGuid();
+            if (!await f.Db.Users.AnyAsync(u => u.Id == f.Manager.ApplicationUserId)) f.Db.Users.Add(new CSweet.Infrastructure.Auth.ApplicationUser { Id = f.Manager.ApplicationUserId.Value, UserName = f.Manager.Id.ToString("N") });
+            foreach (var action in CSweet.Contracts.WorkManagement.WorkOrchestrationActions.All.Concat(CSweet.Contracts.WorkManagement.WorkSprintActions.All).Append(CSweet.Contracts.WorkManagement.WorkBoardActions.Read))
+                if (!await f.Db.ScopedActionGrants.AnyAsync(g => g.SubjectId == f.Manager.Id && g.Action == action && g.ScopeId == f.Board.Id))
+                    f.Db.ScopedActionGrants.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Org, SubjectKind = CSweet.Domain.Security.GrantSubjectKind.OrganizationUser,
+                        SubjectId = f.Manager.Id, Action = action, ScopeKind = CSweet.Domain.Security.GrantScopeKind.Board, ScopeId = f.Board.Id });
+            (await f.Db.WorkOrchestrationPolicies.SingleAsync(p => p.Id == policy.PolicyId)).PublishedRevisionId = policy.Id;
+            f.Task.Status = WorkTaskStatus.Ready;
+            await f.Db.SaveChangesAsync();
+            var sprints = new WorkSprintService(f.Db, new CSweet.Infrastructure.Security.ScopedActionAuthorizationService(f.Db), new TestAuditEventWriter());
+            var created = await sprints.CreateAsync(f.Org, f.Board.Id, f.Manager.ApplicationUserId.Value,
+                new("Sprint " + publicSprintSequence, "Deliver the selected approved work", null, null, "journey-sprint-" + publicSprintSequence));
+            await sprints.SetItemSprintAsync(f.Org, f.Board.Id, f.Task.Id, f.Manager.ApplicationUserId.Value,
+                new(created.Id, f.Task.Revision, "journey-scope-" + publicSprintSequence));
+            var starter = new WorkOrchestrationService(f.Db, TimeProvider.System, new CSweet.Infrastructure.Security.ScopedActionAuthorizationService(f.Db), f.Client);
+            var currentManager = await f.Db.CoreOrganizationUsers.SingleAsync(u => u.Id == f.Board.ManagerOrganizationUserId);
+            var startPrincipal = currentManager.AgentInstallationId ?? currentManager.ApplicationUserId ?? throw new InvalidOperationException("The current manager needs an authenticated principal.");
+            var preflight = await starter.PreflightAsync(f.Org, f.Board.Id, created.Id, startPrincipal);
+            Assert.True(preflight.IsValid, string.Join("; ", preflight.Errors));
+            var started = await starter.StartAsync(f.Org, f.Board.Id, created.Id, startPrincipal, new(created.Revision, "journey-start-" + publicSprintSequence));
+            var replay = await starter.StartAsync(f.Org, f.Board.Id, created.Id, startPrincipal, new(created.Revision, "journey-start-" + publicSprintSequence));
+            Assert.Equal(started.Id, replay.Id);
+            sprint = await f.Db.WorkSprints.SingleAsync(s => s.Id == created.Id);
+            execution = await f.Db.WorkSprintExecutions.Include(e => e.Items).ThenInclude(i => i.Stages).SingleAsync(e => e.Id == started.Id);
+            item = execution.Items.Single();
+            Assert.Equal(WorkSprintStatus.Active, sprint.Status); Assert.Single(execution.Items);
+        }
         TimeProvider clock = identicalStageTimestamps ? new FrozenClock(DateTimeOffset.UtcNow.AddMinutes(1)) : TimeProvider.System;
         var manual = new WorkOrchestrationService(f.Db, clock);
         var inbox = new AgentWorkInbox(f.Db, new EphemeralDataProtectionProvider(), clock);
@@ -174,6 +220,10 @@ public sealed class HierarchicalTaskRuntimeTests
             await manual.CompleteManualAsync(f.Org, f.Board.Id, stage.Id, person.ApplicationUserId!.Value,
                 new(f.Board.Id, execution.Id, stage.Id, outcome, "Exact evidence observed", JsonSerializer.SerializeToElement(output, Json), Guid.NewGuid().ToString("N"))
                 { Evidence = evidence ?? [] });
+        }
+        if (publicSprintSequence > 0) {
+            await Pulse(); Assert.Equal(authorKey, item.CurrentStageKey);
+            Assert.Equal(WorkStageExecutionStatus.WaitingForHuman, Current().Status);
         }
         var conflictReworks = 0;
         for (var cycle = 0; cycle < 2; cycle++)

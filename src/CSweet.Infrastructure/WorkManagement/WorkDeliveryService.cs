@@ -317,8 +317,8 @@ public sealed partial class WorkDeliveryService(CSweetDbContext db, IScopedActio
     private async Task AuthorizeBoardAsync(Guid org, Guid actor, Guid board, string action, CancellationToken ct)
     {
         var member = await MemberAsync(org, actor, ct);
-        if (!(await authorization.AuthorizeAsync(org, member.AgentInstallationId.HasValue ? GrantSubjectKind.AgentInstallation : GrantSubjectKind.OrganizationUser,
-            member.AgentInstallationId ?? member.Id, action, GrantScopeKind.Board, board, ct)).Allowed) throw new UnauthorizedAccessException("Explicit participating-board access is required.");
+        if (!(await CSweet.Infrastructure.Security.WorkActorAuthorization.AuthorizeAsync(db, authorization, org, member.Id,
+            action, GrantScopeKind.Board, board, ct)).Allowed) throw new UnauthorizedAccessException("Explicit participating-board access is required.");
     }
     private async Task AuthorizeBoardsAsync(Guid org, Guid actor, WorkDeliveryPlan plan, string action, CancellationToken ct)
     { foreach (var board in Scopes(plan).Select(x => x.BoardId).Distinct()) await AuthorizeBoardAsync(org, actor, board, action, ct); }

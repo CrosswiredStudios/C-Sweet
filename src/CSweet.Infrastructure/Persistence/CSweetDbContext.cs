@@ -283,6 +283,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         CaptureWorkLifecycle();
         CaptureTrackedWorkChanges();
         CaptureWorkExecutionAsync().GetAwaiter().GetResult();
+        CaptureWorkAuthorityWakesAsync(default).GetAwaiter().GetResult();
         CaptureBenchmarkWakes();
         EnforceAppendOnlyAuditLedger();
         AssignDirectParticipantKeys();
@@ -315,6 +316,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         CaptureWorkLifecycle();
         CaptureTrackedWorkChanges();
         await CaptureWorkExecutionAsync(cancellationToken);
+        await CaptureWorkAuthorityWakesAsync(cancellationToken);
         CaptureBenchmarkWakes();
         EnforceAppendOnlyAuditLedger();
         AssignDirectParticipantKeys();

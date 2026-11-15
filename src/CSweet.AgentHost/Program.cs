@@ -107,6 +107,7 @@ builder.Services.AddScoped<IPlatformCapabilityHandler, ManagementReportCapabilit
 builder.Services.AddScoped<IPlatformCapabilityHandler, CompanyReportingCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, PluginOperationsCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, WorkIssueCapabilityHandler>();
+builder.Services.AddScoped<IPlatformCapabilityHandler, WorkRecoveryCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, PlatformMediaTransferCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, WorkManagementCapabilityHandler>();
 builder.Services.AddScoped<IPlatformCapabilityHandler, PersonalTodoCapabilityHandler>();

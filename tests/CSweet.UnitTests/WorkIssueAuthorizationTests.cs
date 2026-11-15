@@ -69,6 +69,23 @@ public sealed class WorkIssueAuthorizationTests
         Assert.Single(await f.Db.WorkIssueCases.ToListAsync());
     }
 
+    [Fact]
+    public async Task AuthorityChangesWakeTheCurrentManagerAtomicallyWithoutGrantingACommand()
+    {
+        await using var f = new WorkIssueLifecycleTests.Fixture(); await f.SeedAsync();
+        f.Specialist.ReportsToOrganizationUserId = f.Manager.Id; await f.Db.SaveChangesAsync();
+        var grant = new ScopedActionGrant { Id = Guid.NewGuid(), OrganizationId = f.Org, SubjectKind = GrantSubjectKind.AgentInstallation,
+            SubjectId = f.Specialist.AgentInstallationId!.Value, Action = WorkBoardActions.Read, ScopeKind = GrantScopeKind.Team, ScopeId = Guid.NewGuid() };
+        f.Db.ScopedActionGrants.Add(grant); await f.Db.SaveChangesAsync();
+        var wake = Assert.Single(await f.Db.AgentPlatformEventOutbox.Where(e => e.EventType == Wire.WorkRecoveryEvents.Changed).ToArrayAsync());
+        Assert.Equal(f.Manager.AgentInstallationId, wake.TargetInstallationId);
+        await f.Db.SaveChangesAsync();
+        Assert.Single(await f.Db.AgentPlatformEventOutbox.Where(e => e.EventType == Wire.WorkRecoveryEvents.Changed).ToArrayAsync());
+        grant.RevokedAt = DateTimeOffset.UtcNow; await f.Db.SaveChangesAsync();
+        Assert.Equal(2, await f.Db.AgentPlatformEventOutbox.CountAsync(e => e.EventType == Wire.WorkRecoveryEvents.Changed));
+        Assert.Empty(await f.Db.CoreWorkTasks.ToArrayAsync()); // wake hints are not execution grants
+    }
+
     private static Wire.ReconcileWorkIssuesRequest Request(WorkIssueLifecycleTests.Fixture f) =>
         new(f.Board.Id, f.Source, [new("future-content", "Own the future content outcome", "Retained evidence", ["content"])], "recover-existing");
 

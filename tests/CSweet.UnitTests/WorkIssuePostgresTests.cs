@@ -8,6 +8,10 @@ using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Persistence.Migrations;
 using CSweet.Infrastructure.WorkManagement;
+using CSweet.Infrastructure.Security;
+using CSweet.Domain.Security;
+using CSweet.Contracts.Core;
+using CSweet.Contracts.WorkManagement;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -47,7 +51,6 @@ public sealed class WorkIssuePostgresTests
             var issue = Assert.Single((await f.Save("Review the approved audio responsibility", "case")).Issues);
             var request = new Wire.CommissionWorkIssuesRequest(f.Board.Id, f.Specialist.Id, [issue.Id], f.Source, "Reconcile the retained responsibility", "commission");
             var intent = await f.Service.CommissionAsync(f.Org, f.Manager.Id, f.Manager.AgentInstallationId!.Value, request, default);
-            var before = await f.Db.AgentPlatformEventOutbox.CountAsync();
             var interrupt = true;
             var coordination = Proxy<IAgentCoordinationService>((method, args) => method switch {
                 "StartBoardAsync" => Start(),
@@ -59,7 +62,29 @@ public sealed class WorkIssuePostgresTests
                 "AddAsync" => Add(), "ListAsync" => List(), "ArchiveAsync" => Archive((Wire.ArchivePersonalTodoItemRequest)args![2]!),
                 _ => throw new NotSupportedException(method)
             });
-            var dispatcher = new WorkIssueCommissionDispatcher(f.Db, f.Service, coordination, todos, TimeProvider.System);
+            var currentAuthority = new WorkIssueService(f.Db, new ScopedActionAuthorizationService(f.Db), TimeProvider.System);
+            var dispatcher = new WorkIssueCommissionDispatcher(f.Db, currentAuthority, coordination, todos, TimeProvider.System);
+            await dispatcher.DispatchAsync(default);
+            var parked = await f.Db.WorkIssueCommissions.SingleAsync();
+            Assert.Equal("NeedsAuthority", parked.Status);
+            Assert.Empty(await f.Db.AgentCoordinationSessions.ToArrayAsync());
+            var parkedRevision = parked.Revision;
+            parked.NextAttemptAt = DateTimeOffset.UtcNow.AddSeconds(-1); await f.Db.SaveChangesAsync();
+            await dispatcher.DispatchAsync(default);
+            Assert.Equal(parkedRevision, parked.Revision); // unchanged authority does not retry the operation
+            Assert.Single(await f.Db.DurableMutationReceipts.Where(r => r.ResourceKey == "issue-commission-authority").ToArrayAsync());
+            var currentManager = await f.Db.CoreOrganizationUsers.SingleAsync(p => p.Id == f.Manager.Id);
+            f.Manager.AgentInstallationId = currentManager.AgentInstallationId = Guid.NewGuid(); // continue the employee's retained intent after an installation update
+            foreach (var action in new[] { WorkItemActions.RevisePlanning, ArtifactActions.Read })
+                f.Db.ScopedActionGrants.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Org,
+                    SubjectKind = GrantSubjectKind.AgentInstallation, SubjectId = f.Manager.AgentInstallationId.Value,
+                    Action = action, ScopeKind = action == ArtifactActions.Read ? GrantScopeKind.Artifact : GrantScopeKind.Board,
+                    ScopeId = action == ArtifactActions.Read ? f.Source.DocumentId : f.Board.Id });
+            parked.NextAttemptAt = DateTimeOffset.UtcNow.AddSeconds(-1); await f.Db.SaveChangesAsync();
+            var before = await f.Db.AgentPlatformEventOutbox.CountAsync();
+            await Assert.ThrowsAsync<IOException>(() => dispatcher.DispatchAsync(default));
+            f.Db.ChangeTracker.Clear();
+            Assert.Equal("Pending", (await f.Db.WorkIssueCommissions.SingleAsync()).Status);
             await Assert.ThrowsAsync<IOException>(() => dispatcher.DispatchOneAsync(intent.Id, default));
             f.Db.ChangeTracker.Clear();
             Assert.Empty(await f.Db.AgentCoordinationSessions.ToListAsync());
@@ -151,6 +176,45 @@ public sealed class WorkIssuePostgresTests
             await using var drop = new NpgsqlCommand($"DROP DATABASE \"{settings.Database}\" WITH (FORCE)", admin); await drop.ExecuteNonQueryAsync();
         }
     }
+    [IssuePostgresFact]
+    public async Task InterruptedContributionAndOwnerDecisionRecoverAtomicallyWithoutDuplicateCasesOrWakes()
+    {
+        var settings = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("CSWEET_COMPUTE_TEST_DATABASE"));
+        Assert.Contains(settings.Host, new[] { "127.0.0.1", "localhost" });
+        settings.Database = "issues_test_" + Guid.NewGuid().ToString("N");
+        await using var admin = new NpgsqlConnection(new NpgsqlConnectionStringBuilder(settings.ConnectionString) { Database = "postgres" }.ConnectionString);
+        await admin.OpenAsync(); await using (var create = new NpgsqlCommand($"CREATE DATABASE \"{settings.Database}\"", admin)) await create.ExecuteNonQueryAsync();
+        try {
+            await using var f = new WorkIssueLifecycleTests.Fixture(new DbContextOptionsBuilder<CSweetDbContext>().UseNpgsql(settings.ConnectionString).Options);
+            await f.Db.Database.EnsureCreatedAsync(); await f.Db.Database.OpenConnectionAsync();
+            await f.Db.Database.ExecuteSqlRawAsync("SET session_replication_role = replica");
+            await f.SeedAsync();
+            var request = new Wire.ReconcileWorkIssuesRequest(f.Board.Id, f.Source,
+                [new("missing-outcome", "Own the remaining approved outcome", "Retain full evidence", ["future"])], "external-judgment");
+            var wakes = await f.Db.AgentPlatformEventOutbox.CountAsync();
+            await using (var tx = await f.Db.Database.BeginTransactionAsync()) {
+                await f.Service.ProposeAsync(f.Org, f.Specialist.Id, f.Specialist.AgentInstallationId!.Value, request, default);
+                await tx.RollbackAsync(); // process interruption after SQL, before the outer transaction commits
+            }
+            f.Db.ChangeTracker.Clear(); Assert.Empty(await f.Db.WorkIssueCommissions.ToArrayAsync());
+            Assert.Equal(wakes, await f.Db.AgentPlatformEventOutbox.CountAsync());
+            var proposed = await f.Service.ProposeAsync(f.Org, f.Specialist.Id, f.Specialist.AgentInstallationId!.Value, request, default);
+            var decision = new Wire.DecideWorkIssueProposalRequest(proposed.Id, proposed.Revision, true, "Reviewed approved source and concrete ownership", "owner-accept");
+            await using (var tx = await f.Db.Database.BeginTransactionAsync()) {
+                await f.Service.DecideProposalAsync(f.Org, f.Manager.Id, decision, default);
+                await tx.RollbackAsync();
+            }
+            f.Db.ChangeTracker.Clear(); Assert.Empty(await f.Db.WorkIssueCases.ToArrayAsync());
+            Assert.Equal("Proposed", (await f.Db.WorkIssueCommissions.SingleAsync()).Status);
+            var accepted = await f.Service.DecideProposalAsync(f.Org, f.Manager.Id, decision, default);
+            Assert.Equal("Accepted", accepted.Status);
+            Assert.Equal(accepted.Id, (await f.Service.DecideProposalAsync(f.Org, f.Manager.Id, decision, default)).Id);
+            Assert.Single(await f.Db.WorkIssueCases.ToArrayAsync()); Assert.Single(await f.Db.WorkIssueCommissions.ToArrayAsync());
+        } finally {
+            Assert.StartsWith("issues_test_", settings.Database);
+            await using var drop = new NpgsqlCommand($"DROP DATABASE \"{settings.Database}\" WITH (FORCE)", admin); await drop.ExecuteNonQueryAsync();
+        }
+    }
     private static T Proxy<T>(Func<string,object?[]?,object> invoke) where T : class
     {
         var proxy = DispatchProxy.Create<T, TestProxy>(); ((TestProxy)(object)proxy).InvokeMethod = invoke; return proxy;
@@ -162,6 +226,6 @@ public sealed class WorkIssuePostgresTests
     }
     private sealed class IssuePostgresFactAttribute : FactAttribute
     {
-        public IssuePostgresFactAttribute() { if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CSWEET_COMPUTE_TEST_DATABASE"))) Skip = "Set CSWEET_COMPUTE_TEST_DATABASE for isolated PostgreSQL transactions."; }
+        public IssuePostgresFactAttribute() { if (Environment.GetEnvironmentVariable("CSWEET_REQUIRE_LIFECYCLE_DATABASE") != "1" && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CSWEET_COMPUTE_TEST_DATABASE"))) Skip = "Set CSWEET_COMPUTE_TEST_DATABASE for isolated PostgreSQL transactions."; }
     }
 }

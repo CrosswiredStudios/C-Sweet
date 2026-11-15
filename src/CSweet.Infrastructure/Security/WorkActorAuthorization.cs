@@ -15,6 +15,10 @@ internal static class WorkActorAuthorization
         var member = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x =>
             x.OrganizationId == organization && x.Id == employee && x.IsActive && x.ArchivedAt == null, ct);
         if (member is null) return new(false, action);
+        if (scope == GrantScopeKind.Board)
+            return await WorkResourceAuthorization.AuthorizeBoardAsync(db, authorization, organization,
+                member.AgentInstallationId.HasValue ? GrantSubjectKind.AgentInstallation : GrantSubjectKind.OrganizationUser,
+                member.AgentInstallationId ?? member.Id, action, scopeId, ct);
         return await authorization.AuthorizeAsync(organization,
             member.AgentInstallationId.HasValue ? GrantSubjectKind.AgentInstallation : GrantSubjectKind.OrganizationUser,
             member.AgentInstallationId ?? member.Id, action, scope, scopeId, ct);

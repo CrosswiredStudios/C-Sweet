@@ -501,7 +501,8 @@ public sealed class HierarchicalDeliveryServiceTests
             await Db.SaveChangesAsync();
         }
         // This fixture is one agent-authored plan. The platform must never synthesize these review steps.
-        private readonly Guid storyTicket = Guid.NewGuid(), epicTicket = Guid.NewGuid(), releaseTicket = Guid.NewGuid();
+        private Guid storyTicket = Guid.NewGuid(), epicTicket = Guid.NewGuid(), releaseTicket = Guid.NewGuid();
+        public void BeginNextDeclaredIncrement() { storyTicket = Guid.NewGuid(); epicTicket = Guid.NewGuid(); releaseTicket = Guid.NewGuid(); }
         public ConfigureWorkDeliveryPlanRequest Request()
         {
             WorkDeliveryTicketStep Step(string key,string handler,Guid person) => new(key,handler,new(key,"Human",person));

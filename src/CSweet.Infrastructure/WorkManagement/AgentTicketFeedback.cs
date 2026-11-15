@@ -270,6 +270,9 @@ public static class AgentTicketFeedback
     };
 
     // agent-failure:v1 diagnostics carry the platform refusal as code=platform.capability.denied (or a more specific *.denied code).
+    internal static string? DiagnosticField(string error, string name) => error.StartsWith("agent-failure:v1;", StringComparison.Ordinal)
+        ? error.Split(';').FirstOrDefault(x => x.StartsWith(name + "=", StringComparison.Ordinal))?[(name.Length + 1)..] : null;
+
     private static bool IsDenied(string error) =>
         error.Split(';').Any(x => x.StartsWith("code=", StringComparison.Ordinal) && x.EndsWith("denied", StringComparison.OrdinalIgnoreCase));
 
@@ -353,7 +356,7 @@ public static class AgentTicketFeedback
                 WorkItemId = ticket.Id, EventType = "agent.ticket.failed", Action = "platform.ticket-feedback",
                 ActorKind = GrantSubjectKind.AgentInstallation, ActorSubjectId = installationId,
                 ActorDisplayName = owner?.DisplayName ?? "Agent", IdempotencyKey = key,
-                DataJson = JsonSerializer.Serialize(new { fingerprint, repeated = sameIssue }), OccurredAt = now
+                DataJson = JsonSerializer.Serialize(new { fingerprint, repeated = sameIssue, failureCode = DiagnosticField(error, "code"), failedCapability = DiagnosticField(error, "capability"), blockedRevision = blockRepeat ? (long?)(ticket.Revision + 1) : null }), OccurredAt = now
             });
         }
         if (!added) return root.BlockReason?.StartsWith(RepeatedIssuePrefix, StringComparison.Ordinal) == true;

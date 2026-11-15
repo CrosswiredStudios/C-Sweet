@@ -7,6 +7,11 @@ internal static class WorkIssueToolSchemas
 {
     public static JsonElement Input(string capability)
     {
+        if (capability == WorkIssueCapabilities.DecideProposal) return Read("""
+            {"type":"object","required":["proposalId","expectedRevision","accept","reason","idempotencyKey"],"properties":{
+            "proposalId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},
+            "accept":{"type":"boolean"},"reason":{"type":"string","minLength":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"reviewedIssues":{"type":["array","null"],"items":{"type":"object","required":["obligationKey","issueId","revision"],"properties":{"obligationKey":{"type":"string","minLength":1,"maxLength":160},"issueId":{"type":["string","null"],"format":"uuid"},"revision":{"type":["integer","null"],"minimum":1}},"additionalProperties":false}}},"additionalProperties":false}
+            """);
         const string uuid = "{\"type\":\"string\",\"format\":\"uuid\"}";
         const string text = "{\"type\":\"string\",\"minLength\":1}";
         const string key = "{\"type\":\"string\",\"minLength\":1,\"maxLength\":160}";
