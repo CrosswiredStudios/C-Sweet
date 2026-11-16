@@ -557,7 +557,8 @@ public sealed partial class ExecutionFleetService(
         if (session is null)
             return await LocalFailureAsync("session_not_found", "The local setup session was not found.", cancellationToken);
         var display = Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl, null, LocalSetupLaunchMethod(session));
-        if (display.State == "failed" && session.UpgradeOfficeId is not null && session.Status == LocalOfficeSetupSessionStatus.Redeemed)
+        if (display.State == "failed" && session.UpgradeOfficeId is not null &&
+            session.Status is LocalOfficeSetupSessionStatus.Redeemed or LocalOfficeSetupSessionStatus.Connected)
         {
             var tracked = await dbContext.LocalOfficeSetupSessions.SingleAsync(x => x.Id == sessionId, cancellationToken);
             tracked.Status = LocalOfficeSetupSessionStatus.Failed;
@@ -1999,7 +2000,11 @@ public sealed partial class ExecutionFleetService(
                 office.Status is ExecutionNodeStatus.Ready or ExecutionNodeStatus.Draining)
                 session.Status = LocalOfficeSetupSessionStatus.Ready;
         }
-        var status = session.RecoveryAction is not ("repair" or "upgrade") && session.Status == LocalOfficeSetupSessionStatus.Connected &&
+        var connectionTimedOut = session.RecoveryAction is "repair" or "upgrade" &&
+            session.Status == LocalOfficeSetupSessionStatus.Connected && session.CompletedAt is { } finished &&
+            timeProvider.GetUtcNow() - finished >= TimeSpan.FromSeconds(90);
+        var status = connectionTimedOut ? LocalOfficeSetupSessionStatus.Failed :
+            session.RecoveryAction is not ("repair" or "upgrade") && session.Status == LocalOfficeSetupSessionStatus.Connected &&
             session.ExecutionNode is { Status: ExecutionNodeStatus.Ready, LastHeartbeatAt: not null }
             ? LocalOfficeSetupSessionStatus.Ready
             : session.Status;
@@ -2036,8 +2041,10 @@ public sealed partial class ExecutionFleetService(
             phaseName = "Upgrade installed";
             message = "Verify the Office version and connection, then resume work when ready.";
         }
-        var effectiveErrorCode = session.ErrorCode;
-        var effectiveErrorMessage = session.ErrorMessage;
+        var effectiveErrorCode = connectionTimedOut ? "office_connection_not_verified" : session.ErrorCode;
+        var effectiveErrorMessage = connectionTimedOut
+            ? "Office installation finished, but no fresh authenticated heartbeat verified its connection. Identity and work are retained. Retry connection repair to reconcile the verified server address and certificate."
+            : session.ErrorMessage;
         var effectiveRecoveryCanReconnect = session.RecoveryCanReconnect;
         windowsProgress ??= ReadWindowsSetupProgress(session.Id, timeProvider.GetUtcNow());
         // The launcher's generic result callback arrives AFTER its detailed failure file.

@@ -1510,6 +1510,25 @@ public sealed partial class ExecutionFleetServiceTests
         Assert.Equal(node.Id, created.Session.UpgradeOfficeId);
         Assert.Null(node.RevokedAt);
     }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CompletedRepairNeedsAFreshHeartbeatAndExposesAnActionableTimeout(bool fresh)
+    {
+        await using var db = CreateDb();
+        var fleet = UpgradeFleet(db, new MutableTimeProvider(Now));
+        await fleet.EnsureDefaultPoolAsync();
+        var node = UpgradeNode((await db.ExecutionPools.SingleAsync()).Id);
+        node.LastHeartbeatAt = fresh ? Now.AddSeconds(-5) : Now.AddHours(-1);
+        db.ExecutionNodes.Add(node); await db.SaveChangesAsync();
+        var session = new LocalOfficeSetupSession { Id = Guid.NewGuid(), RecoveryAction = "repair", UpgradeOfficeId = node.Id,
+            Status = LocalOfficeSetupSessionStatus.Connected, CompletedAt = Now.AddMinutes(-2), ExpiresAt = Now.AddHours(1) };
+        var display = fleet.Map(session, null, null);
+        Assert.Equal(fresh ? "ready" : "failed", display.State);
+        if (!fresh) Assert.Equal("office_connection_not_verified", display.ErrorCode);
+        Assert.Null(node.RevokedAt); Assert.Equal(node.Id, session.UpgradeOfficeId);
+    }
+
     private static ExecutionNode UpgradeNode(Guid poolId) => new()
     {
         Id = Guid.NewGuid(), ExecutionPoolId = poolId, Name = "Local Office", MachineName = Environment.MachineName,
