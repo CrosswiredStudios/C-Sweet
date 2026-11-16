@@ -95,3 +95,12 @@ The latest author provider call records **216,624 message characters**, plus 6,5
 First repair the evidence packet and proper blocker routing (issues 1, 2 and 5). Then reconcile the existing task against the actual latest review, retain the useful document, gather the missing bounded documentation/citation evidence and conduct one informed independent review. Correct stale planning decisions and semantic deduplication alongside that work. Address callback/context overhead using the measured baseline.
 
 The observed active sprint is genuine, but **Active does not currently mean progressing**. No artifact acceptance, completed sprint item or game implementation was observed. This inspection does not waive the requirement to establish a suitable alternative, claim that a future Engineer is unnecessary, or prescribe a fixed game-specific decision flow. Validation: live read-only evidence and source tracing; no implementation or tests were run for this report.
+
+
+## Implementation and rollout follow-up
+
+The six repair paths are implemented in [document evidence and owned rework recovery](../features/work-management/document-evidence-recovery.md). SDK 5.38.0 published successfully; Technical Director 6.13.0 and Producer 6.21.0 passed their release workflows and were installed through Installed Agents. Both existing hired installations advanced to revision 4 with successful prebuilt-bundle builds. No installed payload or approved package record was patched.
+
+The local platform was rebuilt and restarted, retaining the existing database and Sprint 1 execution. A live read now exposes the previously hidden completed review on stage `e3a3d490-b8e7-4b4e-a5cf-43975e2a37b5`, including all nine structured criteria. Acceptance requirements remain intact. This is verified recovery infrastructure, not yet completed planning work.
+
+The Office connection went offline during restart (last heartbeat 1:08 p.m. PST). Its Windows services report Running, but the control plane cannot dispatch work. The normal Office care repair was opened for the existing identity; it requests Windows administrator approval. The terminal session cannot stop the Office service. Final live acceptance verification is waiting for that connection recovery; the planning task remains blocked until the normal authorized retry and independent review complete.
