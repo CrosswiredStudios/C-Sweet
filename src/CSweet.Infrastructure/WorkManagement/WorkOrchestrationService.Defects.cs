@@ -145,7 +145,7 @@ public sealed partial class WorkOrchestrationService
         var qaStage = CreateStageExecution(qaExecution, author, qa.StageAssignments, board.ManagerOrganizationUserId!.Value, now);
         qaStage.Status = WorkStageExecutionStatus.Blocked; qaStage.LastError = $"Waiting for {bug.Identifier}: {bug.Title}. Retry QA after its trusted integration and independent QA.";
         qaExecution.Status = WorkItemExecutionStatus.Blocked; qaExecution.BlockedReason = qaStage.LastError;
-        qa.BlockReason = qaStage.LastError; qa.WaitingReason = null;
+        qa.BlockReason = qaStage.LastError; qa.WaitingReason = null; qa.WaitingDependencyJson = null;
         db.WorkStageExecutions.Add(qaStage);
         var bugExecution = new WorkItemExecution { Id = Guid.NewGuid(), WorkItemId = bug.Id, WorkItem = bug,
             SprintExecutionId = execution.Id, SprintExecution = execution, ItemIdentifier = bug.Identifier!, CreatedAt = now, UpdatedAt = now };

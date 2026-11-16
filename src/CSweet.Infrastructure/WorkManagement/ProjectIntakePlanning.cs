@@ -53,7 +53,7 @@ public sealed partial class WorkItemMutationEngine
             pending.BoardId = board.Id; pending.BoardColumnId = root.BoardColumnId; pending.BoardRank = root.BoardRank;
             pending.PersonalWorkContextJson = root.PersonalWorkContextJson; pending.Status = WorkTaskStatus.Ready;
             pending.AccountableOrganizationUserId = root.AccountableOrganizationUserId; pending.BlockReason = null;
-            pending.WaitingReason = null; pending.Revision++; pending.UpdatedAt = now;
+            pending.WaitingReason = null; pending.WaitingDependencyJson = null; pending.Revision++; pending.UpdatedAt = now;
             root = pending;
         }
         else db.CoreWorkTasks.Add(root);

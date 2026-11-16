@@ -3,7 +3,7 @@
 @inject HttpClient Http
 @inject IAppLocalizer L
 
-<AttentionRequestCard Kind="@(Incident.IsStatusReport ? "Status" : "Input needed")"
+<AttentionRequestCard Kind="@(Incident.IsStatusReport ? "Status" : "Input needed")" Embedded="Embedded"
     EmployeeId="@(Incident.ReporterOrganizationUserId ?? Incident.ReporterEmployeeId)"
     Name="@Incident.ReporterName" Context="@Incident.ProjectName" Prompt="@(Incident.IsStatusReport ? $"{Incident.ProjectName}: manager recovery status" : Incident.Reason)"
     Description="@(Incident.OwnerReport ?? Incident.Facts)" Status="@(_notice ?? Incident.RecoveryStatus ?? (Incident.ReportDeliveryPending ? L["ProjectIncidentAttentionCard.Preparing"] : null))">
@@ -20,8 +20,9 @@
         {
             <details class="incident-diagnostics"><summary>@L["ProjectIncidentAttentionCard.TechnicalDetails"]</summary><pre>@Incident.DiagnosticDetails</pre></details>
         }
-        @if (Incident.ResolutionDecision is { } decision && Incident.ReportConversationId is { } chat)
+        @if (ShowDecision && Incident.ResolutionDecision is { } decision && Incident.ReportConversationId is { } chat)
         {
+            <DecisionPrompt Content="@decision.Prompt" />
             <IncidentResolutionChoices @key="decision.Id" OrganizationId="OrganizationId" ConversationId="chat" Decision="decision" Answered="RefreshRequested" />
         }
     </BodyContent>
@@ -48,6 +49,8 @@
 
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public bool Embedded { get; set; }
+    [Parameter] public bool ShowDecision { get; set; } = true;
     [Parameter, EditorRequired] public ProjectIncidentAttentionResponse Incident { get; set; } = default!;
     [Parameter] public EventCallback RefreshRequested { get; set; }
     private bool _retrying;

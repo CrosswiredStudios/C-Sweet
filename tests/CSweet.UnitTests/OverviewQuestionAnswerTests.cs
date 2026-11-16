@@ -54,10 +54,13 @@ public sealed class OverviewQuestionAnswerTests
         Assert.Empty(fixture.Navigation.Destinations);
     }
 
-    [Fact]
-    public async Task OverviewQuestionUsesMarkdownAndLinksToTheExactDecision()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OverviewQuestionUsesMarkdownAndLinksToTheExactDecision(bool grouped)
     {
         await using var fixture = new Fixture();
+        fixture.Api.Grouped = grouped;
         fixture.Api.Question = fixture.Api.Question with { Decision = fixture.Api.Question.Decision with {
             Prompt = "**Choose the direction**\n\n- Keep the approved scope\n- Plan independent QA\n\n<script>unsafe()</script>" } };
         var output = await fixture.RenderAsync();
@@ -71,10 +74,13 @@ public sealed class OverviewQuestionAnswerTests
         Assert.Empty(fixture.Api.Answers);
     }
 
-    [Fact]
-    public async Task InstalledAvatarAndMenuLinkBelongToTheRequestingAgent()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task InstalledAvatarAndMenuLinkBelongToTheRequestingAgent(bool grouped)
     {
         await using var fixture = new Fixture();
+        fixture.Api.Grouped = grouped;
         var output = await fixture.RenderAsync();
         var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
         Assert.Contains("https://example.com/requesting-agent.jpg", html);
@@ -90,12 +96,16 @@ public sealed class OverviewQuestionAnswerTests
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    public async Task ChoosingAnOptionAnswersInlineAndRetriesUseTheSameKey(bool failFirst, bool staleRead)
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    public async Task ChoosingAnOptionAnswersInlineAndRetriesUseTheSameKey(bool failFirst, bool staleRead, bool grouped)
     {
         await using var fixture = new Fixture();
+        fixture.Api.Grouped = grouped;
         fixture.Api.FailFirst = failFirst;
         fixture.Api.ReturnStaleQuestions = staleRead;
         var output = await fixture.RenderAsync();
@@ -148,7 +158,11 @@ public sealed class OverviewQuestionAnswerTests
                 builder.OpenComponent<MudPopoverProvider>(0); builder.CloseComponent();
                 builder.OpenComponent<PendingAgentQuestions>(1);
                 builder.AddAttribute(2, "OrganizationId", Api.Organization);
-                builder.AddAttribute(3, "SummaryOnly", true); builder.CloseComponent();
+                builder.AddAttribute(3, "SummaryOnly", true);
+                if (Api.Grouped) builder.AddAttribute(4, "Issues", new OverviewIssueDirectory([
+                    new("question:" + Api.Question.Decision.Id, null, null, "Business work", "Review a project decision",
+                        "Your direction is needed", Api.Question.AgentName, "Respond", true, false, [], [Api.Question], [], Api.Question.Decision.Prompt)]));
+                builder.CloseComponent();
             };
             return await Renderer.RenderComponentAsync<EmployeePortraitScope>(ParameterView.FromDictionary(new Dictionary<string, object?>
             { ["OrganizationId"] = Api.Organization, ["ChildContent"] = content }));
@@ -186,6 +200,7 @@ public sealed class OverviewQuestionAnswerTests
         public List<AnswerExecutiveDecisionRequest> Answers { get; } = [];
         public List<string> AnswerUris { get; } = [];
         public bool FailFirst { get; set; }
+        public bool Grouped { get; set; }
         public bool ReturnStaleQuestions { get; set; }
         private bool _answered;
         public ApiHandler() => Question = new(Guid.NewGuid(), _employee, "Custom agent name",

@@ -31,7 +31,7 @@ else
 @if (Overview)
 {
     <AttentionRequestCard Kind="Decision" EmployeeId="Question.AgentOrganizationUserId" Name="@Question.AgentName"
-        Context="@Portraits?.FindRole(Question.AgentOrganizationUserId)" Prompt="@Question.Decision.Prompt" Status="Awaiting your response" RightAlignedActions="OpenEnded">
+        Context="@Portraits?.FindRole(Question.AgentOrganizationUserId)" Prompt="@Question.Decision.Prompt" Status="Awaiting your response" RightAlignedActions="OpenEnded" Embedded="Embedded">
         <PromptContent>
             <DecisionPrompt Content="@Question.Decision.Prompt" Preview="true" ConversationHref="@DecisionHref" />
         </PromptContent>
@@ -118,6 +118,7 @@ else
     [CascadingParameter] public EmployeePortraits? Portraits { get; set; }
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public bool Overview { get; set; }
+    [Parameter] public bool Embedded { get; set; }
     [Parameter] public bool ActionsOnly { get; set; }
     [Parameter, EditorRequired] public PendingAgentQuestionResponse Question { get; set; } = default!;
     [Parameter] public EventCallback<Guid> Answered { get; set; }

@@ -44,7 +44,7 @@ public sealed class OverviewIssueReader(CSweetDbContext db, IPersonalTodoService
                 string.IsNullOrWhiteSpace(c.BriefTitle) ? "Work responsibility under review" : c.BriefTitle,
                 string.IsNullOrWhiteSpace(c.BriefSummary) ? "The team is reconciling an approved responsibility." : c.BriefSummary,
                 people.GetValueOrDefault(c.AccountableEmployeeId, "Accountable manager"), c.NextAction,
-                c.Statement + "\n\n" + c.Detail, c.Status);
+                c.Statement + "\n\n" + c.Detail, c.Status, c.AccountableEmployeeId);
             if (c.Status == "Open") foreach (var link in WorkIssueService.Read<Wire.WorkIssueLink[]>(c.LinksJson)) groupFor[(link.Kind, link.Id)] = key;
         }
         var incidentRows = await db.ProjectIncidents.AsNoTracking().Where(i => i.OrganizationId == org && incidents.Select(v => v.Id).Contains(i.Id))
@@ -62,18 +62,20 @@ public sealed class OverviewIssueReader(CSweetDbContext db, IPersonalTodoService
             }
             return "work:" + id.ToString("N");
         }
-        Builder Get(string key, Guid? project, string owner, string title, string summary, string next, string detail)
+        Builder Get(string key, Guid? project, string owner, string title, string summary, string next, string detail, Guid? ownerId = null)
         {
-            if (!groups.TryGetValue(key, out var g)) groups[key] = g = new(key, null, project, project is Guid p ? projects.GetValueOrDefault(p, "Project") : "Business work", title, summary, owner, next, detail);
+            if (!groups.TryGetValue(key, out var g)) groups[key] = g = new(key, null, project, project is Guid p ? projects.GetValueOrDefault(p, "Project") : "Business work", title, summary, owner, next, detail, ownerId: ownerId);
             return g;
         }
         foreach (var item in work)
         {
             var task = tasks.GetValueOrDefault(item.ItemId);
+            var ownerId = item.ManagerName is null ? item.OwnerOrganizationUserId :
+                directory.Boards.FirstOrDefault(b => b.BoardId == task?.BoardId)?.ManagerOrganizationUserId;
             var g = Get(WorkKey(item.ItemId), task?.WorkContext?.WorkstreamId, item.ManagerName ?? item.OwnerName,
                 "Review blocked work", $"{item.OwnerName}'s work needs recovery.",
                 item.OwnerOrganizationUserId == actor.OrganizationUserId ? "Review the recorded cause before taking the available recovery action." :
-                    $"{item.ManagerName ?? item.OwnerName} is accountable for the next recovery step.", item.Reason);
+                    $"{item.ManagerName ?? item.OwnerName} is accountable for the next recovery step.", item.Reason, ownerId);
             var managerEscalation = task?.CorrelationId?.StartsWith(CSweet.Agent.SDK.ManagerWorkRecovery.Prefix, StringComparison.Ordinal) == true &&
                 directory.Boards.Any(b => b.BoardId == task!.BoardId && b.ManagerOrganizationUserId == actor.OrganizationUserId);
             g.Work.Add(item); g.Requires |= item.OwnerOrganizationUserId == actor.OrganizationUserId || managerEscalation;
@@ -88,7 +90,8 @@ public sealed class OverviewIssueReader(CSweetDbContext db, IPersonalTodoService
                 key = groupFor.GetValueOrDefault(("Coordination", session), "coordination:" + session.ToString("N"));
             key ??= "incident:" + incident.Id.ToString("N");
             var g = Get(key, incident.WorkstreamId, incident.ReporterName, "Project recovery", "The manager is reconciling the affected work and current evidence.",
-                incident.IsStatusReport ? "No response requested; the accountable manager owns recovery." : incident.RecommendedAction, incident.OwnerReport ?? incident.Facts);
+                incident.IsStatusReport ? "No response requested; the accountable manager owns recovery." : incident.RecommendedAction, incident.OwnerReport ?? incident.Facts,
+                incident.ReporterOrganizationUserId ?? incident.ReporterEmployeeId);
             g.Incidents.Add(incident); g.Requires |= !incident.IsStatusReport;
             groupFor[("Incident", incident.Id)] = key;
         }
@@ -109,7 +112,7 @@ public sealed class OverviewIssueReader(CSweetDbContext db, IPersonalTodoService
             var key = q.Decision.IncidentId is Guid incident ? groupFor.GetValueOrDefault(("Incident", incident)) : null;
             key ??= decisionId is Guid source ? groupFor.GetValueOrDefault(("Decision", source), "decision:" + source.ToString("N")) : "question:" + q.Decision.Id.ToString("N");
             var g = Get(key, null, q.AgentName, "Review a project decision", $"{q.AgentName} needs your direction on the recorded question.",
-                "Choose a current option or open the supporting evidence before responding.", q.Decision.Prompt);
+                "Choose a current option or open the supporting evidence before responding.", q.Decision.Prompt, q.AgentOrganizationUserId);
             g.Questions.Add(q); g.Requires = true;
         }
         return Consolidate(groups.Values.Select(g => g.Build()).ToArray());
@@ -137,7 +140,7 @@ public sealed class OverviewIssueReader(CSweetDbContext db, IPersonalTodoService
         return new(result.OrderByDescending(g => g.RequiresUserAction).ThenBy(g => g.ProjectName).ThenBy(g => g.Key).ToArray());
     }
 
-    private sealed class Builder(string key, Guid? id, Guid? project, string projectName, string title, string summary, string owner, string next, string detail, string status = "Open")
+    private sealed class Builder(string key, Guid? id, Guid? project, string projectName, string title, string summary, string owner, string next, string detail, string status = "Open", Guid? ownerId = null)
     {
         public List<BlockedWorkAttentionResponse> Work { get; } = [];
         public List<PendingAgentQuestionResponse> Questions { get; } = [];
@@ -145,6 +148,6 @@ public sealed class OverviewIssueReader(CSweetDbContext db, IPersonalTodoService
         public bool Requires { get; set; }
         public bool Unclassified { get; set; }
         public OverviewIssueCard Build() => new(key, id, project, projectName, title, summary, owner, next, Requires, Unclassified,
-            Work, Questions, Incidents, string.Join("\n\n", new[] { detail }.Concat(Questions.Select(q => q.Decision.Prompt)).Concat(Work.Select(w => w.Reason)).Distinct()), status);
+            Work, Questions, Incidents, string.Join("\n\n", new[] { detail }.Concat(Questions.Select(q => q.Decision.Prompt)).Concat(Work.Select(w => w.Reason)).Distinct()), status) { OwnerOrganizationUserId = ownerId };
     }
 }

@@ -73,7 +73,7 @@ public sealed partial class HiringService
         row.SetupStage = "complete";
         row.OwnerId = owner.Id;
         row.SourceDecisionId = decisionId;
-        row.Rationale = Required(rationale, 2048, nameof(rationale));
+        row.Rationale = CSweet.Application.Common.AuthoredText.Required(rationale, nameof(rationale));
         row.Revision++;
         row.UpdatedAt = DateTimeOffset.UtcNow;
         db.ChiefHiringPolicyRevisions.Add(new ChiefHiringPolicyRevision

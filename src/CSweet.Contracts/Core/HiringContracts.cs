@@ -80,10 +80,10 @@ public sealed record HiringBacklogResponse(IReadOnlyList<HiringRecommendationRes
 }
 
 public sealed record UpsertHiringRecommendationRequest(
-    [property: Required, MaxLength(256)] string Title,
-    [property: Required, MaxLength(2048)] string Objective,
+    [property: Required] string Title,
+    [property: Required] string Objective,
     Guid? WorkstreamId,
-    [property: MaxLength(3)] IReadOnlyList<string> CandidateReferences,
+    [property: MaxLength(3)] IReadOnlyList<string>? CandidateReferences,
     string? RecommendedCandidateReference,
     [property: Required, MaxLength(160)] string IdempotencyKey)
 {
@@ -105,7 +105,7 @@ public sealed record ResolveHiringRecommendationRequest(
 
 public sealed record WithdrawHiringRecommendationRequest(
     Guid RecommendationId,
-    [property: Required, MaxLength(2048)] string Reason,
+    [property: Required] string Reason,
     [property: Required, MaxLength(160)] string IdempotencyKey);
 
 public sealed record EmployeeHiredEvent(
@@ -223,7 +223,7 @@ public static class HiringWorkflowDecisionKinds
 
 public sealed record DecideHiringWorkflowRequest(
     [property: Required, MaxLength(16)] string Decision,
-    [property: MaxLength(2048)] string? Comment,
+    string? Comment,
     [property: Required, MaxLength(160)] string IdempotencyKey)
 {
     public IReadOnlyDictionary<string, JsonElement> ConfigurationSettings { get; init; } =

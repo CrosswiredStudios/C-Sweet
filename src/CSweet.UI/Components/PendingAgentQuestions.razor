@@ -1,4 +1,4 @@
-﻿@using CSweet.Contracts.Communications
+@using CSweet.Contracts.Communications
 @using CSweet.Contracts.Core
 @using CSweet.Contracts.Compute
 @using CSweet.Contracts.Realtime
@@ -65,41 +65,25 @@
         {
             <div class="attention-list" aria-label="@L["PendingAgentQuestions.DecisionsApprovalsHiringAndCompute"]">
                 @if (Issues is not null) {
-                    @foreach (var issue in Issues.UserActions) { <IssueAttentionCard @key="issue.Key" Item="issue" OrganizationId="OrganizationId" RefreshRequested="RefreshRequested" /> }
+                    @foreach (var issue in PendingIssues) { <AttentionNotificationCard @key="issue.Key" Notification="issue" OrganizationId="OrganizationId" Answered="OnAnsweredAsync" RefreshRequested="RefreshRequested" /> }
                 } else {
                 @foreach (var item in StandaloneBlockedWork.Take(_showAll ? StandaloneBlockedWork.Count : 5))
                 {
-                    <BlockedWorkAttentionCard @key="item.ItemId" OrganizationId="OrganizationId" Item="item" RefreshRequested="RefreshRequested" />
+                    <AttentionNotificationCard @key="item.ItemId" OrganizationId="OrganizationId" Notification="item" RefreshRequested="RefreshRequested" />
                 }
                 @foreach (var question in OverviewAttentionItems.StandaloneQuestions(_questions, ProjectIncidents))
                 {
-                    <AgentQuestionCard @key="question.Decision.Id" OrganizationId="OrganizationId" Question="question" Overview="true" Answered="OnAnsweredAsync" />
+                    <AttentionNotificationCard @key="question.Decision.Id" OrganizationId="OrganizationId" Notification="question" Answered="OnAnsweredAsync" />
                 }
                 }
                 @foreach (var approval in PendingApprovals.Take(_showAll ? PendingApprovals.Count : 5))
                 {
-                    var hiring = approval.Kind is ApprovalDashboardKinds.ResourceChange or ApprovalDashboardKinds.HiringWorkflow;
-                    @if (hiring)
-                    {
-                        <OverviewHiringApprovalCard @key="approval.Id" OrganizationId="OrganizationId" Approval="approval" Decided="OnApprovalDecidedAsync" />
-                    }
-                    else if (approval.Artifact is { SubmittedRevisionId: not null })
-                    {
-                        <DocumentApprovalCard @key="approval.Id" OrganizationId="OrganizationId" Approval="approval"
-                            Opened="DocumentOpened" RefreshRequested="RefreshRequested" />
-                    }
-                    else
-                    {
-                    <AttentionRequestCard @key="approval.Id" Kind="Approval" Name="@approval.RequestedBy" Context="@approval.RequestingTeam"
-                        Prompt="@approval.Title" Description="@approval.Summary" Status="@($"Requested {approval.CreatedAt.ToLocalTime():g}")">
-                        <MudButton Href="@($"/organizations/{OrganizationId}/approvals?approvalId={approval.Id}")" Variant="Variant.Outlined" Color="Color.Primary">@L["PendingAgentQuestions.ReviewApproval"]</MudButton>
-                    </AttentionRequestCard>
-                    }
+                    <AttentionNotificationCard @key="approval.Id" OrganizationId="OrganizationId" Notification="approval" DocumentOpened="DocumentOpened" ApprovalDecided="OnApprovalDecidedAsync" RefreshRequested="RefreshRequested" />
                 }
                 @if (Issues is null) {
                 @foreach (var incident in ActionableIncidents.Take(_showAll ? ActionableIncidents.Count : 5))
                 {
-                    <ProjectIncidentAttentionCard @key="incident.Id" OrganizationId="OrganizationId" Incident="incident" RefreshRequested="RefreshRequested" />
+                    <AttentionNotificationCard @key="incident.Id" OrganizationId="OrganizationId" Notification="incident" RefreshRequested="RefreshRequested" />
                 }
                 }
                 @foreach (var resource in ComputeResources.Take(_showAll ? ComputeResources.Count : 5))
@@ -118,7 +102,7 @@
                 }
                 @foreach (var recommendation in Recommendations.Take(_showAll ? Recommendations.Count : 5))
                 {
-                    <OverviewHiringCandidateCard @key="recommendation.Id" OrganizationId="OrganizationId" Recommendation="recommendation" Hired="RefreshRequested" />
+                    <AttentionNotificationCard @key="recommendation.Id" OrganizationId="OrganizationId" Notification="recommendation" RefreshRequested="RefreshRequested" />
                 }
             </div>
             @if (ActionableIncidents.Count > 5 || PendingApprovals.Count > 5 || Recommendations.Count > 5 || ComputeResources.Count > 5 || StandaloneBlockedWork.Count > 5)
@@ -154,7 +138,10 @@
         .Where(x => !_completedApprovals.Contains(x.Id) && OverviewAttentionItems.IsActionable(x)).ToList();
     private IReadOnlyList<ProjectIncidentAttentionResponse> ActionableIncidents => ProjectIncidents.Where(OverviewAttentionItems.IsActionable).ToArray();
     private IReadOnlyList<BlockedWorkAttentionResponse> StandaloneBlockedWork => OverviewAttentionItems.StandaloneBlockedWork(BlockedWork, _questions, ProjectIncidents);
-    private int PendingCount => Issues is not null ? Issues.UserActions.Count + PendingApprovals.Count + Recommendations.Count + ComputeResources.Count + SuggestionCount : OverviewAttentionItems.StandaloneQuestions(_questions, ProjectIncidents).Count + PendingApprovals.Count + Recommendations.Count + ActionableIncidents.Count + ComputeResources.Count + SuggestionCount + StandaloneBlockedWork.Count;
+    private IReadOnlyList<OverviewIssueCard> PendingIssues => (Issues?.UserActions ?? []).Where(item =>
+        item.IssueId is not null || item.Work.Count > 0 || item.Incidents.Count > 0 || item.RelatedIssues.Count > 0 ||
+        item.Questions.Count == 0 || item.Questions.Any(q => !_completedDecisions.Contains(q.Decision.Id))).ToArray();
+    private int PendingCount => Issues is not null ? PendingIssues.Count + PendingApprovals.Count + Recommendations.Count + ComputeResources.Count + SuggestionCount : OverviewAttentionItems.StandaloneQuestions(_questions, ProjectIncidents).Count + PendingApprovals.Count + Recommendations.Count + ActionableIncidents.Count + ComputeResources.Count + SuggestionCount + StandaloneBlockedWork.Count;
     private bool _showAll;
     private readonly HashSet<Guid> _completedDecisions = [];
     private readonly HashSet<Guid> _completedApprovals = [];

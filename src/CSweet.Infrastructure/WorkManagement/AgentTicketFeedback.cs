@@ -372,7 +372,7 @@ public static class AgentTicketFeedback
                 if (blockedColumn.HasValue) ticket.BoardColumnId = blockedColumn;
                 ticket.BlockReason = RepeatedIssuePrefix + FailureSentence(error);
                 ticket.ClaimEventId = null; ticket.ClaimExpiresAt = null; ticket.NextReviewAt = null;
-                ticket.WaitingReason = null; ticket.WaitingOnOrganizationUserId = null;
+                ticket.WaitingReason = null; ticket.WaitingDependencyJson = null; ticket.WaitingOnOrganizationUserId = null;
                 ticket.Revision++; ticket.UpdatedAt = now;
             }
             var managerId = owner?.ReportsToOrganizationUserId ?? root.Board?.ManagerOrganizationUserId;

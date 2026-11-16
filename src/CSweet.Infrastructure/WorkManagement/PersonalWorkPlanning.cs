@@ -182,7 +182,7 @@ public sealed partial class WorkItemMutationEngine
             Set(root, WorkTaskStatus.Blocked); Set(story, WorkTaskStatus.Blocked);
             root.BlockReason = story.BlockReason = item.BlockReason;
             root.ClaimEventId = null; root.ClaimExpiresAt = null; root.NextReviewAt = null;
-            root.WaitingReason = null; root.WaitingOnOrganizationUserId = null;
+            root.WaitingReason = null; root.WaitingDependencyJson = null; root.WaitingOnOrganizationUserId = null;
         }
         await SaveChangesWithRealtimeAsync(cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);

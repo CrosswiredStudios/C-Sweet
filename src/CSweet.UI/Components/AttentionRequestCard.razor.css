@@ -1,7 +1,8 @@
-.attention-request { padding: 18px 20px; border: 1px solid var(--mud-palette-divider); border-left: 4px solid var(--mud-palette-primary); border-radius: 13px; background: var(--mud-palette-surface); overflow-wrap: anywhere; }
+.attention-request { padding: 18px 20px; border: 1px solid var(--mud-palette-divider); border-left: 4px solid var(--mud-palette-primary); border-radius: 13px; background: var(--mud-palette-surface); box-shadow: 0 2px 8px rgba(31, 23, 48, .035); overflow-wrap: anywhere; }
 .attention-request.approval { border-left-color: var(--mud-palette-warning); }
 .attention-request.issue { border-left-color: var(--mud-palette-warning); }
 .attention-request.hiring { border-left-color: var(--mud-palette-success); }
+.attention-request.status, .attention-request.compute { border-left-color: var(--mud-palette-info); }
 .request-person { display: flex; align-items: center; gap: 12px; }
 .request-avatar { display: grid; place-items: center; width: 44px; height: 44px; flex-shrink: 0; border-radius: 50%; overflow: hidden; background: var(--mud-palette-primary-hover); color: var(--mud-palette-primary); }
 .request-avatar ::deep img { width: 100%; height: 100%; object-fit: cover; }
@@ -9,14 +10,21 @@
 .request-identity strong { font-size: .9rem; font-weight: 600; }
 .request-identity span, .request-footer-context > span { font-size: .78rem; color: var(--mud-palette-text-secondary); }
 .request-kind { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 7px; font-size: .75rem; font-weight: 600; white-space: nowrap; color: var(--mud-palette-primary); background: var(--mud-palette-primary-hover); }
-.approval .request-kind { color: var(--mud-palette-warning-darken); background: var(--mud-palette-warning-hover); }
-.hiring .request-kind { color: var(--mud-palette-success-darken); background: var(--mud-palette-success-hover); }
+.attention-request.approval > .request-person > .request-kind, .attention-request.issue > .request-person > .request-kind { color: var(--mud-palette-warning-darken); background: var(--mud-palette-warning-hover); }
+.attention-request.status > .request-person > .request-kind, .attention-request.compute > .request-person > .request-kind { color: var(--mud-palette-info-darken); background: var(--mud-palette-info-hover); }
+.attention-request.hiring > .request-person > .request-kind { color: var(--mud-palette-success-darken); background: var(--mud-palette-success-hover); }
 h3 { font-size: 1rem; line-height: 1.5; font-weight: 600; margin: 15px 0 14px; white-space: pre-wrap; }
 .request-title { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
 .request-title > span { color: var(--mud-palette-text-secondary); font-size: .78rem; }
 p { margin: 0 0 14px; color: var(--mud-palette-text-secondary); font-size: .875rem; white-space: pre-wrap; }
 .request-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.request-actions { flex-shrink: 0; }
+.request-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; flex-shrink: 1; min-width: 0; }
+.request-actions:empty { display: none; }
+.request-footer:has(.request-actions:empty):has(.request-footer-context > span:empty) { display: none; }
+.embedded-request { padding: 18px 0; border: 0; border-top: 1px solid var(--mud-palette-divider); border-radius: 0; background: transparent; box-shadow: none; }
+.embedded-request .request-avatar { width: 36px; height: 36px; }
+.embedded-request .request-person { gap: 10px; }
+.embedded-request .request-kind { font-size: .7rem; }
 .align-actions-right .request-actions { margin-left: auto; max-width: 100%; }
 .compact-request .request-person { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: start; }
 .compact-request .request-kind { margin: 2px 0 0; }
@@ -25,5 +33,5 @@ p { margin: 0 0 14px; color: var(--mud-palette-text-secondary); font-size: .875r
 .compact-request .request-footer { flex-wrap: wrap; }
 .compact-request .request-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 100%; }
 .request-footer-context { min-width: 0; }
-@media (max-width: 600px) { .attention-request { padding: 16px; } .request-person { flex-wrap: wrap; } .request-kind { margin-left: 56px; } .request-footer { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 600px) { .attention-request { padding: 16px; } .request-person { flex-wrap: wrap; } .request-kind { margin-left: 56px; } .request-footer { align-items: stretch; flex-direction: column; } .request-actions { justify-content: flex-start; max-width: 100%; } .embedded-request { padding: 16px 0; } .embedded-request .request-kind { margin-left: 46px; } }
 @media (max-width: 600px) { .compact-request .request-title, .compact-request .request-footer { margin-left: 0; } .compact-request .request-kind { margin-left: 0; } .compact-request .request-actions { align-self: flex-end; } .compact-request .request-actions ::deep .mud-button-root { min-width: 56px; padding: 6px 10px; } }

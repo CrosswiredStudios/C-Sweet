@@ -20,6 +20,9 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+[Staffing review continuation](staffing-review-continuation.md) maps exact dependency waits, latest-review
+reassessment, full staffing narratives, generic third-party interactions and retained Brickfall recovery.
+
 [Planning recovery and scoped progress](planning-recovery-and-scoped-progress.md) maps current
 installation authorization, shared durable manager follow-through, future-outcome impact and retained
   Prism Break recovery, with regression coverage and publication order. Its resolution implementation
@@ -37,6 +40,10 @@ workflow coverage and dependency provenance across standalone agent repositories
 
 [Live run analysis playbook](live-run-analysis-playbook.md) covers API access, read endpoints,
 the symptom-to-source procedure and the metrics to record for a company run in progress.
+
+[Business startup run comparisons](run-reviews/README.md) tracks observed agent interactions,
+decisions, installed versions and delivery milestones across fresh-business runs, starting with
+the November 15 Qwen Games and Prism Break baseline.
 
 [Overview work recovery](features/work-management/overview-work-attention.md) maps canonical blocked-work
 cards, authorized retry choices, owner pause semantics, named staffing choices and exact-package review.

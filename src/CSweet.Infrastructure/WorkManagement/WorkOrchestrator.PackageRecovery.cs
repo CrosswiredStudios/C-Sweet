@@ -71,7 +71,7 @@ public sealed partial class WorkOrchestrator
             item.Status = WorkItemExecutionStatus.Pending; item.BlockedReason = null; item.UpdatedAt = now;
             item.WorkItem!.Status = WorkTaskStatus.Ready; item.WorkItem.BlockReason = null;
             item.WorkItem.ClaimEventId = null; item.WorkItem.ClaimExpiresAt = null;
-            item.WorkItem.WaitingReason = null; item.WorkItem.NextReviewAt = null; item.WorkItem.WaitingOnOrganizationUserId = null;
+            item.WorkItem.WaitingReason = null; item.WorkItem.WaitingDependencyJson = null; item.WorkItem.NextReviewAt = null; item.WorkItem.WaitingOnOrganizationUserId = null;
             item.WorkItem.UpdatedAt = now; item.WorkItem.Revision++;
             execution.UpdatedAt = now; execution.Revision++;
             db.WorkOrchestrationEvents.Add(new() { Id = Guid.NewGuid(), OrganizationId = execution.OrganizationId,

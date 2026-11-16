@@ -9,14 +9,29 @@ namespace CSweet.AgentHost.Broker;
 internal static class ContractToolSchema
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
-    internal static JsonElement Create(Type type)
+    internal static JsonElement Create(Type type, bool nullableFieldsOptional = false)
     {
         var schema = Json.GetJsonSchemaAsNode(type);
         schema["type"] = "object";
         ExpandLocalReferences(schema, schema.DeepClone());
         Normalize(schema);
+        if (nullableFieldsOptional) RelaxNullableRequired(schema);
         schema["additionalProperties"] = false;
         return JsonSerializer.SerializeToElement(schema);
+    }
+
+    private static void RelaxNullableRequired(JsonNode? node)
+    {
+        if (node is JsonObject obj)
+        {
+            if (obj["required"] is JsonArray required && obj["properties"] is JsonObject properties)
+                foreach (var field in required.ToArray())
+                    if (field is not null && properties[field.GetValue<string>()] is JsonObject property &&
+                        property["type"] is JsonArray types && types.Any(t => t?.ToString() == "null")) required.Remove(field);
+            foreach (var child in obj.ToArray()) RelaxNullableRequired(child.Value);
+        }
+        else if (node is JsonArray array)
+            foreach (var child in array) RelaxNullableRequired(child);
     }
     // The .NET exporter reuses repeated record types with property-path references.
     // Our bounded broker validator accepts root definitions only; inline these acyclic request types.

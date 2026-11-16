@@ -10,7 +10,7 @@
 }
 else
 {
-<AttentionRequestCard Kind="Issue" EmployeeId="Item.OwnerOrganizationUserId" Name="@Item.OwnerName"
+<AttentionRequestCard Kind="Issue" EmployeeId="Item.OwnerOrganizationUserId" Name="@Item.OwnerName" Embedded="Embedded"
     Context="@Item.ManagerName" Prompt="@Item.Title" Description="@Item.Reason"
     Status="Review the cause and recorded work before retrying. The assigned agent retains ownership.">
     <MudButton Href="@Item.ActionUri" Variant="Variant.Outlined">Open affected work</MudButton>
@@ -29,6 +29,7 @@ else
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public bool ActionsOnly { get; set; }
+    [Parameter] public bool Embedded { get; set; }
     [Parameter, EditorRequired] public BlockedWorkAttentionResponse Item { get; set; } = default!;
     [Parameter] public EventCallback RefreshRequested { get; set; }
     private bool _retrying;

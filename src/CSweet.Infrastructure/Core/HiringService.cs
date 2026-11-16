@@ -80,8 +80,8 @@ public sealed partial class HiringService(
         Guid organizationId, Guid requestingInstallationId, UpsertHiringRecommendationRequest request,
         CancellationToken cancellationToken)
     {
-        var title = Required(request.Title, 256, nameof(request.Title));
-        var objective = Required(request.Objective, 2048, nameof(request.Objective));
+        var title = CSweet.Application.Common.AuthoredText.Required(request.Title, nameof(request.Title));
+        var objective = CSweet.Application.Common.AuthoredText.Required(request.Objective, nameof(request.Objective));
         var key = Required(request.IdempotencyKey, 160, nameof(request.IdempotencyKey));
         var references = (request.CandidateReferences ?? []).Distinct(StringComparer.Ordinal).ToList();
         if (references.Count > 3) throw new ArgumentException("A recommendation may contain up to three ranked candidates.");
@@ -284,7 +284,7 @@ public sealed partial class HiringService(
         Guid organizationId, Guid requestingInstallationId, WithdrawHiringRecommendationRequest request,
         CancellationToken cancellationToken)
     {
-        _ = Required(request.Reason, 2048, nameof(request.Reason));
+        _ = CSweet.Application.Common.AuthoredText.Required(request.Reason, nameof(request.Reason));
         _ = Required(request.IdempotencyKey, 160, nameof(request.IdempotencyKey));
         var plan = await db.WorkforcePlans.SingleOrDefaultAsync(x =>
             x.Id == request.RecommendationId &&
@@ -947,7 +947,7 @@ public sealed partial class HiringService(
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             operation.Status = AgentHireOperationStatus.Failed;
-            operation.Error = Truncate(exception.Message, 2048);
+            operation.Error = exception.Message;
             operation.CompletedAt = DateTimeOffset.UtcNow;
         }
         finally
@@ -1481,7 +1481,7 @@ CompleteWorkflow:
 
         workflow.Status = ProposalStatus.Rejected;
         workflow.DecidedByOrganizationUserId = owner.Id;
-        workflow.DecisionComment = string.IsNullOrWhiteSpace(comment) ? null : Required(comment, 2048, nameof(comment));
+        workflow.DecisionComment = CSweet.Application.Common.AuthoredText.Optional(comment);
         workflow.DecidedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
         await audit.WriteAsync("hiring.workflow.rejected", nameof(StaffingActionProposal), workflow.Id,

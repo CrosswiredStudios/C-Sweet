@@ -52,7 +52,7 @@ public sealed partial class ResourceChangeServiceTests
         Assert.Equal(manager.Id, team.LeadOrganizationUserId);
         Assert.Contains(await db.AgentPlatformEventOutbox.ToListAsync(), x =>
             x.TargetInstallationId == setup.ManagerInstallationId && x.DataJson.Contains(result.Id.ToString("D")));
-        var invalidRoles = roles.Select(x => x.RoleKey == "technical-lead" ? x with { ReportsToOrganizationUserId = manager.Id } : x).ToList();
+        var invalidRoles = roles.Select(x => x.RoleKey == "technical-lead" ? x with { ReportsToOrganizationUserId = Guid.NewGuid() } : x).ToList();
         await Assert.ThrowsAsync<ArgumentException>(() => service.ProposeAsync(setup.OrganizationId, setup.RequesterInstallationId,
             proposal with { IdempotencyKey = "invalid-new-reporting", Roles = invalidRoles }));
     }

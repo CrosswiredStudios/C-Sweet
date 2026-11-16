@@ -80,7 +80,7 @@ public sealed class CompanyDashboardRenderingTests
         Assert.Equal(1, OverviewAttentionItems.Count(new(Guid.NewGuid(), 0, []) { ProjectIncidents = [routine, decision] }, null, [], null));
 
         html = await Render(false, incidents: [routine]);
-        Assert.Contains("Nothing needs your attention", html);
+        Assert.Contains("Status incomplete", html); // Legacy reports remain visible while the current issue endpoint is unavailable.
         Assert.Contains("QA is waiting for an assigned Bug fix.", html);
         Assert.Equal(0, OverviewAttentionItems.Count(new(Guid.NewGuid(), 0, []) { ProjectIncidents = [routine] }, null, [], null));
     }
@@ -351,6 +351,14 @@ public sealed class CompanyDashboardRenderingTests
         {
             var path = request.RequestUri!.AbsolutePath;
             object result;
+            if (path.EndsWith("/personal-todos/issues"))
+            {
+                // These rendering cases supply legacy incident/work cards explicitly; exercise their fallback.
+                // Otherwise model the current endpoint's empty typed directory, not the company-name response.
+                if ((blockedWork?.Count ?? 0) > 0 || (incidents?.Count ?? 0) > 0 || failBlockedWork)
+                    return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable));
+                return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = JsonContent.Create(new OverviewIssueDirectory([])) });
+            }
             if (path.EndsWith("/personal-todos/attention"))
             {
                 if (failBlockedWork) return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable));

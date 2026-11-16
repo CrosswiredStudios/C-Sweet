@@ -8,6 +8,7 @@ public sealed record OverviewIssueCard(string Key, Guid? IssueId, Guid? Workstre
     IReadOnlyList<ProjectIncidentAttentionResponse> Incidents, string Detail, string Status = "Open")
 {
     public IReadOnlyList<OverviewIssueCard> RelatedIssues { get; init; } = [];
+    public Guid? OwnerOrganizationUserId { get; init; }
 }
 
 public sealed record OverviewIssueDirectory(IReadOnlyList<OverviewIssueCard> Items)

@@ -1,0 +1,53 @@
+@using CSweet.Contracts.Communications
+@using CSweet.Contracts.Core
+@inject IAppLocalizer L
+
+@switch (Notification)
+{
+    case PendingAgentQuestionResponse question:
+        <AgentQuestionCard @key="question.Decision.Id" OrganizationId="OrganizationId" Question="question" Overview="true" Embedded="Embedded" Answered="Answered" />
+        break;
+    case BlockedWorkAttentionResponse work:
+        <BlockedWorkAttentionCard @key="work.ItemId" OrganizationId="OrganizationId" Item="work" Embedded="Embedded" RefreshRequested="RefreshRequested" />
+        break;
+    case ProjectIncidentAttentionResponse incident:
+        <ProjectIncidentAttentionCard @key="incident.Id" OrganizationId="OrganizationId" Incident="incident" Embedded="Embedded" ShowDecision="ShowIncidentDecision" RefreshRequested="RefreshRequested" />
+        break;
+    case ApprovalDashboardItemResponse approval when approval.Kind is ApprovalDashboardKinds.ResourceChange or ApprovalDashboardKinds.HiringWorkflow:
+        <OverviewHiringApprovalCard @key="approval.Id" OrganizationId="OrganizationId" Approval="approval" Decided="ApprovalDecidedAsync" />
+        break;
+    case ApprovalDashboardItemResponse approval when approval.Artifact?.SubmittedRevisionId is not null:
+        <DocumentApprovalCard @key="approval.Id" OrganizationId="OrganizationId" Approval="approval" Opened="DocumentOpened" RefreshRequested="RefreshRequested" />
+        break;
+    case ApprovalDashboardItemResponse approval:
+        <AttentionRequestCard @key="approval.Id" Kind="Approval" EmployeeId="approval.RequesterOrganizationUserId" Name="@approval.RequestedBy" Context="@approval.RequestingTeam"
+            Prompt="@approval.Title" Description="@approval.Summary" Status="@($"Requested {approval.CreatedAt.ToLocalTime():g}")">
+            <MudButton Href="@($"/organizations/{OrganizationId}/approvals?approvalId={approval.Id}")" Variant="Variant.Outlined" Color="Color.Primary">@L["PendingAgentQuestions.ReviewApproval"]</MudButton>
+        </AttentionRequestCard>
+        break;
+    case HiringRecommendationResponse hiring:
+        <OverviewHiringCandidateCard @key="hiring.Id" OrganizationId="OrganizationId" Recommendation="hiring" Hired="RefreshRequested" />
+        break;
+    case OverviewIssueCard issue:
+        <IssueAttentionCard @key="issue.Key" OrganizationId="OrganizationId" Item="issue" Answered="Answered" RefreshRequested="RefreshRequested" />
+        break;
+    default:
+        <AttentionRequestCard Kind="Notice" Name="Company" Prompt="Review this notification" Status="Refresh to retrieve the current notification details.">
+            <MudButton OnClick="() => RefreshRequested.InvokeAsync()" Variant="Variant.Outlined">Refresh</MudButton>
+        </AttentionRequestCard>
+        break;
+}
+
+@code {
+    // These are typed source contracts, including third-party agents' standard questions and approvals.
+    // Never classify a notification by its wording, persona, display name or correlation prefix.
+    [Parameter, EditorRequired] public object Notification { get; set; } = default!;
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public bool Embedded { get; set; }
+    [Parameter] public bool ShowIncidentDecision { get; set; } = true;
+    [Parameter] public EventCallback<Guid> Answered { get; set; }
+    [Parameter] public EventCallback<Guid> ApprovalDecided { get; set; }
+    [Parameter] public EventCallback RefreshRequested { get; set; }
+    [Parameter] public EventCallback<DocumentApprovalSelection> DocumentOpened { get; set; }
+    private Task ApprovalDecidedAsync(Guid id) => ApprovalDecided.HasDelegate ? ApprovalDecided.InvokeAsync(id) : RefreshRequested.InvokeAsync();
+}

@@ -704,7 +704,7 @@ public sealed partial class WorkBoardService(
         {
             // Leaving Blocked clears the blocker so the owner treats the ticket as fresh, claimable work.
             item.BlockReason = null; item.ClaimEventId = null; item.ClaimExpiresAt = null;
-            item.NextReviewAt = null; item.WaitingReason = null; item.WaitingOnOrganizationUserId = null;
+            item.NextReviewAt = null; item.WaitingReason = null; item.WaitingDependencyJson = null; item.WaitingOnOrganizationUserId = null;
         }
         item.Revision++;
         item.UpdatedAt = DateTimeOffset.UtcNow;

@@ -93,6 +93,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         await RecoverProviderBlockedWorkAsync(now, cancellationToken);
         await RecoverAgentFailureWithBackoffAsync(now, cancellationToken);
         await RecoverCoordinationWaitsAsync(cancellationToken);
+        await RecoverDependencyWaitsAsync(cancellationToken);
         var dueReviews = await db.CoreWorkTasks
             .Include(x => x.Board)
             .Where(x => x.Board != null && (x.Board.Kind == WorkBoardKind.Personal || x.Board.WorkstreamId != null && x.PersonalWorkContextJson != null) &&
@@ -114,7 +115,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             item.Status = WorkTaskStatus.Ready;
             item.BoardColumnId = todoColumnId;
             item.NextReviewAt = null;
-            item.WaitingReason = null;
+            item.WaitingReason = null; item.WaitingDependencyJson = null;
             item.WaitingOnOrganizationUserId = null;
             item.Revision++;
             item.UpdatedAt = now;
@@ -164,7 +165,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             item.ClaimEventId = null;
             item.ClaimExpiresAt = null;
             item.NextReviewAt = null;
-            item.WaitingReason = null;
+            item.WaitingReason = null; item.WaitingDependencyJson = null;
             item.WaitingOnOrganizationUserId = null;
             item.Revision++;
             item.UpdatedAt = now;
@@ -278,7 +279,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             item.ClaimEventId = null;
             item.ClaimExpiresAt = null;
             item.NextReviewAt = null;
-            item.WaitingReason = null;
+            item.WaitingReason = null; item.WaitingDependencyJson = null;
             item.WaitingOnOrganizationUserId = null;
             item.Revision++;
             item.UpdatedAt = now;
@@ -323,7 +324,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             item.ClaimEventId = null;
             item.ClaimExpiresAt = null;
             item.NextReviewAt = null;
-            item.WaitingReason = null;
+            item.WaitingReason = null; item.WaitingDependencyJson = null;
             item.WaitingOnOrganizationUserId = null;
             item.Revision++;
             item.UpdatedAt = now;
@@ -385,7 +386,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             item.ClaimEventId = null;
             item.ClaimExpiresAt = null;
             item.NextReviewAt = null;
-            item.WaitingReason = null;
+            item.WaitingReason = null; item.WaitingDependencyJson = null;
             item.WaitingOnOrganizationUserId = null;
             item.Revision++;
             item.UpdatedAt = now;
@@ -714,7 +715,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         item.Status = WorkTaskStatus.Ready;
         item.BoardColumnId = board.Columns.Single(x => x.Category == WorkBoardColumnCategory.ToDo).Id;
         item.BlockReason = null; item.ClaimEventId = null;
-        item.ClaimExpiresAt = null; item.NextReviewAt = null; item.WaitingReason = null;
+        item.ClaimExpiresAt = null; item.NextReviewAt = null; item.WaitingReason = null; item.WaitingDependencyJson = null;
         item.WaitingOnOrganizationUserId = null; item.Revision++; item.UpdatedAt = clock.GetUtcNow();
         await ReopenBlockedPlanChildrenAsync(item, cancellationToken);
         var owner = await OwnerAsync(board, item, cancellationToken);
@@ -890,7 +891,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         {
             stale.Status = WorkTaskStatus.Ready; stale.BoardColumnId = columns[WorkBoardColumnCategory.ToDo].Id;
             stale.ClaimEventId = null; stale.ClaimExpiresAt = null;
-            stale.NextReviewAt = null; stale.WaitingReason = null;
+            stale.NextReviewAt = null; stale.WaitingReason = null; stale.WaitingDependencyJson = null;
             stale.WaitingOnOrganizationUserId = null;
             stale.Revision++; stale.UpdatedAt = now;
         }
@@ -1004,14 +1005,18 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
                 x.Id == request.WaitingOnOrganizationUserId &&
                 x.OrganizationId == organizationId && x.IsActive, cancellationToken))
             throw new ArgumentException("The waiting-on employee is not active in this organization.");
+        if (request.Dependency is not null)
+            _ = await ReadDependencyVersionAsync(item, request.Dependency, cancellationToken);
         item.ClaimEventId = null;
         item.ClaimExpiresAt = null;
         item.NextReviewAt = request.NextReviewAt;
         item.WaitingReason = reason;
         item.WaitingOnOrganizationUserId = request.WaitingOnOrganizationUserId;
+        item.WaitingDependencyJson = request.Dependency is null ? null : JsonSerializer.Serialize(request.Dependency, JsonOptions);
         item.Revision++;
         item.UpdatedAt = clock.GetUtcNow();
         await RecoverCoordinationWaitsAsync(cancellationToken, item);
+        await RecoverDependencyWaitsAsync(cancellationToken, item, organizationId);
         await SaveChangesWithRealtimeAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
     }
@@ -1039,7 +1044,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         var now = clock.GetUtcNow();
         item.Status = status; item.ResultSummary = summary?.Trim();
         item.BlockReason = reason?.Trim(); item.ClaimEventId = null;
-        item.ClaimExpiresAt = null; item.NextReviewAt = null; item.WaitingReason = null;
+        item.ClaimExpiresAt = null; item.NextReviewAt = null; item.WaitingReason = null; item.WaitingDependencyJson = null;
         item.WaitingOnOrganizationUserId = null; item.Revision++; item.UpdatedAt = now;
         item.BoardColumnId = ColumnForStatus(board, status).Id;
         if (status == WorkTaskStatus.Blocked)
@@ -1426,6 +1431,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             Wait = item.NextReviewAt.HasValue && !string.IsNullOrWhiteSpace(item.WaitingReason)
                 ? new Wire.PersonalTodoWaitState(
                     item.NextReviewAt.Value, item.WaitingReason, item.WaitingOnOrganizationUserId)
+                    { Dependency = item.WaitingDependencyJson is null ? null : JsonSerializer.Deserialize<Wire.PersonalTodoDependency>(item.WaitingDependencyJson, JsonOptions) }
                 : null
         };
     }

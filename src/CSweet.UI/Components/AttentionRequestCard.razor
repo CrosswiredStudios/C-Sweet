@@ -1,4 +1,4 @@
-<article class="attention-request @Kind.ToLowerInvariant() @(Compact ? "compact-request" : "")" aria-label="@($"{Kind} from {Name}")">
+<article class="attention-request @Kind.ToLowerInvariant() @(Compact ? "compact-request" : "") @(Embedded ? "embedded-request" : "")" aria-label="@($"{Kind} from {Name}")">
     <div class="request-person">
         <span class="request-avatar" aria-hidden="true">
             @if (EmployeeId.HasValue)
@@ -30,6 +30,7 @@
     [Parameter] public RenderFragment? BodyContent { get; set; }
     [Parameter] public RenderFragment? FooterContent { get; set; }
     [Parameter] public bool Compact { get; set; }
+    [Parameter] public bool Embedded { get; set; }
     [Parameter] public bool RightAlignedActions { get; set; }
     private string Icon => Kind switch
     {
@@ -39,6 +40,7 @@
         "Compute" => Icons.Material.Outlined.Computer,
         "Issue" => Icons.Material.Outlined.WarningAmber,
         "Status" => Icons.Material.Outlined.Info,
+        "Notice" => Icons.Material.Outlined.NotificationsNone,
         _ => Icons.Material.Outlined.HelpOutline
     };
 }

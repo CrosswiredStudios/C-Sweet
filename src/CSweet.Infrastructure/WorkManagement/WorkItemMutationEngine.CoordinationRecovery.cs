@@ -146,7 +146,7 @@ public sealed partial class WorkItemMutationEngine
             var board = await db.WorkBoards.Include(x => x.Columns).SingleAsync(x => x.Id == item.BoardId, token);
             item.Status = WorkTaskStatus.Ready; item.BoardColumnId = ColumnForStatus(board, WorkTaskStatus.Ready).Id;
             item.BlockReason = null; item.ClaimEventId = null; item.ClaimExpiresAt = null;
-            item.NextReviewAt = null; item.WaitingReason = null; item.WaitingOnOrganizationUserId = null;
+            item.NextReviewAt = null; item.WaitingReason = null; item.WaitingDependencyJson = null; item.WaitingOnOrganizationUserId = null;
             item.Revision++; item.UpdatedAt = now;
             await ReopenBlockedPlanChildrenAsync(item, token);
             await QueueAvailableAsync(item.OrganizationId, owner, board.Id, item.Id, now, token);

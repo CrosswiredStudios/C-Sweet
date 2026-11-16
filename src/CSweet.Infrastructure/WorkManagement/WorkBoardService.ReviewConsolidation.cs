@@ -165,7 +165,7 @@ public sealed partial class WorkBoardService
         {
             var review = tasks.Single(x => x.Id == mapping.WorkItemId);
             var item = execution.Items.Single(x => x.WorkItemId == review.Id);
-            review.Status = WorkTaskStatus.Cancelled; review.BlockReason = null; review.WaitingReason = null;
+            review.Status = WorkTaskStatus.Cancelled; review.BlockReason = null; review.WaitingReason = null; review.WaitingDependencyJson = null;
             if(cancelledColumn is {} terminalColumn) review.BoardColumnId=terminalColumn;
             review.ResultSummary = $"Consolidated into {canonical.Identifier}, native {mapping.CanonicalStageKey} stage. That stage must establish acceptance. {request.Reason}";
             review.Revision++; review.UpdatedAt = now;

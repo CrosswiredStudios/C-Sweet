@@ -101,11 +101,30 @@ public sealed partial class ResourceChangeService(
             throw new ArgumentException("Team-scoped capacity changes require trusted evidence and an expected effect.");
         var previous = await ResolvePreviousAsync(
             organizationId, requester.Id, request.TeamId, request.SupersedesRequestId, cancellationToken);
+        if (request.RevisesRequestId is { } revisedId)
+        {
+            var returned = await db.ResourceChangeRequests.AsNoTracking().SingleOrDefaultAsync(r =>
+                r.Id == revisedId && r.OrganizationId == organizationId && r.RequesterOrganizationUserId == requester.Id &&
+                r.ManagerOrganizationUserId == manager.Id && r.TeamId == request.TeamId && r.WorkstreamId == request.WorkstreamId,
+                cancellationToken);
+            if (returned?.Status is not (ResourceChangeRequestStatus.RevisionRequested or ResourceChangeRequestStatus.Rejected))
+                throw new ArgumentException("The revision must reference a returned request owned by this requester, manager, team and project.");
+            var replacement = await db.ResourceChangeRequests.AsNoTracking().Include(x => x.Roles).SingleOrDefaultAsync(r =>
+                r.OrganizationId == organizationId && r.RequesterOrganizationUserId == requester.Id && r.RevisesRequestId == revisedId,
+                cancellationToken);
+            if (replacement is not null) return ToResponse(replacement);
+            if (await db.ResourceChangeRequests.AsNoTracking().AnyAsync(r => r.OrganizationId == organizationId &&
+                r.RequesterOrganizationUserId == requester.Id && r.ManagerOrganizationUserId == manager.Id &&
+                r.TeamId == request.TeamId && r.WorkstreamId == request.WorkstreamId && r.CreatedAt > returned.CreatedAt,
+                cancellationToken))
+                throw new DbUpdateConcurrencyException("A newer staffing proposal exists. Read its current review before revising.");
+        }
+
         var correction = await ValidateCorrectionAsync(organizationId, requester.Id, previous, request.CorrectionId, cancellationToken);
         var inheritedReporting = previous?.Roles.Where(x => x.IsDesired && x.ReportsToOrganizationUserId.HasValue)
             .ToDictionary(x => x.RoleKey, x => x.ReportsToOrganizationUserId!.Value)
             ?? new Dictionary<string, Guid>();
-        var desired = ValidateRoles(request.Roles, requester.Id, inheritedReporting)
+        var desired = ValidateRoles(request.Roles, requester.Id, inheritedReporting, manager.Id)
             .Select(role => request.TeamId.HasValue ? role with { TeamId = request.TeamId } : role)
             .ToList();
         var deltas = ComputeDeltas(desired, previous?.Roles.Where(x => x.IsDesired).Select(ToRole).ToList() ?? []);
@@ -137,22 +156,23 @@ public sealed partial class ResourceChangeService(
             ChatTurnId = request.ChatTurnId,
             ConversationMessageId = Guid.NewGuid(),
             SupersedesRequestId = previous?.Id,
+            RevisesRequestId = request.RevisesRequestId,
             CorrectionId = correction?.Id,
-            ProductGoal = Required(request.ProductGoal, 2048, nameof(request.ProductGoal)),
+            ProductGoal = CSweet.Application.Common.AuthoredText.Required(request.ProductGoal, nameof(request.ProductGoal)),
             TeamId = scopedTeam?.Id,
             WorkstreamId = request.WorkstreamId,
             ExpectedTeamRevision = request.ExpectedTeamRevision,
             TeamKey = scopedTeam?.TeamKey ?? OptionalTeamField(request.TeamKey, 200, nameof(request.TeamKey)),
             TeamName = scopedTeam?.Name ?? OptionalTeamField(request.TeamName, 160, nameof(request.TeamName)),
-            TeamDescription = scopedTeam?.Description ?? OptionalTeamField(request.TeamDescription, 2048, nameof(request.TeamDescription)),
-            Rationale = Required(request.Rationale, 4096, nameof(request.Rationale)),
+            TeamDescription = scopedTeam?.Description ?? CSweet.Application.Common.AuthoredText.Optional(request.TeamDescription),
+            Rationale = CSweet.Application.Common.AuthoredText.Required(request.Rationale, nameof(request.Rationale)),
             ContextRevision = request.ContextRevision,
-            AssumptionsJson = JsonSerializer.Serialize(CleanList(request.Assumptions, 20, 1024), JsonOptions),
-            ConstraintsJson = JsonSerializer.Serialize(CleanList(request.Constraints, 20, 1024), JsonOptions),
+            AssumptionsJson = JsonSerializer.Serialize(AuthoredList(request.Assumptions), JsonOptions),
+            ConstraintsJson = JsonSerializer.Serialize(AuthoredList(request.Constraints), JsonOptions),
             EvidenceJson = JsonSerializer.Serialize(evidence, JsonOptions),
             AlternativesConsideredJson = JsonSerializer.Serialize(
-                CleanList(request.AlternativesConsidered, 20, 1024), JsonOptions),
-            ExpectedEffect = Clean(request.ExpectedEffect, 2048),
+                AuthoredList(request.AlternativesConsidered), JsonOptions),
+            ExpectedEffect = CSweet.Application.Common.AuthoredText.Optional(request.ExpectedEffect),
             IdempotencyKey = key,
             Status = ResourceChangeRequestStatus.Pending,
             DeliveryStatus = manager.EmployeeType == EmployeeType.Agent ? "QueuedForManagerAgent" : "DeliveredInChat",
@@ -403,6 +423,7 @@ public sealed partial class ResourceChangeService(
             },
             $"resource-change-decided:{record.Id:N}",
             targetInstallationId: null));
+        await new CSweet.Infrastructure.WorkManagement.WorkItemMutationEngine(db, TimeProvider.System).RecoverDependencyWaitsAsync(token, organizationId: record.OrganizationId);
         await db.SaveChangesAsync(token);
         if (boardCreationGrantCreated)
             await WriteBoardCreationGrantAuditAsync(record, token);
@@ -546,7 +567,7 @@ public sealed partial class ResourceChangeService(
             .OrderByDescending(x => x.DecidedAt).FirstOrDefaultAsync(token);
     }
 
-    private static List<ResourceChangeRole> ValidateRoles(IReadOnlyList<ResourceChangeRole> roles, Guid requesterId, IReadOnlyDictionary<string, Guid> inheritedReporting)
+    private static List<ResourceChangeRole> ValidateRoles(IReadOnlyList<ResourceChangeRole> roles, Guid requesterId, IReadOnlyDictionary<string, Guid> inheritedReporting, Guid managerId)
     {
         if (roles.Count is < 1 or > 20) throw new ArgumentException("A resource-change request requires between 1 and 20 roles.");
         var normalized = roles.Select(role =>
@@ -563,10 +584,10 @@ public sealed partial class ResourceChangeService(
                     (role.PreferredSpecializationKeys ?? []).Concat(specializationKeys).ToList(),
                     20,
                     "role.preferredSpecializationKeys"),
-                Team = Required(role.Team, 160, "role.team"),
-                Title = Required(role.Title, 256, "role.title"),
-                Purpose = Required(role.Purpose, 2048, "role.purpose"),
-                Timing = Required(role.Timing, 32, "role.timing"),
+                Team = CSweet.Application.Common.AuthoredText.Required(role.Team, "role.team"),
+                Title = CSweet.Application.Common.AuthoredText.Required(role.Title, "role.title"),
+                Purpose = CSweet.Application.Common.AuthoredText.Required(role.Purpose, "role.purpose"),
+                Timing = CSweet.Application.Common.AuthoredText.Required(role.Timing, "role.timing"),
                 ReportsToOrganizationUserId = role.ReportsToOrganizationUserId ?? (role.ReportsToRoleKey is null ? requesterId : null),
                 ReportsToRoleKey = Clean(role.ReportsToRoleKey, 160)?.ToLowerInvariant(),
                 RequiredCapabilities = requestedCapabilities.Where(IsEnforceableCapability).ToList()
@@ -580,9 +601,9 @@ public sealed partial class ResourceChangeService(
             if (role.Priority is < 1 or > 100) throw new ArgumentException("Role priority must be between 1 and 100.");
             if (role.ReportsToOrganizationUserId.HasValue == (role.ReportsToRoleKey is not null))
                 throw new ArgumentException($"Role '{role.Title}' must have exactly one reporting target.");
-            if (role.ReportsToOrganizationUserId.HasValue && role.ReportsToOrganizationUserId != requesterId &&
+            if (role.ReportsToOrganizationUserId.HasValue && role.ReportsToOrganizationUserId != requesterId && role.ReportsToOrganizationUserId != managerId &&
                 (!inheritedReporting.TryGetValue(role.RoleKey, out var inheritedManager) || inheritedManager != role.ReportsToOrganizationUserId))
-                throw new ArgumentException("Product-team roles may report only to the requester or another proposed role.");
+                throw new ArgumentException("Product-team roles may report only to the requester, current approving manager, an inherited manager or another proposed role.");
             if (role.ReportsToRoleKey is not null && !normalized.Any(x => x.RoleKey == role.ReportsToRoleKey))
                 throw new ArgumentException($"Role '{role.Title}' reports to an unknown role.");
         }
@@ -673,6 +694,7 @@ public sealed partial class ResourceChangeService(
             ReadStrings(record.AssumptionsJson), ReadStrings(record.ConstraintsJson), record.SupersedesRequestId,
             record.Status.ToString(), record.DeliveryStatus, record.DecisionComment, record.CreatedAt, record.DecidedAt)
         {
+            RevisesRequestId = record.RevisesRequestId,
             CorrectionId = record.CorrectionId,
             TeamId = record.TeamId,
             TeamKey = record.TeamKey,
@@ -751,6 +773,9 @@ public sealed partial class ResourceChangeService(
 
     private static IReadOnlyList<string> ReadStrings(string json) =>
         JsonSerializer.Deserialize<IReadOnlyList<string>>(json, JsonOptions) ?? [];
+
+    private static IReadOnlyList<string> AuthoredList(IReadOnlyList<string>? values) =>
+        (values ?? []).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Distinct(StringComparer.Ordinal).ToList();
 
     private static IReadOnlyList<string> CleanList(IReadOnlyList<string>? values, int maximumCount, int maximumLength) =>
         (values ?? []).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => Required(x, maximumLength, "list item"))

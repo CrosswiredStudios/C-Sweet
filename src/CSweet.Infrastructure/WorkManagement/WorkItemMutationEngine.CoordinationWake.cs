@@ -87,7 +87,7 @@ public sealed partial class WorkItemMutationEngine
                     x.AgentInstallationId == session.InitiatorInstallationId && x.Action == CoordinationWakeReceiptAction && x.IdempotencyKey == receiptKey, token)) continue;
             var now = clock.GetUtcNow();
             item.Status = WorkTaskStatus.Ready; item.BoardColumnId = todoColumn;
-            item.NextReviewAt = null; item.WaitingReason = null; item.WaitingOnOrganizationUserId = null;
+            item.NextReviewAt = null; item.WaitingReason = null; item.WaitingDependencyJson = null; item.WaitingOnOrganizationUserId = null;
             item.ClaimExpiresAt = null; item.UpdatedAt = now; item.Revision++;
             db.WorkItemMutationReceipts.Add(new()
             {

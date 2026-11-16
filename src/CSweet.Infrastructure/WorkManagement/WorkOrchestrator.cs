@@ -924,7 +924,7 @@ public sealed partial class WorkOrchestrator(
             {
                 ticket.Status = WorkTaskStatus.Blocked;
                 ticket.BlockReason = CSweet.Infrastructure.Setup.AgentWorkFailure.DescribeBlocker(error);
-                ticket.WaitingReason = null; ticket.NextReviewAt = null;
+                ticket.WaitingReason = null; ticket.WaitingDependencyJson = null; ticket.NextReviewAt = null;
                 ticket.UpdatedAt = now; ticket.Revision++;
             }
             stage.Status = WorkStageExecutionStatus.Blocked; stage.RetryAt = null;

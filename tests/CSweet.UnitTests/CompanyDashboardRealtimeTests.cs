@@ -181,6 +181,9 @@ public sealed class CompanyDashboardRealtimeTests
         await fixture.Renderer.Dispatcher.InvokeAsync(() => fixture.Publish(org, CommunicationEvents.DecisionUpdated));
         var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
         Assert.Contains("Evelyn Brooks", html); Assert.Contains(question.Decision.Prompt, html);
+        Assert.Contains("decision-preview-text", html);
+        Assert.Contains("person-portrait", html);
+        Assert.DoesNotContain("Review a project decision", html);
         Assert.Contains(openEnded ? "Send response" : "Choose an answer", html);
         Assert.Same(page, fixture.Activator.Page); Assert.Equal(reads + 1, handler.IssueReads);
         handler.Questions = []; handler.Issues = new([]);

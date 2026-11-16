@@ -166,7 +166,7 @@ public static class IntegratedCandidateResubmission
         db.WorkStageExecutions.Add(next);
         item.WorkItem.Status = WorkTaskStatus.Assigned;
         if (qa.ColumnId.HasValue) item.WorkItem.BoardColumnId = qa.ColumnId;
-        item.WorkItem.BlockReason = null; item.WorkItem.WaitingReason = null; item.WorkItem.ClaimEventId = null; item.WorkItem.ClaimExpiresAt = null;
+        item.WorkItem.BlockReason = null; item.WorkItem.WaitingReason = null; item.WorkItem.WaitingDependencyJson = null; item.WorkItem.ClaimEventId = null; item.WorkItem.ClaimExpiresAt = null;
         item.WorkItem.Revision++; item.WorkItem.UpdatedAt = now; item.UpdatedAt = now;
         WorkOrchestrationBoardState.SynchronizeAgentCard(policy, next, now);
         sprint.Revision++; sprint.UpdatedAt = now;

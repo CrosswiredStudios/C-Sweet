@@ -123,7 +123,9 @@ public sealed partial class HiringServiceTests
         await using var db = CreateDb(); var f = await AutonomyFixtureAsync(db);
         await Assert.ThrowsAsync<ArgumentException>(() => f.Service.UpdatePolicyAsync(f.Organization, f.Installation,
             f.Application, new(HiringSelectionMode.Automatic, AutomaticHiringLevel.WithinLimits), 0, "Missing limits"));
-        await f.Service.UpdatePolicyAsync(f.Organization, f.Installation, f.Application, new(), 0, "Recommend candidates");
+        var rationale = new string('x', 12000) + " Recommend candidates while retaining the owner's hiring authority.";
+        await f.Service.UpdatePolicyAsync(f.Organization, f.Installation, f.Application, new(), 0, rationale);
+        Assert.Equal(rationale, (await db.ChiefHiringPolicies.SingleAsync()).Rationale);
         await Assert.ThrowsAsync<InvalidOperationException>(() => f.Service.UpdatePolicyAsync(f.Organization, f.Installation,
             f.Application, new(HiringSelectionMode.Automatic), 0, "Stale revision"));
         Assert.Single(await db.ChiefHiringPolicyRevisions.ToListAsync());

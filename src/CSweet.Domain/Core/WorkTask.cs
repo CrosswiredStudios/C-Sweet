@@ -28,6 +28,7 @@ public sealed class WorkTask
     public DateTimeOffset? ClaimExpiresAt { get; set; }
     public DateTimeOffset? NextReviewAt { get; set; }
     public string? WaitingReason { get; set; }
+    public string? WaitingDependencyJson { get; set; }
     public Guid? WaitingOnOrganizationUserId { get; set; }
     public string? CreationIdempotencyKey { get; set; }
     public string? CorrelationId { get; set; }

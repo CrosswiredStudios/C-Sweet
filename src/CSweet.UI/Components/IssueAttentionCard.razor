@@ -1,38 +1,66 @@
 @using CSweet.Contracts.Core
 
-<AttentionRequestCard Kind="@(Item.RequiresUserAction ? "Input needed" : "Status")" Name="@Item.OwnerName"
+@if (StandaloneNotification is { } notification)
+{
+    <AttentionNotificationCard Notification="notification" OrganizationId="OrganizationId" Answered="AnsweredAsync" RefreshRequested="RefreshRequested" />
+}
+else
+{
+<AttentionRequestCard Kind="@(Item.RequiresUserAction ? "Issue" : "Status")" Name="@Item.OwnerName" EmployeeId="Item.OwnerOrganizationUserId"
     Context="@Item.ProjectName" Prompt="@Item.Title" Description="@Item.Summary" Status="@Item.NextAction">
     <BodyContent>
         @if (Item.Unclassified) { <p>The accountable manager is checking the remaining responsibility and next actor.</p> }
         @if (!Item.RequiresUserAction) { <p>No action needed from you.</p> }
+        @if (Item.RequiresUserAction)
+        {
+            <div class="issue-requests">
+                @foreach (var question in Item.Questions.DistinctBy(q => q.Decision.Id))
+                {
+                    <AttentionNotificationCard @key="question.Decision.Id" Notification="question" OrganizationId="OrganizationId" Embedded="true" Answered="AnsweredAsync" RefreshRequested="RefreshRequested" />
+                }
+                @foreach (var incident in Item.Incidents.DistinctBy(i => i.Id))
+                {
+                    <AttentionNotificationCard @key="incident.Id" Notification="incident" OrganizationId="OrganizationId" Embedded="true"
+                        ShowIncidentDecision="@(!Item.Questions.Any(q => q.Decision.Id == incident.ResolutionDecision?.Id))" RefreshRequested="RefreshRequested" />
+                }
+                @foreach (var work in OverviewAttentionItems.StandaloneBlockedWork(Item.Work, Item.Questions, Item.Incidents).Where(w => w.CanRetry).DistinctBy(w => w.ItemId))
+                {
+                    <AttentionNotificationCard @key="work.ItemId" Notification="work" OrganizationId="OrganizationId" Embedded="true" RefreshRequested="RefreshRequested" />
+                }
+            </div>
+        }
         <details class="issue-details">
             <summary>Details and supporting evidence</summary>
             @if (!string.IsNullOrWhiteSpace(Item.Detail)) { <ChatMarkdown Content="@Item.Detail" /> }
             @foreach (var work in Item.Work) { <p><a href="@work.ActionUri">Open @work.Title</a></p> }
             @foreach (var question in Item.Questions) { <p><a href="@($"/organizations/{OrganizationId}/communications/{question.ConversationId}?decision={question.Decision.Id}")">Read the recorded question and evidence</a></p> }
             @foreach (var incident in Item.Incidents) { <p><a href="@incident.ActionUri">Read the manager report</a></p> }
-            @foreach (var related in Item.RelatedIssues) { <IssueAttentionCard Item="related" OrganizationId="OrganizationId" RefreshRequested="RefreshRequested" /> }
+            <div class="related-issues">
+                @foreach (var related in Item.RelatedIssues) { <IssueAttentionCard @key="related.Key" Item="related" OrganizationId="OrganizationId" Answered="Answered" RefreshRequested="RefreshRequested" /> }
+            </div>
         </details>
     </BodyContent>
     <ChildContent>
-        @if (Item.RequiresUserAction)
-        {
-            @foreach (var question in Item.Questions)
-            {
-                <AgentQuestionCard @key="question.Decision.Id" OrganizationId="OrganizationId" Question="question" ActionsOnly="true" Answered="AnsweredAsync" />
-            }
-            @foreach (var incident in Item.Incidents.Where(i => i.ResolutionDecision is not null && i.ReportConversationId.HasValue))
-            {
-                <IncidentResolutionChoices OrganizationId="OrganizationId" ConversationId="incident.ReportConversationId!.Value" Decision="incident.ResolutionDecision!" Answered="RefreshRequested" />
-            }
-            @foreach (var work in Item.Work.Where(w => w.CanRetry)) { <BlockedWorkAttentionCard OrganizationId="OrganizationId" Item="work" ActionsOnly="true" RefreshRequested="RefreshRequested" /> }
-        }
+        @* Action controls belong beside their typed request above, never in an unlabeled shared footer. *@
     </ChildContent>
 </AttentionRequestCard>
+}
 
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter, EditorRequired] public OverviewIssueCard Item { get; set; } = default!;
     [Parameter] public EventCallback RefreshRequested { get; set; }
-    private Task AnsweredAsync(Guid _) => RefreshRequested.InvokeAsync();
+    [Parameter] public EventCallback<Guid> Answered { get; set; }
+    private object? StandaloneNotification => Item.IssueId is null && Item.RelatedIssues.Count == 0 ? Item switch
+    {
+        { RequiresUserAction: true, Questions.Count: 1, Work.Count: 0, Incidents.Count: 0 } => Item.Questions[0],
+        { RequiresUserAction: true, Questions.Count: 0, Work.Count: 1, Incidents.Count: 0 } => Item.Work[0],
+        { RequiresUserAction: true, Questions.Count: 0, Work.Count: 0, Incidents.Count: 1 } => Item.Incidents[0],
+        _ => null
+    } : null;
+    private async Task AnsweredAsync(Guid decisionId)
+    {
+        await Answered.InvokeAsync(decisionId);
+        await RefreshRequested.InvokeAsync();
+    }
 }

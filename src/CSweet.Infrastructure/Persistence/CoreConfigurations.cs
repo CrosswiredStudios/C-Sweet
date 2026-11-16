@@ -242,7 +242,7 @@ internal static class CoreConfigurations
         entity.Property(x => x.TeamKey).HasMaxLength(200).IsRequired();
         entity.Property(x => x.NormalizedName).HasMaxLength(160).IsRequired();
         entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
-        entity.Property(x => x.Description).HasMaxLength(2048).IsRequired();
+        entity.Property(x => x.Description).HasColumnType("text").IsRequired();
         entity.Property(x => x.Revision).IsConcurrencyToken();
         entity.HasIndex(x => new { x.OrganizationId, x.TeamKey }).IsUnique();
         entity.HasIndex(x => new { x.OrganizationId, x.NormalizedName })
@@ -392,9 +392,9 @@ internal static class CoreConfigurations
         });
         modelBuilder.Entity<WorkforcePlan>(entity =>
         {
-            entity.HasKey(x => x.Id); entity.HasIndex(x => new { x.OrganizationId, x.Status }); entity.Property(x => x.Objective).HasMaxLength(2048).IsRequired();
+            entity.HasKey(x => x.Id); entity.HasIndex(x => new { x.OrganizationId, x.Status }); entity.Property(x => x.Objective).HasColumnType("text").IsRequired();
             entity.HasIndex(x => new { x.OrganizationId, x.RequestingInstallationId, x.IdempotencyKey }).IsUnique();
-            entity.Property(x => x.Title).HasMaxLength(256).IsRequired(); entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.Title).HasColumnType("text").IsRequired(); entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
             entity.Property(x => x.Priority).HasDefaultValue(50).IsRequired();
             entity.Property(x => x.RoleKey).HasMaxLength(160);
             entity.Property(x => x.Headcount).HasDefaultValue(1).IsRequired();
@@ -504,16 +504,18 @@ internal static class CoreConfigurations
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.OrganizationId, x.RequesterInstallationId, x.IdempotencyKey }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.ManagerOrganizationUserId, x.Status });
-            entity.Property(x => x.ProductGoal).HasMaxLength(2048).IsRequired();
+            entity.Property(x => x.ProductGoal).HasColumnType("text").IsRequired();
             entity.Property(x => x.TeamKey).HasMaxLength(200);
-            entity.Property(x => x.TeamName).HasMaxLength(160);
-            entity.Property(x => x.TeamDescription).HasMaxLength(2048);
-            entity.Property(x => x.Rationale).HasMaxLength(4096).IsRequired();
+            entity.Property(x => x.TeamName).HasColumnType("text");
+            entity.Property(x => x.TeamDescription).HasColumnType("text");
+            entity.Property(x => x.Rationale).HasColumnType("text").IsRequired();
             entity.Property(x => x.AssumptionsJson).HasColumnType("jsonb").IsRequired();
             entity.Property(x => x.ConstraintsJson).HasColumnType("jsonb").IsRequired();
             entity.Property(x => x.EvidenceJson).HasColumnType("jsonb").IsRequired();
             entity.Property(x => x.AlternativesConsideredJson).HasColumnType("jsonb").IsRequired();
-            entity.Property(x => x.ExpectedEffect).HasMaxLength(2048);
+            entity.Property(x => x.ExpectedEffect).HasColumnType("text");
+            entity.HasIndex(x => new { x.OrganizationId, x.RequesterOrganizationUserId, x.RevisesRequestId }).IsUnique()
+                .HasFilter("\"RevisesRequestId\" IS NOT NULL");
             entity.Property(x => x.IdempotencyKey).HasMaxLength(160).IsRequired();
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(32).IsRequired();
             entity.Property(x => x.DeliveryStatus).HasMaxLength(32).IsRequired();
@@ -531,10 +533,10 @@ internal static class CoreConfigurations
             entity.Property(x => x.RoleKey).HasMaxLength(160).IsRequired();
             entity.Property(x => x.RoleCategoryKey).HasMaxLength(160).IsRequired();
             entity.Property(x => x.PreferredSpecializationKeysJson).HasColumnType("jsonb").IsRequired();
-            entity.Property(x => x.Team).HasMaxLength(160).IsRequired();
-            entity.Property(x => x.Title).HasMaxLength(256).IsRequired();
-            entity.Property(x => x.Purpose).HasMaxLength(2048).IsRequired();
-            entity.Property(x => x.Timing).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.Team).HasColumnType("text").IsRequired();
+            entity.Property(x => x.Title).HasColumnType("text").IsRequired();
+            entity.Property(x => x.Purpose).HasColumnType("text").IsRequired();
+            entity.Property(x => x.Timing).HasColumnType("text").IsRequired();
             entity.Property(x => x.RequiredCapabilitiesJson).HasColumnType("jsonb").IsRequired();
             entity.Property(x => x.ReportsToRoleKey).HasMaxLength(160);
             entity.Property(x => x.ChangeKind).HasMaxLength(24).IsRequired();
@@ -658,6 +660,7 @@ internal static class CoreConfigurations
         entity.Property(x => x.Identifier).HasMaxLength(32);
         entity.Property(x => x.ResultSummary).HasColumnType("text");
         entity.Property(x => x.WaitingReason).HasColumnType("text");
+        entity.Property(x => x.WaitingDependencyJson).HasColumnType("jsonb");
         entity.Property(x => x.BlockReason).HasColumnType("text");
         entity.Property(x => x.CreationIdempotencyKey).HasMaxLength(160);
         entity.Property(x => x.CorrelationId).HasMaxLength(160);

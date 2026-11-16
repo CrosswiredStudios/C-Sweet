@@ -100,7 +100,7 @@ public sealed partial class ProjectIntakeService
         else if (candidates.Count == 0 && intake.HiringRecommendationId is null)
         {
             var recommendation = await hiring.UpsertRecommendationAsync(org, installation, new CSweet.Contracts.Core.UpsertHiringRecommendationRequest(
-                "Project manager for " + intake.Name, intake.Goal.Length <= 2048 ? intake.Goal : intake.Goal[..2048], null, [], null,
+                "Project manager for " + intake.Name, intake.Goal, null, [], null,
                 $"project-manager:{intake.Id:N}:{intake.LastChoiceMessageId:N}") { RoleKey = "software-product-manager", TeamId = intake.TeamId }, ct);
             intake.HiringRecommendationId = recommendation.Id;
             intake.Issue = "A project-manager hiring recommendation is awaiting human review. Development will resume only after project setup and assignment are complete.";

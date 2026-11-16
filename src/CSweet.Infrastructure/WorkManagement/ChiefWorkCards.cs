@@ -50,7 +50,7 @@ public static class ChiefWorkCards
         card.ClaimEventId = work.Id;
         card.ClaimExpiresAt = attempt.LeaseExpiresAt.AddMinutes(2);
         card.NextReviewAt = null;
-        card.WaitingReason = null;
+        card.WaitingReason = null; card.WaitingDependencyJson = null;
         card.ResultSummary = null;
         card.UpdatedAt = clock.GetUtcNow();
         card.Revision++;

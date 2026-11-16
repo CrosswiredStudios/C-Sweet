@@ -109,7 +109,7 @@ public sealed class TeamService(
             TeamKey = $"manual:{Guid.NewGuid():N}",
             NormalizedName = normalizedName,
             Name = name,
-            Description = Clean(request.Description, 2048),
+            Description = CSweet.Application.Common.AuthoredText.Optional(request.Description) ?? string.Empty,
             LeadOrganizationUserId = lead.Id,
             CreatedAt = now,
             UpdatedAt = now
@@ -173,7 +173,7 @@ public sealed class TeamService(
             cancellationToken);
         team.Name = name;
         team.NormalizedName = normalizedName;
-        team.Description = Clean(request.Description, 2048);
+        team.Description = CSweet.Application.Common.AuthoredText.Optional(request.Description) ?? string.Empty;
         team.LeadOrganizationUserId = lead.Id;
         Touch(team, now);
         await SaveWithConcurrencyAsync(cancellationToken);
@@ -372,7 +372,7 @@ public sealed class TeamService(
                 TeamKey = key,
                 NormalizedName = normalizedName,
                 Name = teamName,
-                Description = Clean(description, 2048),
+                Description = CSweet.Application.Common.AuthoredText.Optional(description) ?? string.Empty,
                 LeadOrganizationUserId = lead.Id,
                 CreatedAt = now,
                 UpdatedAt = now
@@ -393,7 +393,7 @@ public sealed class TeamService(
                 throw new InvalidOperationException("The approved team is archived and cannot receive staffing changes.");
             team.Name = teamName;
             team.NormalizedName = normalizedName;
-            team.Description = Clean(description, 2048);
+            team.Description = CSweet.Application.Common.AuthoredText.Optional(description) ?? string.Empty;
             team.LeadOrganizationUserId = lead.Id;
             Touch(team, now);
         }

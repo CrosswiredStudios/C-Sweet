@@ -35,6 +35,7 @@ public sealed class OverviewIssueTests
             new(f.Db, new(f.Db, TimeProvider.System), TimeProvider.System), f.Service);
         var directory = await reader.ReadAsync(f.Org, new(f.Manager.Id, null), false, default);
         Assert.Equal(recovery, Assert.Single(directory.Items).RequiresUserAction);
+        Assert.Equal(f.Manager.Id, Assert.Single(directory.Items).OwnerOrganizationUserId);
     }
 
     private static OverviewIssueCard Card(string key, Guid project, bool action = false) =>
@@ -82,6 +83,7 @@ public sealed class OverviewIssueTests
             new(f.Db, new(f.Db, TimeProvider.System), TimeProvider.System), f.Service);
         var directory = await reader.ReadAsync(f.Org, new(f.Manager.Id, null), false, default);
         var card = Assert.Single(directory.UserActions); Assert.Single(card.Work); Assert.Single(card.Questions); Assert.Empty(directory.Team);
+        Assert.Equal(f.Manager.Id, card.OwnerOrganizationUserId);
         questions = [];
         directory = await reader.ReadAsync(f.Org, new(f.Manager.Id, null), false, default);
         Assert.Empty(directory.UserActions); Assert.Single(directory.Team); // Agent recovery ownership does not depend on retry permission.

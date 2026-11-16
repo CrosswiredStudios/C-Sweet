@@ -1,5 +1,6 @@
 using CSweet.Contracts.Core;
 using CSweet.UI.Components;
+using CSweet.UI.Localization;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,7 +16,7 @@ public sealed class IssueAttentionCardTests
     [InlineData(true)]
     public async Task FullEvidenceIsRetainedInNativeCollapsedDetailsAndRetryPermissionAloneAddsNoAction(bool requiresAction)
     {
-        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddSingleton<IJSRuntime, NoJavaScript>();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization(); services.AddSingleton<IJSRuntime, NoJavaScript>();
         services.AddSingleton(new HttpClient { BaseAddress = new("http://localhost/") });
         await using var provider = services.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
@@ -25,9 +26,9 @@ public sealed class IssueAttentionCardTests
             [new(Guid.NewGuid(), Guid.NewGuid(), "Victor", "Gabriel", "Review feasibility", "Original failure", 2, true, "/work")], [], [], detail);
         var html = await renderer.Dispatcher.InvokeAsync(async () => (await renderer.RenderComponentAsync<IssueAttentionCard>(
             ParameterView.FromDictionary(new Dictionary<string,object?> { ["OrganizationId"] = Guid.NewGuid(), ["Item"] = item }))).ToHtmlString());
-        Assert.Contains("<details class=\"issue-details\">", html); Assert.Contains("<summary>", html); Assert.Contains(detail, html);
+        Assert.Contains("<details class=\"issue-details\"", html); Assert.Contains("<summary", html); Assert.Contains(detail, html);
         Assert.DoesNotContain("Full diagnostic evidence", html[..html.IndexOf("<details", StringComparison.Ordinal)]);
-        Assert.Equal(requiresAction, html.Contains("Retry affected work", StringComparison.Ordinal));
+        Assert.Equal(requiresAction, html.Contains("Retry after review", StringComparison.Ordinal));
         Assert.Equal(!requiresAction, html.Contains("No action needed from you.", StringComparison.Ordinal));
     }
     private sealed class NoJavaScript : IJSRuntime

@@ -33,7 +33,7 @@ public sealed partial class WorkItemMutationEngine
             card.ClaimEventId = null;
             card.ClaimExpiresAt = null;
             card.NextReviewAt = null;
-            card.WaitingReason = null;
+            card.WaitingReason = null; card.WaitingDependencyJson = null;
             card.WaitingOnOrganizationUserId = null;
             card.Revision++;
             card.UpdatedAt = now;

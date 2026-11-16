@@ -24,12 +24,12 @@ public static class ResourceChangeDecisionKinds
 
 public sealed record ResourceChangeRole(
     [property: Required, MaxLength(160)] string RoleKey,
-    [property: Required, MaxLength(160)] string Team,
-    [property: Required, MaxLength(256)] string Title,
-    [property: Required, MaxLength(2048)] string Purpose,
+    [property: Required] string Team,
+    [property: Required] string Title,
+    [property: Required] string Purpose,
     int Headcount,
     int Priority,
-    [property: Required, MaxLength(32)] string Timing,
+    [property: Required] string Timing,
     IReadOnlyList<string> RequiredCapabilities,
     bool HumanRequired,
     Guid? ReportsToOrganizationUserId,
@@ -52,8 +52,8 @@ public sealed record ResourceChangeEvidence(
 public sealed record ResourceChangeProposalRequest(
     Guid ConversationId,
     Guid ChatTurnId,
-    [property: Required, MaxLength(2048)] string ProductGoal,
-    [property: Required, MaxLength(4096)] string Rationale,
+    [property: Required] string ProductGoal,
+    [property: Required] string Rationale,
     long ContextRevision,
     IReadOnlyList<ResourceChangeRole> Roles,
     IReadOnlyList<string> Assumptions,
@@ -61,19 +61,18 @@ public sealed record ResourceChangeProposalRequest(
     Guid? SupersedesRequestId,
     [property: Required, MaxLength(160)] string IdempotencyKey)
 {
+    public Guid? RevisesRequestId { get; init; }
     public Guid? CorrectionId { get; init; }
     [MaxLength(200)]
     public string? TeamKey { get; init; }
     [MaxLength(160)]
     public string? TeamName { get; init; }
-    [MaxLength(2048)]
     public string? TeamDescription { get; init; }
     public Guid? TeamId { get; init; }
     public Guid? WorkstreamId { get; init; }
     public long? ExpectedTeamRevision { get; init; }
     public IReadOnlyList<ResourceChangeEvidence> Evidence { get; init; } = [];
     public IReadOnlyList<string> AlternativesConsidered { get; init; } = [];
-    [MaxLength(2048)]
     public string? ExpectedEffect { get; init; }
 }
 
@@ -104,6 +103,7 @@ public sealed record ResourceChangeRequestResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset? DecidedAt)
 {
+    public Guid? RevisesRequestId { get; init; }
     public Guid? CorrectionId { get; init; }
     public Guid? TeamId { get; init; }
     public string? TeamKey { get; init; }

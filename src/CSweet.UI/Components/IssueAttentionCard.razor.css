@@ -1,0 +1,9 @@
+.issue-requests { display: grid; gap: 0; margin: 4px 0 18px; }
+.issue-requests:empty { display: none; }
+.issue-details { margin: 12px 0 16px; font-size: .875rem; color: var(--mud-palette-text-secondary); }
+.issue-details > summary { cursor: pointer; width: fit-content; padding: 8px 0; font-weight: 500; }
+.issue-details > summary:hover { color: var(--mud-palette-primary); }
+.issue-details > summary:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 4px; border-radius: 3px; }
+.issue-details p { margin: 10px 0; }
+.related-issues { display: grid; gap: 12px; margin-top: 12px; }
+.related-issues:empty { display: none; }

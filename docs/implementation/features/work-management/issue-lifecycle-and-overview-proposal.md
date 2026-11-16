@@ -405,7 +405,37 @@ game-specific rule is required to prepare these changes for normal review.
 - Producer `ReviewOwnershipAsync`, `ReconcileOwnershipFindingsAsync` and `ReadOwnershipContributionsAsync` retain identities, exact-source advice and reviewed ownership. Compatible gaps share a durable commission. A versioned contract stamp reconsiders matching blocked planning once on upgrade. Legacy references transfer explicitly; already-owned scope receives a terminal reconciliation receipt without another consultation. Holds propagate to descendants/consumers while prerequisites and independent work remain eligible.
 - Director `ReconcileProductionIssuesAsync` links current feasibility, retained sessions and required decisions. `SupersededRecipeBlocker` requires exact current positive evidence to replace a pending blocker; it cannot override a decided pause or target change. `SaveStateAsync` and `UpsertPortfolioIndexAsync` use shared persistence and domain merges.
 - `OverviewIssueReader.ReadAsync` groups exact typed source links and legacy correlations. Shared `OverviewIssueDirectory` drives both cards and the badge. Actual user decisions remain in attention; agent-owned recovery appears under team work. `IssueAttentionCard` uses a concise brief and native collapsed details with full evidence and authorized actions. `CurrentActivityService.ReadAsync` groups linked commissions/tracking after authorization and execution ranking, so a waiting tracker cannot hide a live attempt.
+
 - Migration `DurableWorkIssues` (`20261115052034`) adds cases, commissions and durable receipts. It does not delete or rewrite existing work, transcripts, decisions or artifacts. Authored explanations and evidence use PostgreSQL `text`; identifier sizes and paging remain protocol controls rather than game/team limits.
+
+### Typed notification presentation
+
+`AttentionNotificationCard` switches on structured source contracts, not agent names, wording or
+private correlation prefixes. Questions, hiring approvals/candidates, document approvals, ordinary
+approvals, incidents and blocked work select their specialized content/controls. Every presentation
+uses the shared `AttentionRequestCard` frame. Compute requests retain their existing shared-frame
+renderer and instance-scoped grant state. Standard questions/approvals from third-party agents use
+the same contracts and renderers. Generic `OverviewIssueCard` data retains supplied brief/evidence;
+an unsupported payload receives an informational fallback rather than inferred actions.
+
+`IssueAttentionCard` routes a standalone source to its typed presentation. Actual grouped issues
+retain their canonical identity/count and show embedded typed requests above collapsed supporting
+evidence. Each question keeps its portrait, role, markdown prompt, full-question link and answer
+controls together. An incident decision already represented by a question is not rendered twice;
+linked blocked-work controls use `OverviewAttentionItems.StandaloneBlockedWork` to avoid competing
+actions. Status-only groups do not gain actions merely because a source exposes retry permission.
+
+`OverviewIssueCard.OwnerOrganizationUserId` preserves the canonical accountable employee ID for
+group portraits; standalone questions use their requesting agent ID. Neither identity is inferred
+from a display name. `PendingAgentQuestions` preserves answer/approval callbacks and hides a
+confirmed standalone answer during a stale refresh without retiring its underlying canonical work.
+Realtime invalidation, authorization, issue grouping and badge eligibility remain authoritative.
+
+Presentation regressions cover grouped/standalone portraits and markdown, inline answers/retries,
+stale reads, duplicate decision widgets, status-only actions, unknown payloads and mounted realtime
+updates. The optional `CSWEET_UI_PREVIEW_DIRECTORY` test setting exports actual rendered component
+markup for headless desktop/mobile checks with the compiled application styles; no live business
+records or agent installations are changed by these previews.
 
 ### Brickwave rollout
 

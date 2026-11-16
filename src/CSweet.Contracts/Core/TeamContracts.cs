@@ -8,13 +8,13 @@ public sealed record TeamMemberInput(
 
 public sealed record CreateTeamRequest(
     [property: Required, MaxLength(160)] string Name,
-    [property: MaxLength(2048)] string? Description,
+    string? Description,
     Guid LeadOrganizationUserId,
     IReadOnlyList<TeamMemberInput>? Members = null);
 
 public sealed record UpdateTeamRequest(
     [property: Required, MaxLength(160)] string Name,
-    [property: MaxLength(2048)] string? Description,
+    string? Description,
     Guid LeadOrganizationUserId,
     long ExpectedRevision);
 

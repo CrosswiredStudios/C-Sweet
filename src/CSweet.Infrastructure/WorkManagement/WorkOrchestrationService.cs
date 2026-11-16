@@ -384,7 +384,7 @@ public sealed partial class WorkOrchestrationService(
                 stage.ItemExecution.BlockedReason = null;
                 workItem.BlockReason = null;
                 workItem.ClaimEventId = null; workItem.ClaimExpiresAt = null;
-                workItem.WaitingReason = null; workItem.WaitingOnOrganizationUserId = null; workItem.NextReviewAt = null;
+                workItem.WaitingReason = null; workItem.WaitingDependencyJson = null; workItem.WaitingOnOrganizationUserId = null; workItem.NextReviewAt = null;
                 AddEvent(organizationId, boardId, stage.ItemExecution.SprintExecutionId, stage.ItemExecutionId, stage.Id, null,
                     "stage.retry.requested", new { member.Id, request.Reason, request.IdempotencyKey, resumedAcceptedReview = true }, request.IdempotencyKey);
                 await CompleteStageAsync(stage, accepted.Disposition, accepted.OutcomeCode, accepted.Summary,
@@ -398,7 +398,7 @@ public sealed partial class WorkOrchestrationService(
         // The card leaves Blocked with the retry so the board matches what the orchestrator does next.
         workItem.Status = WorkTaskStatus.Ready; workItem.BlockReason = null;
         workItem.ClaimEventId = null; workItem.ClaimExpiresAt = null; workItem.NextReviewAt = null;
-        workItem.WaitingReason = null; workItem.WaitingOnOrganizationUserId = null;
+        workItem.WaitingReason = null; workItem.WaitingDependencyJson = null; workItem.WaitingOnOrganizationUserId = null;
         workItem.UpdatedAt = now; workItem.Revision++;
         var execution = stage.ItemExecution.SprintExecution!;
         var policy = await db.WorkOrchestrationPolicyRevisions.AsNoTracking()
