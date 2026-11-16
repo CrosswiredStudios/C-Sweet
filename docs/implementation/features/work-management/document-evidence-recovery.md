@@ -17,3 +17,8 @@ Producer `ReviewAdaptivePlanAsync` includes active-sprint outcomes and delivered
 SDK 5.38.0: 954 SDK tests, 2 sample tests and 7 package-only template tests; runtime template self-test. Producer 6.21.0: 594 tests. Technical Director 6.13.0: 253 tests. Both agents were verified with sibling SDK references disabled, packed as NuGet packages and checked as linux-x64 CSABs with published-output self-tests. The SDK, Producer and Technical Director release workflows succeeded. Platform: 239 affected tests pass, with one PostgreSQL-environment test skipped, and the local AppHost builds with zero errors.
 
 Agent deployment uses published releases and Installed Agents updates. No approved package records, stored manifests or runtime payloads are patched. Live recovery evidence will be recorded in the QFN Games Sprint 1 run review.
+
+
+## Local Office repair launch
+
+`ExecutionFleetService.LocalSetupLaunchMethod` uses the configured, machine-matched Windows development launcher for both repair and upgrade. Previously repair selected the maintenance agent solely from its installed version, even when its connection was offline, so the UI could wait until the handoff expired without launching Windows recovery. Remote Offices retain certificate-authorized agent maintenance. Current owner authorization, repair preflight, one-use handoff, durable launch claim and administrator approval remain required. Regression coverage includes an offline local repair, the existing upgrade-readiness requirement and remote certificate checks (71 affected tests pass).

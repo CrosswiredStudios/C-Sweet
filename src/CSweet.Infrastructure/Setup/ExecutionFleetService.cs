@@ -2185,9 +2185,10 @@ public sealed partial class ExecutionFleetService(
 
     private string LocalSetupLaunchMethod(LocalOfficeSetupSession session)
     {
-        // Rebuild from the same source as first install on the configured development host.
-        // The installed configurator only carries its existing payload.
-        if (session.RecoveryAction == "upgrade" && DevelopmentLauncherConfigured &&
+        // On this configured Windows host, use the same reviewed launcher as first setup.
+        // Repair must not depend on the Office maintenance connection it is repairing.
+        // Other machines continue through their certificate-authorized maintenance agent.
+        if (session.RecoveryAction is "repair" or "upgrade" && DevelopmentLauncherConfigured &&
             MachineMatches(session, Environment.MachineName, "windows",
                 System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString())) return "server";
         if (session.RecoveryAction is "repair" or "upgrade" && session.UpgradeOfficeId is { } officeId)
