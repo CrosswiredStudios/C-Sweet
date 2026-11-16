@@ -366,7 +366,10 @@ public sealed partial class WorkOrchestrationService(
                 throw new UnauthorizedAccessException(
                     "The stage assignee is no longer an active member of the board team. Reassign the ticket, then retry.");
         }
-        var recoverTraversal = stage.LastError == WorkReworkPolicy.LegacyLimitReason;
+        var directedRework = isManager || isGrantedPerson;
+        var stalledReview = directedRework && await db.WorkOrchestrationEvents.AnyAsync(e =>
+            e.OrganizationId == organizationId && e.StageExecutionId == stage.Id && e.EventType == "stage.rework.stalled", cancellationToken);
+        var recoverTraversal = stage.LastError == WorkReworkPolicy.LegacyLimitReason || stalledReview;
         var now = timeProvider.GetUtcNow();
         // Recover the accepted review, rather than asking QA to review the same candidate again.
         if (recoverTraversal && stage.ItemExecution!.CurrentStageKey == stage.StageKey &&
@@ -378,7 +381,7 @@ public sealed partial class WorkOrchestrationService(
                 .SingleAsync(x => x.Id == stage.ItemExecution.SprintExecution.PolicyRevisionId, cancellationToken);
             var transition = pinned.Transitions.SingleOrDefault(x => x.FromStageKey == stage.StageKey && x.OutcomeCode == accepted.OutcomeCode);
             if (transition is not null && WorkReworkPolicy.Evaluate(stage, transition, accepted.OutcomeCode, accepted.Output)
-                    is { Allowed: true, ReviewRework: true })
+                    is { ReviewRework: true } rework && (rework.Allowed || stalledReview))
             {
                 stage.LastError = null;
                 stage.ItemExecution.BlockedReason = null;
@@ -388,7 +391,7 @@ public sealed partial class WorkOrchestrationService(
                 AddEvent(organizationId, boardId, stage.ItemExecution.SprintExecutionId, stage.ItemExecutionId, stage.Id, null,
                     "stage.retry.requested", new { member.Id, request.Reason, request.IdempotencyKey, resumedAcceptedReview = true }, request.IdempotencyKey);
                 await CompleteStageAsync(stage, accepted.Disposition, accepted.OutcomeCode, accepted.Summary,
-                    accepted.Output.GetRawText(), member.Id, request.IdempotencyKey, cancellationToken);
+                    accepted.Output.GetRawText(), member.Id, request.IdempotencyKey, cancellationToken, ownerDirectedRework: stalledReview);
                 return ToResponse(stage);
             }
         }
@@ -692,7 +695,7 @@ public sealed partial class WorkOrchestrationService(
 
     private async Task CompleteStageAsync(
         WorkStageExecution stage, string disposition, string outcomeCode, string summary,
-        string outputJson, Guid actorId, string idempotencyKey, CancellationToken cancellationToken)
+        string outputJson, Guid actorId, string idempotencyKey, CancellationToken cancellationToken, bool ownerDirectedRework = false)
     {
         if (stage.Status is WorkStageExecutionStatus.Completed or WorkStageExecutionStatus.Cancelled)
             throw new InvalidOperationException("The stage is already terminal.");
@@ -707,7 +710,7 @@ public sealed partial class WorkOrchestrationService(
         var next = policy.Stages.Single(x => x.Key == transition.ToStageKey);
         var traversal = stage.ItemExecution.Traversal + (transition.MaximumTraversals.HasValue ? 1 : 0);
         var rework = WorkReworkPolicy.Evaluate(stage, transition, outcomeCode, JsonSerializer.Deserialize<JsonElement>(outputJson));
-        if (!rework.Allowed)
+        if (!rework.Allowed && !ownerDirectedRework)
         {
             stage.Status = rework.ReviewRework ? WorkStageExecutionStatus.Blocked : WorkStageExecutionStatus.Failed;
             stage.LastError = rework.Reason;
@@ -1040,14 +1043,14 @@ public sealed partial class WorkOrchestrationService(
         LatestOutcome = ReadCompletedOutcome(stage)
     };
 
-    private static Shared.WorkExecutionOutcomeV1? ReadCompletedOutcome(WorkStageExecution stage)
+    internal static Shared.WorkExecutionOutcomeV1? ReadCompletedOutcome(WorkStageExecution stage)
     {
         var attempt = stage.Attempts.OrderByDescending(x => x.Attempt).ThenByDescending(x => x.CreatedAt).FirstOrDefault();
-        if (stage.Status != WorkStageExecutionStatus.Completed || attempt?.Status != WorkExecutionAttemptStatus.Completed || attempt.ResultJson is null) return null;
+        if (attempt?.Status != WorkExecutionAttemptStatus.Completed || attempt.ResultJson is null) return null;
         try
         {
             var result = JsonSerializer.Deserialize<Shared.WorkExecutionOutcomeV1>(attempt.ResultJson, JsonOptions);
-            return result?.StageExecutionId == stage.Id && result.AttemptId == attempt.Id && result.Disposition == "Completed" &&
+            return result?.StageExecutionId == stage.Id && result.AttemptId == attempt.Id && result.Disposition is "Completed" or "Blocked" &&
                 result.OutcomeCode == stage.LastOutcomeCode ? result : null;
         }
         catch (JsonException) { return null; }

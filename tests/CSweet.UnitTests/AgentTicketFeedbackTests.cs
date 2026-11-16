@@ -405,7 +405,7 @@ public sealed class AgentTicketFeedbackTests
     }
 
     [Fact]
-    public async Task ContextIncludesAllLiveCommentsAndRejectsOtherInstallationsAndTenants()
+    public async Task ContextBoundsRecentMaterialCommentsAndRejectsOtherInstallationsAndTenants()
     {
         await using var db = CreateDb();
         var (ticket, owner, _) = Seed(db, false);
@@ -430,7 +430,9 @@ public sealed class AgentTicketFeedbackTests
         ticket.ClaimEventId = null; // Association survives the SDK releasing the claim before reporting failure.
         await db.SaveChangesAsync();
         var context = await AgentTicketFeedback.ReadContextAsync(db, work, default);
-        Assert.Contains("Discussion entry 0.", context);
+        Assert.DoesNotContain("Discussion entry 0.", context);
+        Assert.Contains("Discussion entry 238.", context);
+        Assert.DoesNotContain("Discussion entry 237.", context);
         Assert.Contains("Discussion entry 249.", context);
         Assert.DoesNotContain("Discussion entry 17.", context);
         work.AgentInstallationId = Guid.NewGuid();

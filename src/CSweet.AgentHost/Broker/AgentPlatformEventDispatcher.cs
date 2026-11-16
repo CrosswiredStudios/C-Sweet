@@ -21,18 +21,19 @@ public sealed class AgentPlatformEventDispatcher(
     internal async Task DispatchPendingAsync(CancellationToken cancellationToken)
     {
         var now = clock.GetUtcNow();
-        List<Guid> pending;
+        List<AgentPlatformEventOutboxItem> pending;
         await using (var scope = scopeFactory.CreateAsyncScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
             pending = await db.AgentPlatformEventOutbox.AsNoTracking()
                 .Where(x => x.Status == AgentPlatformEventOutboxStatus.Pending && x.NextAttemptAt <= now)
                 .OrderBy(x => x.OccurredAt).ThenBy(x => x.Id)
-                .Select(x => x.Id).Take(50).ToListAsync(cancellationToken);
+                .Take(50).ToListAsync(cancellationToken);
         }
 
-        foreach (var eventId in pending)
+        foreach (var group in PendingHintGroups(pending))
         {
+            var eventId = group[^1].Id;
             try
             {
                 // Inbox.EnqueueAsync saves through this scope. A failed insert must never
@@ -120,6 +121,15 @@ public sealed class AgentPlatformEventDispatcher(
                 item.LastError = deliveries == 0 && item.EventType is CSweet.Agent.SDK.ProjectHealthEvents.ReviewDue or CSweet.Agent.SDK.ProjectHealthEvents.IncidentChanged or CSweet.Agent.SDK.ProjectHealthEvents.OwnerReportRequested
                     ? "Incident recipient is unavailable or has no approved event subscription; the platform handoff deadline remains active."
                     : null;
+                // A delivered current-state hint covers the older hints in this bounded batch.
+                // Keep every durable receipt, and never acknowledge siblings before delivery succeeds.
+                var siblings = group.Take(group.Count - 1).Select(x => x.Id).ToArray();
+                foreach (var older in await db.AgentPlatformEventOutbox.Where(x => siblings.Contains(x.Id) &&
+                    x.Status == AgentPlatformEventOutboxStatus.Pending).ToListAsync(cancellationToken))
+                {
+                    older.Status = AgentPlatformEventOutboxStatus.Published; older.PublishedAt = now;
+                    older.LastError = $"Current-state hint delivered by {item.Id:D}.";
+                }
                 await db.SaveChangesAsync(cancellationToken);
             }
             catch (Exception exception) when (
@@ -139,6 +149,26 @@ public sealed class AgentPlatformEventDispatcher(
                 }
             }
         }
+    }
+
+    internal static IReadOnlyList<IReadOnlyList<AgentPlatformEventOutboxItem>> PendingHintGroups(IReadOnlyList<AgentPlatformEventOutboxItem> pending) =>
+        pending.GroupBy(HintKey).Select(g => (IReadOnlyList<AgentPlatformEventOutboxItem>)g.OrderBy(x => x.OccurredAt).ThenBy(x => x.Id).ToArray()).ToArray();
+
+    private static string HintKey(AgentPlatformEventOutboxItem item)
+    {
+        // Only events whose consumers discover authorized current project state are coalescible.
+        // Work assignments, decisions, messages and owner-report requests retain individual delivery.
+        if (item.TargetInstallationId is not null && item.EventType is CSweet.Agent.SDK.ProjectHealthEvents.ReviewDue or CSweet.Agent.SDK.ProjectHealthEvents.IncidentChanged)
+        {
+            try
+            {
+                using var data = JsonDocument.Parse(item.DataJson);
+                if (data.RootElement.TryGetProperty("workstreamId", out var project) && project.TryGetGuid(out var id))
+                    return $"{item.OrganizationId}:{item.TargetInstallationId}:{item.EventType}:{id}";
+            }
+            catch (JsonException) { } // Malformed events retain their own failure receipt.
+        }
+        return item.Id.ToString("D");
     }
 
     private async Task RecordFailureAsync(Guid eventId, Exception exception, CancellationToken cancellationToken)

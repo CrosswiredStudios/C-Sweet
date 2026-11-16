@@ -18,6 +18,24 @@ namespace CSweet.UnitTests;
 public sealed partial class AgentPlatformEventDispatcherTests
 {
     [Fact]
+    public void OnlyCurrentStateHintsCoalesceWithinTheSameProjectRecipientAndEvent()
+    {
+        var org = Guid.NewGuid(); var target = Guid.NewGuid(); var project = Guid.NewGuid();
+        AgentPlatformEventOutboxItem Hint(string type, Guid p, Guid recipient) => new() { Id = Guid.NewGuid(), OrganizationId = org,
+            TargetInstallationId = recipient, EventType = type, DataJson = JsonSerializer.Serialize(new { workstreamId = p }), OccurredAt = DateTimeOffset.UtcNow };
+        var one = Hint(CSweet.Agent.SDK.ProjectHealthEvents.ReviewDue, project, target);
+        var two = Hint(one.EventType, project, target);
+        var otherProject = Hint(one.EventType, Guid.NewGuid(), target);
+        var otherRecipient = Hint(one.EventType, project, Guid.NewGuid());
+        var decision = Hint("work.decision.changed", project, target);
+        var secondDecision = Hint(decision.EventType, project, target);
+        var groups = AgentPlatformEventDispatcher.PendingHintGroups([one, two, otherProject, otherRecipient, decision, secondDecision]);
+        Assert.Equal(5, groups.Count);
+        var merged = Assert.Single(groups, g => g.Count == 2);
+        Assert.Equal(one.Id, merged[0].Id); Assert.Equal(two.Id, merged[1].Id);
+    }
+
+    [Fact]
     public async Task HostCancellationLeavesTheUndeliveredEventPendingWithoutConsumingAnAttempt()
     {
         using var cancellation = new CancellationTokenSource();
