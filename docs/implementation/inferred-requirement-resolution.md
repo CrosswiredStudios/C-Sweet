@@ -86,3 +86,9 @@ existing feasibility collaboration completed with fresh positive evidence. The o
 was superseded and the existing certified provider selected. Sprint 1 remains Planned with zero
 reported capacity. Live decision-answer follow-through and automatic recovery without operator
 intervention were not demonstrated; see the run review for timestamps and evidence identities.
+
+The later [inferred work-capacity follow-up](inferred-work-capacity.md) resolves that retained zero.
+SDK 5.37.0, Producer 6.20.0 and Technical Director 6.12.0 published and installed through normal
+updates. A fresh owner assessment offered eight points; the existing Sprint 1 became Active at
+11:56:12 a.m. PST and its original planning-only task entered In Progress. The run review and event
+ledger retain both observation boundaries. No owner answer or forced allocation was needed.
