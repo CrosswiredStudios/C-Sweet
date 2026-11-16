@@ -8,6 +8,7 @@ Track what agents actually exchanged, decided, and completed from business creat
 |---|---|---|---|
 | [Qwen Games and Prism Break, November 15](qwen-games-prism-break-2026-11-15.md) | 6.16.0 / 0.11.0 | Production brief accepted; staffing returned twice; no project tickets or sprint | Earlier-version baseline. The owner plans to replace this business. This is not an acceptance test of 6.17.0 / 0.12.0. |
 | [QFN Games and Brickfall, November 15](qfn-games-brickfall-2026-11-15.md) | 6.17.0 / 0.12.0 | Production brief accepted; two staffing returns; timer revised first proposal but both decision wakes retained stale waits | Updated agents verified. Purpose truncation and fixed assignment fields prevent sufficient revision. No technical hire or Sprint 1 at 7:07 p.m. observation. |
+| [QFN Games and Shardfall, November 16](qfn-games-shardfall-2026-11-16.md) | 6.18.0 / 0.13.0 → 6.19.0 / 0.14.1; Technical Director 6.11.0 | Original estimate accepted; Story advice reference saved; retained feasibility Completed and certified provider selected | Operator-assisted recovery verified at 11:08 a.m. All three investigated failures cleared. Sprint 1 remains Planned with reported zero capacity; no active sprint is claimed. |
 
 ## Updating the living record
 
