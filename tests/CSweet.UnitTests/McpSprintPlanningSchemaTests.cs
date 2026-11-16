@@ -30,7 +30,6 @@ public sealed class McpSprintPlanningSchemaTests
     [InlineData("invalid-source")]
     [InlineData("invalid-installation")]
     [InlineData("invalid-session")]
-    [InlineData("invalid-revision")]
     [InlineData("negative-confidence")]
     [InlineData("excess-confidence")]
     public void EstimateRejectsMalformedEvidence(string scenario)
@@ -73,6 +72,16 @@ public sealed class McpSprintPlanningSchemaTests
     private static EstimateWorkItemRequest Estimate() => new(Guid.NewGuid(), Guid.NewGuid(), 5, 1, "estimate")
         { Provenance = Evidence() };
     private static WorkEstimateProvenance Evidence() => new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 3, new string('a', 64), 0.7m);
+
+    [Fact]
+    public void ShardfallEstimateAndDirectOwnerAssessmentUseTheCurrentWireEnvelope()
+    {
+        var request = Estimate() with { Provenance = Evidence() with { PlanningRevision = 1 } };
+        Validate(WorkItemCapabilities.Estimate, request);
+        Validate(WorkItemCapabilities.Estimate, request with { Provenance = request.Provenance with {
+            CoordinationSessionId = Guid.Empty, CoordinationTurnRevision = 0,
+            AssessmentStateKey = "owner-assessment:current" } });
+    }
     private static void Validate(string capability, object request)
     {
         var tool = Assert.Single(new McpToolCatalog([]).List(new HashSet<string> { capability }));

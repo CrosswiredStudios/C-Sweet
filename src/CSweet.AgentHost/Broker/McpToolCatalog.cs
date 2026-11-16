@@ -631,6 +631,7 @@ public sealed class McpToolCatalog(
         if (capability is CompanyReportingCapabilities.Finance or CompanyReportingCapabilities.Legal or CompanyReportingCapabilities.Project)
             return CompanyReportingSchemas.Input(capability);
         if (capability == ResourceChangeCapabilities.Propose) return ContractToolSchema.Create(typeof(CSweet.Contracts.Core.ResourceChangeProposalRequest), nullableFieldsOptional: true);
+        if (capability == WorkItemActions.Estimate) return WorkEstimateToolSchema.Input;
         if (capability == W.WorkstreamCapabilityNames.PlanProposeV2)
             return WorkstreamProposalToolSchema.Input;
         if (capability == WorkItemActions.Create)
@@ -883,9 +884,6 @@ public sealed class McpToolCatalog(
             """),
         WorkItemActions.DeleteComment => Schema("""
             {"type":"object","required":["boardId","itemId","commentId","expectedRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"commentId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
-            """),
-        WorkItemActions.Estimate => Schema("""
-            {"type":"object","required":["boardId","itemId","expectedItemRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"estimatePoints":{"type":["number","null"],"minimum":0,"maximum":999999.99},"provenance":{"type":["object","null"],"required":["sourceOrganizationUserId","coordinationSessionId","coordinationTurnRevision","sourceDigest","confidence"],"properties":{"sourceOrganizationUserId":{"type":"string","format":"uuid"},"sourceAgentInstallationId":{"type":["string","null"],"format":"uuid"},"coordinationSessionId":{"type":"string","format":"uuid"},"coordinationTurnRevision":{"type":"integer","minimum":1},"sourceDigest":{"type":"string","minLength":1,"maxLength":128},"confidence":{"type":"number","minimum":0,"maximum":1}},"additionalProperties":false},"expectedItemRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         WorkItemActions.Move => Schema("""
             {"type":"object","required":["boardId","itemId","targetColumnId","expectedRevision","idempotencyKey"],"properties":{"boardId":{"type":"string","format":"uuid"},"itemId":{"type":"string","format":"uuid"},"targetColumnId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}

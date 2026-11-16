@@ -249,6 +249,10 @@ public static class AgentTicketFeedback
 
     public static string FailureSentence(string error) => error switch
     {
+        var x when DiagnosticField(x, "code") == "platform.capability.validation_failed" =>
+            $"The platform rejected the input to {DiagnosticField(x, "capability") ?? "the operation"}. The responsible owner needs to reconcile the submitted evidence with the current input contract; repeating the same request will not repair it.",
+        var x when DiagnosticField(x, "code") == "platform.capability.conflict" =>
+            $"The platform found conflicting state for {DiagnosticField(x, "capability") ?? "the operation"}. The responsible owner needs to reconcile the existing result, target and command identity before retrying.",
         var x when x.StartsWith("reported:", StringComparison.Ordinal) =>
             "I couldn't finish this ticket. " + ReportedReason(x["reported:".Length..]),
         var x when x.Contains("lease expired", StringComparison.OrdinalIgnoreCase) =>

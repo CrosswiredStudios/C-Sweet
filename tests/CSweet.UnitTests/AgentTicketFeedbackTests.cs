@@ -13,6 +13,16 @@ public sealed class AgentTicketFeedbackTests
     private const string Error = "agent-failure:v1;code=runtime.transport;exceptionType=IOException;diagnosticId=one";
 
     [Theory]
+    [InlineData("platform.capability.validation_failed", "input", "work.item.estimate")]
+    [InlineData("platform.capability.conflict", "conflicting state", "work.item.comment")]
+    public void IntegrationFailuresNameTheOperationAndRequiredReconciliation(string code, string expected, string capability)
+    {
+        var sentence = AgentTicketFeedback.FailureSentence($"agent-failure:v1;code={code};capability={capability};diagnosticId=example");
+        Assert.Contains(expected, sentence); Assert.Contains(capability, sentence);
+        Assert.DoesNotContain("execution stopped unexpectedly", sentence);
+    }
+
+    [Theory]
     [InlineData("development.progress")]
     [InlineData("development.infrastructure")]
     public async Task Development_checkpoints_respect_bounded_platform_retry_without_repeated_issue_escalation(string code)
