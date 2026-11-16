@@ -468,7 +468,9 @@ try {
         # Connection metadata can change while Office identity and its certified runtime remain valid.
         # Existing installers preserve Node configuration when no new enrollment is requested.
         # Reconcile a changed, verified server pin before doing another full runtime installation.
-        $connectionStorage = Get-OptionalObjectProperty $redemption 'storage'
+        # This has already been resolved against the protected installed-volume registration.
+        # Older Headquarters receipts omit storage even though the local installation has it.
+        $connectionStorage = $storage
         if ($null -ne $connectionStorage) {
             . (Join-Path $PSScriptRoot 'Sync-CSweetOfficeConnection.ps1')
             $reconciled = Sync-CSweetOfficeConnection -OfficeId $expectedOfficeId `

@@ -107,3 +107,14 @@ The Office connection went offline during restart (last heartbeat 1:08 p.m. PST)
 
 
 At **1:23:39 p.m. PST**, the normal board Retry action successfully routed the retained negative review back to Victor: traversal 6, assignment revision 7, author stage `025f06d5-5057-4f27-8490-12cf6a8e4b0d`. The task moved from Blocked to Ready; orchestration reports Pending/Dispatching. Its existing six documents and prior review findings were retained. No new author or QA execution has completed while Office remains offline. Planning acceptance is still unverified.
+
+
+## Fresh-install test handoff
+
+The user selected a fresh-install test instead of further recovery of the existing Sprint 1 run. Existing-run acceptance remains **unverified**: its planning task was returned to its author but never completed a new author/reviewer cycle while Office was offline.
+
+Follow-up diagnosis found two Office recovery defects: local repair depended on its disconnected maintenance client, and an installer upgrade preserved the Node's old server-certificate pin. The gateway's observed public certificate matches the configured SHA-256; Windows Office logs show strict TLS rejection on its old control connection. The platform repair now uses the configured same-host launcher, exposes a bounded missing-heartbeat failure, and reconciles an authorized changed connection pin while retaining identity and runtime files. Legacy setup receipts can omit storage; repair uses the already validated installed-volume registration in that case. These changes are on `codex/qfn-recovery-verification` / PR 75, not merged to main.
+
+Additional validation: 73 fleet and repair/UI tests, 10 setup-script/completion tests, PowerShell parsing, and executable connection-plan checks for valid rotation, preserved state, wrong pin/host, expired/missing certificate and HTTP refusal. The final legacy-storage compatibility adjustment has not been exercised by a new privileged repair. Fresh installation still needs its end-to-end operational test; test success is not claimed from compilation or a queued task.
+
+Published agent versions for the fresh test: Producer 6.21.0, Technical Director 6.13.0, shared SDK 5.38.0. No installed agent payload, approved package record, historical artifact or acceptance criterion was patched.
