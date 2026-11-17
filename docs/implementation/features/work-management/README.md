@@ -1,5 +1,7 @@
 # Universal work management
 
+See [document evidence and owned rework recovery](document-evidence-recovery.md) for shared exact sources, inferred dependency decisions, retained artifact revisions, authorized stagnation recovery and bounded coordination.
+
 See the proposed [issue lifecycle and Overview improvements](issue-lifecycle-and-overview-proposal.md)
 for durable issue identity, consolidated agent consultation, current actionability, concise status,
 idempotency fixes and legacy business recovery. This is a proposal, not implemented behavior.

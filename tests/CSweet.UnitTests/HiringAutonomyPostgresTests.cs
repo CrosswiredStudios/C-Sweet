@@ -11,6 +11,46 @@ namespace CSweet.UnitTests;
 public sealed partial class HiringServiceTests
 {
     [HiringAutonomyPostgresFact]
+    public async Task HiringAutonomy_PostgresDependencyWaitAndOutboxSurviveFailedPreview()
+    {
+        var connection = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("CSWEET_HIRING_TEST_POSTGRES"));
+        Assert.Contains(connection.Host, new[] { "localhost", "127.0.0.1", "::1" });
+        connection.Database = "hiring_dependency_test_" + Guid.NewGuid().ToString("N"); connection.Pooling = false;
+        var options = new DbContextOptionsBuilder<CSweetDbContext>().UseNpgsql(connection.ConnectionString).Options;
+        await using var setup = new CSweetDbContext(options);
+        try
+        {
+            await setup.Database.EnsureCreatedAsync();
+            var preview = new FailingHiringPreview(true);
+            var f = await AutonomyFixtureAsync(setup, importPreviewOverride: preview);
+            await f.Service.UpdatePolicyAsync(f.Organization, f.Installation, f.Application,
+                new(HiringSelectionMode.Automatic, AutomaticHiringLevel.BroadDelegation), 0, "Hire automatically");
+            var plan = await AutonomyPlanAsync(setup, f.Organization, f.Installation, f.Owner);
+            Assert.Equal("Queued", (await f.Service.SubmitDelegatedAsync(f.Organization, f.Installation, plan.Id)).Status);
+            await using var fresh = new CSweetDbContext(options);
+            var row = await fresh.PluginOperationalStates.SingleAsync(x => x.Kind == DependencyWaits.Kind);
+            Assert.Equal("dependency.rate_limited", DependencyWaits.Read(row).Code);
+            Assert.True(row.AvailableAt > DateTimeOffset.UtcNow);
+            Assert.Contains(await fresh.ApplicationRealtimeOutbox.ToListAsync(), x => x.EventType.Contains("hiring-recommendations"));
+            Assert.Empty(await fresh.AgentHireOperations.ToListAsync());
+            var selected = JsonSerializer.Deserialize<AvailableAgent>((await fresh.WorkforcePlans.SingleAsync()).SelectedCatalogAgentJson!, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+            HiringService Service(CSweetDbContext db) => new(db, new RecordingOrganizationUserService(db), new TestAuditEventWriter(),
+                preview, new RecordingInstallationService(f.Organization), new RecordingAgentCatalog(selected), new RecordingDefinitionService());
+            Assert.False(await Service(fresh).RecoverNextHiringDependencyAsync());
+            await DependencyWaits.SaveAsync(fresh, f.Organization, f.Installation, DependencyWaits.Read(row) with { RetryAt = DateTimeOffset.UtcNow.AddSeconds(-1) }, DateTimeOffset.UtcNow, default);
+            await fresh.SaveChangesAsync();
+            async Task<bool> Recover()
+            {
+                await using var other = new CSweetDbContext(options);
+                return await Service(other).RecoverNextHiringDependencyAsync();
+            }
+            Assert.Single(await Task.WhenAll(Recover(), Recover()), x => x);
+            Assert.Equal(2, preview.Calls);
+        }
+        finally { await setup.Database.EnsureDeletedAsync(); }
+    }
+
+    [HiringAutonomyPostgresFact]
     public async Task HiringAutonomy_PostgresManualSelectionSerializesWithHireCommit()
     {
         var connection = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("CSWEET_HIRING_TEST_POSTGRES"));

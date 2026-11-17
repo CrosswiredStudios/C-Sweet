@@ -1,0 +1,18 @@
+{
+  "organizationId": "b91ec903-4a9a-46f9-953a-e7786c20fa25",
+  "projectId": "f7a52c6e-d378-4635-9237-44fbeaced5ba",
+  "boardId": "dc0d440b-e651-4f29-8c6f-48b114875753",
+  "sprintId": "79b3f5c1-a1ac-4c2b-8577-2a02a2672b02",
+  "events": [
+    { "id": "sprint-created", "atUtc": "2026-11-17T02:45:53.63035Z", "result": "Production Sprint 1 Planned; empty scope", "source": "work board sprints API", "nextOwner": "Gabriel Reyes" },
+    { "id": "td-model-failure", "atUtc": "2026-11-17T03:18:52.659322Z", "sender": "Victor Lin 6.13.0", "result": "AgentModelJsonException; exact rejected reply not inspected", "sourceEventId": "d4c5ed29-280a-4d32-8bfa-7799595da3b6", "diagnosticId": "ea301612-3d5e-42ef-8c9c-69c9aa2b46c7", "nextOwner": "Victor Lin" },
+    { "id": "self-consult-first", "atUtc": "2026-11-17T03:19:50.049777Z", "sender": "Gabriel Reyes 6.21.0", "recipient": "Gabriel Reyes", "purpose": "Question actually asks Marcus to judge current-increment scope", "result": "Board collaboration rejected: both participants must be active agents on board team", "sourceEventId": "37d17a2e-8539-4869-9e63-b27b8dc05803", "nextOwner": "Producer integration" },
+    { "id": "self-consult-repeat", "atUtc": "2026-11-17T03:19:56.108016Z", "sender": "Gabriel Reyes 6.21.0", "recipient": "Gabriel Reyes", "result": "Same incorrect target and repeated refusal; main planning commitment Blocked", "sourceEventId": "ede46f1f-e2e2-4cd5-888b-c4c74c18dbe5", "workItemId": "a6a0ef35-b7bf-4c5f-a5b6-ebb38d9ab3ce", "nextOwner": "Producer integration" },
+    { "id": "stale-incident-report", "atUtc": "2026-11-17T03:20:38.213462Z", "sender": "Gabriel Reyes", "result": "Report source evidence changed", "sourceEventId": "ea485a6b-e2c9-4de1-98d4-5dd20d00a263", "incidentId": "ee9cf4aa-5b67-401b-9d11-e7cfd25a9959", "nextOwner": "Incident reporter" },
+    { "id": "ready-office", "atUtc": "2026-11-17T03:26:32.054307Z", "result": "Ready; one node; 18 CPUs; 54272 MB; 9 concurrent workloads", "source": "Office capacity API" },
+    { "id": "sdk-published", "atUtc": "2026-11-17T03:57:17Z", "result": "SDK 5.39.0 release and publication workflow success", "commit": "c1daded1414066313c6728855d2bd20363eebd1a", "source": "https://github.com/CrosswiredStudios/CSweet.Agent.Sdk/actions/runs/44013607495" },
+    { "id": "producer-published", "atUtc": "2026-11-17T03:58:36Z", "result": "Producer 6.21.1 release workflow success; installation not yet verified", "commit": "3c4ed9913c4277df962f456f22f5780f8e657d79", "source": "https://github.com/CrosswiredStudios/CSweet.Agent.Producer.VideoGame/actions/runs/44013808364", "nextOwner": "Installed Agents update flow" }
+  ],
+  "auditLimits": "Gabriel failed timeline from 03:15 UTC: 7 records, no next cursor. Victor failed timeline from 03:15 UTC: 2 records, no next cursor. This is not an exhaustive all-agent audit.",
+  "lastVerifiedSprintStatus": "Planned"
+}

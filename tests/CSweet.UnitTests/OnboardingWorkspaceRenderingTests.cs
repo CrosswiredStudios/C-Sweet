@@ -21,6 +21,34 @@ namespace CSweet.UnitTests;
 public sealed class OnboardingWorkspaceRenderingTests
 {
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ChangeFromSummaryReopensOriginalViewOnlyAfterServerCancellation(bool accepted)
+    {
+        var api = new SetupApi("agent-execution");
+        var html = WebUtility.HtmlDecode(await Render(api, "aurora", officeScenario: "created", officeAction: async office =>
+        {
+            var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+            var status = (ExecutionCapacityOnboardingResponse)typeof(AgentHostOnboardingStep).GetField("_status", flags)!.GetValue(office)!;
+            api.CancelResult = new(accepted, accepted ? null : "setup_cannot_cancel", "Office setup changed. Try again.", null, status);
+            await (Task)typeof(AgentHostOnboardingStep).GetMethod("ChangeLocalSetupAsync", flags)!.Invoke(office, null)!;
+        }));
+        Assert.Single(api.Paths, path => path.EndsWith("/cancel"));
+        if (accepted)
+        {
+            Assert.Contains("Install C-Sweet Office here", html);
+            Assert.Contains("Create an Office", html);
+            Assert.DoesNotContain("Continue to Windows approval", html);
+            Assert.DoesNotContain("host-target-summary", html);
+        }
+        else
+        {
+            Assert.Contains("Office setup changed. Try again.", html);
+            Assert.Contains("Continue to Windows approval", html);
+        }
+    }
+
+    [Theory]
     [InlineData("llm-provider", "editor", "Base URL")]
     [InlineData("llm-provider", "error", "Test connection failed")]
     [InlineData("llm-provider", "delete", "Keep provider")]
@@ -62,6 +90,8 @@ public sealed class OnboardingWorkspaceRenderingTests
         var api = new SetupApi("agent-execution");
         var html = WebUtility.HtmlDecode(await Render(api, "aurora", officeScenario: scenario));
         Assert.Contains(expected, html);
+        if (scenario is "created" or "missing-handoff") Assert.Contains("Change drive or capacity", html);
+        if (scenario is "stalled" or "redeemed" or "connected" or "ready") Assert.DoesNotContain("Change drive or capacity", html);
         if (scenario is "blocked-reuse" or "removal-failed") Assert.DoesNotContain("Reassign this Office", html);
         if (scenario == "recoveryrequired") Assert.Contains("Remove Office", html);
         if (scenario == "remote-approval") Assert.Contains("Not my host", html);
@@ -132,7 +162,8 @@ public sealed class OnboardingWorkspaceRenderingTests
         Assert.Contains(failure ? "Please try again." : "Your workspace is ready.", WebUtility.HtmlDecode(html));
     }
 
-    private static async Task<string> Render(SetupApi api, string theme, bool finish = false, string? officeScenario = null, string? providerScenario = null)
+    private static async Task<string> Render(SetupApi api, string theme, bool finish = false, string? officeScenario = null, string? providerScenario = null,
+        Func<AgentHostOnboardingStep, Task>? officeAction = null)
     {
         var services = new ServiceCollection().AddLogging();
         services.AddMudServices(); services.AddCSweetLocalization();
@@ -158,6 +189,7 @@ public sealed class OnboardingWorkspaceRenderingTests
             if (officeScenario is not null)
             {
                 SeedOffice(activator.Office!, officeScenario);
+                if (officeAction is not null) await officeAction(activator.Office!);
                 typeof(ComponentBase).GetMethod("StateHasChanged", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(activator.Office, null);
                 await Task.Yield();
             }
@@ -299,6 +331,7 @@ public sealed class OnboardingWorkspaceRenderingTests
     private sealed class SetupApi(string currentStep) : HttpMessageHandler
     {
         public List<string> Paths { get; } = [];
+        public LocalOfficeSetupActionResponse? CancelResult { get; set; }
         public bool FailFinish { get; init; }
         private static readonly string[] Keys = ["welcome", "agent-execution", "llm-provider", "personal-assistant", "genai-provider"];
         private object Status(bool complete = false) => new {
@@ -310,6 +343,7 @@ public sealed class OnboardingWorkspaceRenderingTests
             var path = request.RequestUri!.AbsolutePath;
             Paths.Add(path);
             object? body = path switch {
+                _ when path.EndsWith("/cancel") => CancelResult,
                 "/api/llm-provider-profiles" when currentStep == "personal-assistant" => new[] { new CSweet.Contracts.Llm.LlmProviderProfileResponse(Guid.Parse("00000000-0000-0000-0000-000000000001"), "Local vLLM", CSweet.Domain.Setup.LlmProviderType.Vllm, "http://localhost:8000", null, "qwen3.8-27b", null, 256000, 128000, true, true, true, false, true, null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow) },
                 "/api/personal-assistant/settings" => new CSweet.Contracts.PersonalAssistant.PersonalAssistantSettings(null, null, null, 0, false, null, [], new Dictionary<string, System.Text.Json.JsonElement>()),
                 "/api/setup/status" => Status(),

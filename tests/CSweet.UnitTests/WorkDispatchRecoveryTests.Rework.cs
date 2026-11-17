@@ -23,7 +23,7 @@ public sealed partial class WorkDispatchRecoveryTests
         if (manual)
             await (Task)typeof(WorkOrchestrationService).GetMethod("CompleteStageAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .Invoke(new WorkOrchestrationService(db, TimeProvider.System), [stage, "Completed", "changes_requested", "Review",
-                    output.GetRawText(), Guid.NewGuid(), "manual-progress", CancellationToken.None])!;
+                    output.GetRawText(), Guid.NewGuid(), "manual-progress", CancellationToken.None, false])!;
         else
         {
             await AdvanceRework(db, state, stage, output);
@@ -85,6 +85,36 @@ public sealed partial class WorkDispatchRecoveryTests
         Assert.Single(await db.WorkOrchestrationEvents.Where(x => x.EventType == "stage.retry.requested").ToListAsync());
         Assert.Empty(await db.AgentWorkItems.ToListAsync());
         Assert.Single(await db.WorkExecutionAttempts.Where(x => x.StageExecutionId == stage.Id).ToListAsync());
+    }
+
+    [Fact]
+    public async Task AuthorizedStagnationRecoveryRetainsFindingsAndReturnsToAuthorExactlyOnce()
+    {
+        await using var db = CreateDb(); var state = await Seed(db, 1);
+        var stage = await PrepareRework(db, state, improving: false);
+        var user = Guid.NewGuid(); var member = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = state.Execution.OrganizationId,
+            ApplicationUserId = user, EmployeeType = EmployeeType.Human, IsActive = true };
+        db.CoreOrganizationUsers.Add(member);
+        (await db.WorkBoards.SingleAsync()).ManagerOrganizationUserId = member.Id;
+        await db.SaveChangesAsync();
+        var review = WorkReworkPolicy.CompletedOutcome(stage)!;
+        stage.LastOutcomeCode = review.OutcomeCode;
+        await AdvanceRework(db, state, stage, review.Output); await db.SaveChangesAsync();
+        Assert.Equal(WorkStageExecutionStatus.Blocked, stage.Status);
+        var retained = WorkOrchestrationService.ReadCompletedOutcome(stage);
+        Assert.NotNull(retained); Assert.Equal(review.Output.GetRawText(), retained.Output.GetRawText());
+        var service = new WorkOrchestrationService(db, TimeProvider.System);
+        var request = new WorkOrchestrationControlRequest(1, "resolve-evidence-gap", "New source access and corrected evidence packet are available; address the retained findings.");
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.RetryAsync(state.Execution.OrganizationId,
+            state.Execution.BoardId, stage.Id, Guid.NewGuid(), request));
+        await service.RetryAsync(state.Execution.OrganizationId, state.Execution.BoardId, stage.Id, user, request);
+        await service.RetryAsync(state.Execution.OrganizationId, state.Execution.BoardId, stage.Id, user, request);
+        db.ChangeTracker.Clear();
+        var item = await db.WorkItemExecutions.Include(x => x.Stages).Include(x => x.WorkItem).SingleAsync();
+        Assert.Equal(4, item.Traversal); Assert.Equal("specialist-execution", item.CurrentStageKey);
+        Assert.Single(item.Stages, x => x.Traversal == 4);
+        Assert.Single(await db.WorkOrchestrationEvents.Where(x => x.EventType == "stage.retry.requested").ToListAsync());
+        Assert.Equal(WorkTaskStatus.Ready, item.WorkItem!.Status);
     }
 
     private static async Task<WorkStageExecution> PrepareRework(CSweet.Infrastructure.Persistence.CSweetDbContext db, State state, bool improving)

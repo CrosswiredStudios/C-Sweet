@@ -605,38 +605,7 @@ public sealed partial class HiringService(
                 cancellationToken))
             throw new ArgumentException("The proposed manager does not belong to this organization.");
 
-        var source = agent.Source switch
-        {
-            AgentCatalogSource.Installed => "InstalledPlugin",
-            AgentCatalogSource.LocalDirectory => "LocalDirectoryCatalog",
-            AgentCatalogSource.FirstPartyCatalog => "CSweetEmbeddedCatalog",
-            AgentCatalogSource.Marketplace => "CSweetMarketplace",
-            _ => throw new InvalidOperationException("The selected catalog source is unsupported.")
-        };
-        var candidate = new WorkforceCandidate
-        {
-            Id = Guid.NewGuid(),
-            OrganizationId = organizationId,
-            Source = source,
-            ExternalCandidateId = agent.InstallationId?.ToString("D") ?? agent.AgentReference,
-            DisplayName = agent.Name,
-            CapabilitiesJson = JsonSerializer.Serialize(agent.Capabilities, JsonOptions),
-            Score = agent.Score,
-            EstimatedCost = agent.Price,
-            Currency = agent.Currency,
-            IsHuman = false,
-            IsAvailable = true,
-            WorkforcePlanId = linkedRecommendation?.Id,
-            ExplanationJson = JsonSerializer.Serialize(new
-            {
-                ResourceType = "Agent",
-                Credentials = Array.Empty<string>(),
-                Rationale = $"{agent.Trust}. Catalog source: {agent.Source}.",
-                RequiredGrants = Array.Empty<string>(),
-                agent.RepositoryUrl,
-                CatalogReference = agent.AgentReference
-            }, JsonOptions)
-        };
+        var candidate = CreateCatalogCandidate(organizationId, agent, linkedRecommendation?.Id);
         db.WorkforceCandidates.Add(candidate);
         var snapshot = await BuildWorkflowSnapshotAsync(
             candidate,
@@ -656,7 +625,7 @@ public sealed partial class HiringService(
             RequestingInstallationId = Guid.Empty,
             IdempotencyKey = key,
             ActionType = "marketplace-install-and-hire",
-            CandidateSource = source,
+            CandidateSource = candidate.Source,
             CandidateId = CandidateReference(candidate.Id),
             PayloadJson = JsonSerializer.Serialize(snapshot, JsonOptions),
             Status = ProposalStatus.Pending,
@@ -1180,7 +1149,7 @@ public sealed partial class HiringService(
                     approvedReportsTo != snapshot.ReportsToOrganizationUserId)
                     throw new InvalidOperationException("The approved team or reporting manager changed; create a new review.");
                 if (approvedRole.HumanRequired && !candidate.IsHuman ||
-                    ReadStrings(approvedRole.RequiredCapabilitiesJson).Except(snapshot.EmbeddedAgent?.ProvidedCapabilities ?? ReadStrings(candidate.CapabilitiesJson), StringComparer.Ordinal).Any())
+                    !SatisfiesHiringCapabilities(ReadStrings(approvedRole.RequiredCapabilitiesJson), candidate, snapshot))
                     throw new InvalidOperationException("The candidate no longer satisfies the approved role requirements.");
             }
         }
@@ -2280,8 +2249,8 @@ CompleteWorkflow:
             throw new InvalidOperationException("The catalog source does not contain an agent plugin.");
         if (preview.RequestedPermissions.Count > 0)
             throw new InvalidOperationException("Catalog agents using legacy permissions cannot be installed through hiring.");
-        if (!usesReviewedDefinition && preview.RequestedNetworkAccess.Contains("all-public", StringComparer.Ordinal))
-            throw new InvalidOperationException("All-public web access requires a separate installation review.");
+        // Network requests are part of the immutable hiring review and are checked against
+        // delegated policy at commit. The shared owner review can approve them directly.
         if (requiredGrants.Except(preview.RequestedCapabilities, StringComparer.Ordinal).Any())
             throw new InvalidOperationException("The requested grant list contains capabilities not declared by the catalog agent.");
     }

@@ -52,7 +52,7 @@
     <ChildContent>
         @if (IsAutomatic)
         {
-            <AutomaticHiringControl OrganizationId="OrganizationId" RecommendationId="Recommendation.Id" Name="@Recommender" BlockReason="@Recommendation.AutomaticHiringBlockReason" Stopped="OnManualSelection" />
+            <AutomaticHiringControl OrganizationId="OrganizationId" RecommendationId="Recommendation.Id" Name="@Recommender" BlockReason="@Recommendation.AutomaticHiringBlockReason" RetryAt="Recommendation.AutomaticHiringRetryAt" Retried="Hired" Stopped="OnManualSelection" />
         }
         else if (IsManualSelection)
         {

@@ -14,6 +14,8 @@ public interface ISetupApiClient
     Task<LocalOfficeSetupActionResponse> CreateLocalOfficeSetupSessionAsync(
         CreateLocalOfficeSetupSessionRequest request,
         CancellationToken cancellationToken = default);
+    Task<LocalOfficeSetupActionResponse> CancelLocalOfficeSetupSessionAsync(
+        Guid sessionId, CancellationToken cancellationToken = default);
     Task<LocalOfficeSetupActionResponse> LaunchLocalOfficeSetupSessionAsync(
         Guid sessionId,
         LaunchLocalOfficeSetupRequest request,

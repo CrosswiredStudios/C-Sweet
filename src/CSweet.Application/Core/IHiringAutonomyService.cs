@@ -11,4 +11,5 @@ public interface IHiringAutonomyService
     Task<DelegatedHireResponse> SubmitDelegatedAsync(Guid organizationId, Guid installationId, Guid recommendationId, CancellationToken token = default);
     Task ApplyToPlanAsync(Guid organizationId, Guid installationId, Guid requestId, Guid applicationUserId, CancellationToken token = default);
     Task<HiringRecommendationResponse?> ChooseRoleManuallyAsync(Guid organizationId, Guid recommendationId, Guid applicationUserId, CancellationToken token = default);
+    Task<HiringRecommendationResponse?> RetryAutomaticHiringAsync(Guid organizationId, Guid recommendationId, Guid applicationUserId, CancellationToken token = default);
 }

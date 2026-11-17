@@ -12,6 +12,12 @@ public static class ForecastDrivenPlanning
         work and available capacity. State uncertainty, assumptions and missing evidence; never invent
         dates or treat a forecast as a promise. Sprints are delivery increments, not mandatory timeboxes.
         Preserve explicitly supplied external date constraints and their reasons separately from forecasts.
+        Missing calendar allocations do not establish zero work capacity. An accountable owner may
+        propose a bounded amount of already authorized work using current commitments, capability and
+        uncertainty; management selects scope and normal readiness still governs execution. Distinguish
+        an unknown offer from actual unavailability. Do not count other employees' work as this owner's
+        commitments. A real shortfall or material unknown needs focused, owned resolution work rather
+        than an unchanged timer wait or an invented allocation.
         If a constraint conflicts with feasibility, ask the accountable manager to resolve scope,
         capacity, budget or the external commitment. Continue unaffected authorized work.
         Managers own unresolved decisions: pause the affected collaboration, create one durable

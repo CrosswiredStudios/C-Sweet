@@ -463,6 +463,52 @@ public sealed partial class ExecutionFleetService(
             await GetOnboardingStatusAsync(cancellationToken));
     }
 
+    public async Task<LocalOfficeSetupActionResponse> CancelLocalSetupSessionAsync(
+        Guid sessionId, Guid createdByUserId, CancellationToken cancellationToken = default)
+    {
+        var session = await dbContext.LocalOfficeSetupSessions.SingleOrDefaultAsync(x =>
+            x.Id == sessionId && x.CreatedByUserId == createdByUserId, cancellationToken);
+        if (session is null)
+            return await LocalFailureAsync("session_not_found", "The local setup session was not found.", cancellationToken);
+        if (session.Status == LocalOfficeSetupSessionStatus.Revoked)
+            return new(true, null, "Choose the Office drive and capacity again.", null,
+                await GetOnboardingStatusAsync(cancellationToken));
+        if (session.Status != LocalOfficeSetupSessionStatus.Created ||
+            session.AdministratorApprovalRequestedAt is not null || session.UpgradeOfficeId is not null ||
+            session.AutomaticUpdate || session.RecoveryAction != "none")
+            return await LocalFailureAsync("setup_cannot_cancel",
+                "Windows setup has already started. Finish or recover the current installation before changing its drive.", cancellationToken);
+
+        var now = timeProvider.GetUtcNow();
+        var invalidatedHandoff = Hash(Base64Url(RandomNumberGenerator.GetBytes(32)));
+        if (dbContext.Database.IsRelational())
+        {
+            // Compete with the durable launch claim so a drive change cannot race an installer.
+            var cancelled = await dbContext.LocalOfficeSetupSessions.Where(x => x.Id == session.Id &&
+                x.Status == LocalOfficeSetupSessionStatus.Created && x.AdministratorApprovalRequestedAt == null &&
+                x.HandoffSecretHash == session.HandoffSecretHash)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(x => x.Status, LocalOfficeSetupSessionStatus.Revoked)
+                    .SetProperty(x => x.HandoffSecretHash, invalidatedHandoff)
+                    .SetProperty(x => x.UpdatedAt, now), cancellationToken);
+            await dbContext.Entry(session).ReloadAsync(cancellationToken);
+            if (cancelled == 0 && session.Status != LocalOfficeSetupSessionStatus.Revoked)
+                return await LocalFailureAsync("setup_cannot_cancel",
+                    "Office setup changed. Refresh its status before changing the drive.", cancellationToken);
+        }
+        else
+        {
+            session.Status = LocalOfficeSetupSessionStatus.Revoked;
+            session.HandoffSecretHash = invalidatedHandoff;
+            session.UpdatedAt = now;
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        await auditWriter.WriteAsync("office.local-setup.cancelled", nameof(LocalOfficeSetupSession), session.Id,
+            "Cancelled an unlaunched Office setup request to revise the installation choices.", cancellationToken: cancellationToken);
+        return new(true, null, "Choose the Office drive and capacity again.", null,
+            await GetOnboardingStatusAsync(cancellationToken));
+    }
+
     public async Task<LocalOfficeSetupActionResponse> LaunchLocalSetupSessionAsync(
         Guid sessionId,
         Guid createdByUserId,
@@ -557,7 +603,8 @@ public sealed partial class ExecutionFleetService(
         if (session is null)
             return await LocalFailureAsync("session_not_found", "The local setup session was not found.", cancellationToken);
         var display = Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl, null, LocalSetupLaunchMethod(session));
-        if (display.State == "failed" && session.UpgradeOfficeId is not null && session.Status == LocalOfficeSetupSessionStatus.Redeemed)
+        if (display.State == "failed" && session.UpgradeOfficeId is not null &&
+            session.Status is LocalOfficeSetupSessionStatus.Redeemed or LocalOfficeSetupSessionStatus.Connected)
         {
             var tracked = await dbContext.LocalOfficeSetupSessions.SingleAsync(x => x.Id == sessionId, cancellationToken);
             tracked.Status = LocalOfficeSetupSessionStatus.Failed;
@@ -1999,7 +2046,11 @@ public sealed partial class ExecutionFleetService(
                 office.Status is ExecutionNodeStatus.Ready or ExecutionNodeStatus.Draining)
                 session.Status = LocalOfficeSetupSessionStatus.Ready;
         }
-        var status = session.RecoveryAction is not ("repair" or "upgrade") && session.Status == LocalOfficeSetupSessionStatus.Connected &&
+        var connectionTimedOut = session.RecoveryAction is "repair" or "upgrade" &&
+            session.Status == LocalOfficeSetupSessionStatus.Connected && session.CompletedAt is { } finished &&
+            timeProvider.GetUtcNow() - finished >= TimeSpan.FromSeconds(90);
+        var status = connectionTimedOut ? LocalOfficeSetupSessionStatus.Failed :
+            session.RecoveryAction is not ("repair" or "upgrade") && session.Status == LocalOfficeSetupSessionStatus.Connected &&
             session.ExecutionNode is { Status: ExecutionNodeStatus.Ready, LastHeartbeatAt: not null }
             ? LocalOfficeSetupSessionStatus.Ready
             : session.Status;
@@ -2036,8 +2087,10 @@ public sealed partial class ExecutionFleetService(
             phaseName = "Upgrade installed";
             message = "Verify the Office version and connection, then resume work when ready.";
         }
-        var effectiveErrorCode = session.ErrorCode;
-        var effectiveErrorMessage = session.ErrorMessage;
+        var effectiveErrorCode = connectionTimedOut ? "office_connection_not_verified" : session.ErrorCode;
+        var effectiveErrorMessage = connectionTimedOut
+            ? "Office installation finished, but no fresh authenticated heartbeat verified its connection. Identity and work are retained. Retry connection repair to reconcile the verified server address and certificate."
+            : session.ErrorMessage;
         var effectiveRecoveryCanReconnect = session.RecoveryCanReconnect;
         windowsProgress ??= ReadWindowsSetupProgress(session.Id, timeProvider.GetUtcNow());
         // The launcher's generic result callback arrives AFTER its detailed failure file.
@@ -2185,9 +2238,10 @@ public sealed partial class ExecutionFleetService(
 
     private string LocalSetupLaunchMethod(LocalOfficeSetupSession session)
     {
-        // Rebuild from the same source as first install on the configured development host.
-        // The installed configurator only carries its existing payload.
-        if (session.RecoveryAction == "upgrade" && DevelopmentLauncherConfigured &&
+        // On this configured Windows host, use the same reviewed launcher as first setup.
+        // Repair must not depend on the Office maintenance connection it is repairing.
+        // Other machines continue through their certificate-authorized maintenance agent.
+        if (session.RecoveryAction is "repair" or "upgrade" && DevelopmentLauncherConfigured &&
             MachineMatches(session, Environment.MachineName, "windows",
                 System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString())) return "server";
         if (session.RecoveryAction is "repair" or "upgrade" && session.UpgradeOfficeId is { } officeId)

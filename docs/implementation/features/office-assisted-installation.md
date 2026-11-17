@@ -41,6 +41,24 @@ Native second-volume installation, reboot, isolated workload, update, and uninst
 remains required per platform before installer release certification. No installed Office, live
 database, or published release is modified by source verification.
 
+## Revising an unlaunched local setup
+
+`AgentHostOnboardingStep.ChangeLocalSetupAsync` powers **Change** in the purple machine summary
+and **Back** on the approval screen. It restores the machine cards, drive picker, and capacity
+profiles only after `SetupApiClient.CancelLocalOfficeSetupSessionAsync` succeeds. A rejected or
+failed cancellation keeps the current screen and shows an actionable message.
+
+`SetupEndpoints` exposes the owner-scoped, `HostAdministration`-authorized cancellation endpoint.
+`ExecutionFleetService.CancelLocalSetupSessionAsync` revokes an unlaunched installation and
+invalidates its handoff, so reload/discovery cannot restore it and the next request can select a
+different drive. Cancellation is idempotent and competes atomically with the Windows launch claim.
+Once administrator approval has been requested, use the existing installation recovery flow;
+this action does not relocate an installed Office or cancel maintenance/update operations.
+
+Coverage: `ExecutionFleetStorageTests` verifies C: to D: replacement, rejected ownership,
+revoked handoffs and launch rejection; `OnboardingWorkspaceRenderingTests` verifies the summary
+control, restored machine choices, cancellation failure, and installation-state visibility.
+
 ## Failed setup diagnostics (2026-10-15)
 
 `ExecutionFleetService.ReportLocalSetupResultAsync` and `Map` preserve a same-attempt

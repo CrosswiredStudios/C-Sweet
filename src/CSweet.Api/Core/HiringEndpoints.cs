@@ -13,6 +13,20 @@ public static class HiringEndpoints
     {
         var group = endpoints.MapGroup("/api/core/organizations/{organizationId:guid}/hiring");
 
+        group.MapPost("/recommendations/{recommendationId:guid}/retry", async (Guid organizationId,
+            Guid recommendationId, HttpContext http, IHiringAutonomyService service, CancellationToken token) =>
+        {
+            var user = http.User.GetApplicationUserId();
+            if (!user.HasValue) return Results.Forbid();
+            try
+            {
+                var result = await service.RetryAutomaticHiringAsync(organizationId, recommendationId, user.Value, token);
+                return result is null ? Results.NotFound() : Results.Ok(result);
+            }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (InvalidOperationException error) { return Results.Conflict(new { message = error.Message }); }
+        });
+
         group.MapPost("/recommendations/{recommendationId:guid}/correction", async (Guid organizationId, Guid recommendationId,
             RequestStaffingCorrection request, HttpContext http, CSweet.Infrastructure.Core.StaffingCorrectionService service, CancellationToken token) =>
         {

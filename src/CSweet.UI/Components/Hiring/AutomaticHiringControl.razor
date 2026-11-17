@@ -7,8 +7,20 @@
 <div class="automatic-hiring-control" role="status" aria-live="polite">
     <div class="automatic-hiring-copy">
         <strong>@L[Blocked ? "AutomaticHiringControl.Blocked" : "AutomaticHiringControl.Mode"]</strong>
-        <span>@(Blocked ? BlockReason : L.Format("AutomaticHiringControl.Description", new { name = Name }))</span>
+        @if (Blocked)
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" role="alert">@BlockReason</MudAlert>
+            @if (RetryAt is { } retryAt)
+            {
+                <span>Automatic retry after @retryAt.ToLocalTime().ToString("g").</span>
+            }
+        }
+        else { <span>@L.Format("AutomaticHiringControl.Description", new { name = Name })</span> }
     </div>
+    @if (Blocked)
+    {
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_retrying || _stopping)" OnClick="RetryAsync">@(_retrying ? "Retrying…" : "Retry hiring")</MudButton>
+    }
     <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="_stopping" OnClick="StopAsync">
         @L[_stopping ? "AutomaticHiringControl.Stopping" : "AutomaticHiringControl.ChooseManually"]
     </MudButton>
@@ -20,10 +32,37 @@
     [Parameter] public Guid RecommendationId { get; set; }
     [Parameter] public string Name { get; set; } = "Your Chief of Staff";
     [Parameter] public string? BlockReason { get; set; }
+    [Parameter] public DateTimeOffset? RetryAt { get; set; }
+    [Parameter] public EventCallback Retried { get; set; }
     private bool Blocked => !string.IsNullOrWhiteSpace(BlockReason);
     [Parameter] public EventCallback<HiringRecommendationResponse> Stopped { get; set; }
     private bool _stopping;
+    private bool _retrying;
     private string? _error;
+
+    private async Task RetryAsync()
+    {
+        if (_retrying || _stopping) return;
+        _retrying = true; _error = null;
+        try
+        {
+            using var response = await Http.PostAsync($"api/core/organizations/{OrganizationId:D}/hiring/recommendations/{RecommendationId:D}/retry", null);
+            if (!response.IsSuccessStatusCode)
+            {
+                _error = "Could not retry hiring. Refresh and try again.";
+                if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+                {
+                    var detail = await response.Content.ReadFromJsonAsync<JsonElement>();
+                    if (detail.TryGetProperty("message", out var message)) _error = message.GetString() ?? _error;
+                }
+                return;
+            }
+            await Retried.InvokeAsync();
+        }
+        catch (Exception error) when (error is HttpRequestException or JsonException or TaskCanceledException)
+        { _error = "Could not retry hiring. Refresh and try again."; }
+        finally { _retrying = false; }
+    }
 
     private async Task StopAsync()
     {

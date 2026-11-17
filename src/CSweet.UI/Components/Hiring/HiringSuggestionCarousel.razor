@@ -105,7 +105,7 @@
                     {
                         @if (IsAutomatic(action))
                         {
-                            <AutomaticHiringControl OrganizationId="OrganizationId" RecommendationId="action.HiringRecommendationId!.Value" Name="@(_recommendations[action.HiringRecommendationId.Value].SuggestedBy ?? "Your Chief of Staff")" BlockReason="@(_recommendations[action.HiringRecommendationId.Value].AutomaticHiringBlockReason)" Stopped="OnManualSelection" />
+                            <AutomaticHiringControl OrganizationId="OrganizationId" RecommendationId="action.HiringRecommendationId!.Value" Name="@(_recommendations[action.HiringRecommendationId.Value].SuggestedBy ?? "Your Chief of Staff")" BlockReason="@(_recommendations[action.HiringRecommendationId.Value].AutomaticHiringBlockReason)" RetryAt="_recommendations[action.HiringRecommendationId.Value].AutomaticHiringRetryAt" Retried="RefreshAsync" Stopped="OnManualSelection" />
                         }
                         @if (!IsManual(action) && action.HiringRecommendationId is Guid selectedId && _recommendations.GetValueOrDefault(selectedId) is { } selectedRecommendation && (!IsAutomatic(action) || !string.IsNullOrWhiteSpace(selectedRecommendation.AutomaticHiringBlockReason)) && SelectedAgent(selectedRecommendation) is { } selectedAgent)
                         {

@@ -465,6 +465,32 @@ try {
     if ($isUpgrade -and $operation -eq 'repair') {
         $maintenanceScript = Join-Path $officeScriptRoot 'Enter-CSweetOfficeMaintenance.ps1'
         & $maintenanceScript -OfficeId $expectedOfficeId | Out-Null
+        # Connection metadata can change while Office identity and its certified runtime remain valid.
+        # Existing installers preserve Node configuration when no new enrollment is requested.
+        # Reconcile a changed, verified server pin before doing another full runtime installation.
+        # This has already been resolved against the protected installed-volume registration.
+        # Older Headquarters receipts omit storage even though the local installation has it.
+        $connectionStorage = $storage
+        if ($null -ne $connectionStorage) {
+            . (Join-Path $PSScriptRoot 'Sync-CSweetOfficeConnection.ps1')
+            $reconciled = Sync-CSweetOfficeConnection -OfficeId $expectedOfficeId `
+                -InstallRoot ([string]$connectionStorage.installRoot) -DataRoot ([string]$connectionStorage.dataRoot) `
+                -ControlPlaneUrl ([string]$redemption.controlPlaneUrl) -ExpectedSha256 $controlPlaneCertificateSha256
+            if ($reconciled) {
+                $connectionResult = @{
+                    assistedSetupSessionId = $sessionId; setupReceipt = [string]$redemption.setupReceipt
+                    resultCode = 'office_upgrade_completed'; machineName = [Environment]::MachineName
+                    operatingSystem = 'windows'; architecture = $architecture
+                } | ConvertTo-Json -Compress
+                Invoke-CSweetPinnedRestMethod -Method Post `
+                    -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/result') -Body $connectionResult | Out-Null
+                Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
+                    -State completed -PhaseKey connection-reconciled -PhaseDisplayName 'Verified connection restored' `
+                    -Message 'The verified server connection was refreshed. Office identity and runtime were retained; Headquarters will verify the new heartbeat.' `
+                    -PercentComplete 100
+                return
+            }
+        }
     }
 
     $installerAction = if ($isUpgrade) { 'upgrade' } else { [string]$redemption.existingInstallationAction }

@@ -57,7 +57,7 @@ genuine accepted verification obligations.
 ## Verification and release boundary
 
 SDK **5.36.0**: 941 tests, two sample tests and seven generated-template tests pass. Producer
-**6.19.0**: 590 tests. Director **0.14.0**: 451 tests. Technical Director **6.11.0**: 253 tests.
+**6.19.0**: 590 tests. Director **0.14.1**: 453 tests. Technical Director **6.11.0**: 253 tests.
 All three runtime self-tests pass. Agent consumers were checked against the final packed SDK
 with sibling SDK/contracts references disabled; NuGet package versions and dependency metadata
 are recorded in `artifacts/qfn-package-verification.json`. The contracts remain **5.11.0**.
@@ -72,10 +72,23 @@ and the actual Shardfall Windows-profile finding. These protocol tests do not pr
 
 SDK source: `f90cc2e8255c4df7ca837ac45e546eedae336f42`. Producer:
 `23a46d989b545da60703fc9d7268ec94ba2842f7`. Director:
-`ea121554e1f298613140e36f251e572659ebe3bb`. Technical Director:
+`aad24bca5ef1f3f8573e0af691a4331eff3ce8c9` (0.14.1, fresh specialist routing after a resumed negative review). Technical Director:
 `b750db5591e98a48af751ee70d92188be6db5204`.
 
 Use the published releases and Installed Agents update flow. Preserve the existing business,
 documents, decisions, work and history. Do not patch approved package records, stored manifests,
 digests or installed payloads. The run review is the authority for what live recovery was actually
 observed; source tests and successful publication alone do not establish recovery.
+
+The retained Shardfall run passed the three repaired failure paths after normal owner retries:
+the original 8-point estimate saved, its Story gained a reference to retained advice, and the
+existing feasibility collaboration completed with fresh positive evidence. The old Windows blocker
+was superseded and the existing certified provider selected. Sprint 1 remains Planned with zero
+reported capacity. Live decision-answer follow-through and automatic recovery without operator
+intervention were not demonstrated; see the run review for timestamps and evidence identities.
+
+The later [inferred work-capacity follow-up](inferred-work-capacity.md) resolves that retained zero.
+SDK 5.37.0, Producer 6.20.0 and Technical Director 6.12.0 published and installed through normal
+updates. A fresh owner assessment offered eight points; the existing Sprint 1 became Active at
+11:56:12 a.m. PST and its original planning-only task entered In Progress. The run review and event
+ledger retain both observation boundaries. No owner answer or forced allocation was needed.

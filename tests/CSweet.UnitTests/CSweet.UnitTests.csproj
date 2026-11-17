@@ -51,6 +51,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Fixtures/video-game-production.v2.5.json" />
+    <EmbeddedResource Include="Fixtures/qwen-technical-director-hiring-requirements.json" LogicalName="qwen-technical-director-hiring-requirements.json" />
     <EmbeddedResource Include="Fixtures/prism-break-planning-decision.txt" LogicalName="prism-break-planning-decision.txt" />
     <EmbeddedResource Include="Fixtures/youtube-connector.0.2.0.json" LogicalName="YouTubeConnector.0.2.0.json" />
     <EmbeddedResource Include="Fixtures/youtube-connector.0.2.2.json" LogicalName="YouTubeConnector.0.2.2.json" />

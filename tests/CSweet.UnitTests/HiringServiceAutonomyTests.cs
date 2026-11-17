@@ -14,7 +14,7 @@ public sealed partial class HiringServiceTests
     private static async Task<(Guid Organization, Guid Installation, Guid Owner, Guid Application, HiringService Service)> AutonomyFixtureAsync(CSweetDbContext db,
         AgentCatalogSource source = AgentCatalogSource.FirstPartyCatalog, decimal? price = 0, bool requireConfiguration = true, bool staffed = false,
         RecordingDefinitionService? definitions = null, IReadOnlyList<CSweet.Contracts.Plugins.PluginConfigurationField>? fields = null,
-        bool catalogEmpty = false)
+        bool catalogEmpty = false, CSweet.Application.Setup.IAgentImportPreviewService? importPreviewOverride = null)
     {
         var organization = Guid.NewGuid(); var installation = Guid.NewGuid(); var owner = Guid.NewGuid();
         var application = Guid.NewGuid(); var chief = Guid.NewGuid();
@@ -63,7 +63,7 @@ public sealed partial class HiringServiceTests
             agent = agent with { AgentReference = $"installed:{installedId:N}", InstallationId = installedId, Availability = AgentAvailabilityState.InstalledEnabled };
         }
         var service = new HiringService(db, new RecordingOrganizationUserService(db), new TestAuditEventWriter(),
-            new AutonomyPreview(new RecordingImportPreview(db, repository), requireConfiguration, fields), new RecordingInstallationService(organization),
+            importPreviewOverride ?? new AutonomyPreview(new RecordingImportPreview(db, repository), requireConfiguration, fields), new RecordingInstallationService(organization),
             new RecordingAgentCatalog(agent, catalogEmpty), definitions);
         return (organization, installation, owner, application, service);
     }

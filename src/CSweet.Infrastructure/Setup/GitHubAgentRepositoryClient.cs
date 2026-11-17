@@ -251,7 +251,7 @@ public sealed class GitHubAgentRepositoryClient : IGitHubAgentRepositoryClient, 
 
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
-            throw new AgentImportPreviewException(notFoundMessage) { IsDependencyFailure = true };
+            throw new AgentImportPreviewException(notFoundMessage) { IsDependencyFailure = true, RequiresOwnerAction = true };
         }
 
         var detail = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -287,8 +287,9 @@ public sealed class GitHubAgentRepositoryClient : IGitHubAgentRepositoryClient, 
         }
         if (response.StatusCode == HttpStatusCode.Unauthorized)
             throw new AgentImportPreviewException(
-                "GitHub rejected the catalog access credential. Ask an administrator to update it before retrying.") { IsDependencyFailure = true };
+                "GitHub rejected the catalog access credential. Ask an administrator to update it before retrying.") { IsDependencyFailure = true, RequiresOwnerAction = true };
         throw new AgentImportPreviewException(
-            $"GitHub request failed with status {(int)response.StatusCode}. Verify catalog repository read access and provider availability.") { IsDependencyFailure = true };
+            $"GitHub request failed with status {(int)response.StatusCode}. Verify catalog repository read access and provider availability.")
+            { IsDependencyFailure = true, RequiresOwnerAction = response.StatusCode == HttpStatusCode.Forbidden };
     }
 }
