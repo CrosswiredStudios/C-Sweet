@@ -4,6 +4,48 @@ This is the authoritative reference for the "HIRING PLAN / Hiring suggestions" w
 Communications when an agent attaches a Marketplace action to a message or chat turn, and for the
 company overview's hiring row.
 
+## Dependency waits, card errors and retry
+
+`HiringService.DependencyRecovery` converts expected repository/configuration failures into durable
+outcomes before committing the hiring transaction. `DependencyWaits` stores host-owned workflow
+identity, error code, message, attempt count and eligibility time in the indexed
+`PluginOperationalState` queue (`host-dependency-wait.v1`). The same transaction records the card
+error and realtime outbox hint. A failed preview no longer rolls its recovery evidence back or
+becomes an HTTP 500 that consumes the Chief's work-delivery attempts.
+
+Rate limits retain the provider's retry time. Other transient failures back off; invalid credentials,
+access denial and configuration errors require review. `AgentHireOperationWorker` performs bounded
+due-state discovery through `RecoverNextHiringDependencyAsync`; no model or agent polling loop is
+needed. The organization hiring lock serializes recovery and owner retries with dismissal, withdrawal,
+manual selection and hire commits. Recovery re-reads the active Chief, recommendation and both
+delegation policies. A saved wait never grants authority. Manual selection cancels its wait immediately.
+
+`AutomaticHiringControl` is shared by Overview and Communications. It shows the actual error as an
+error alert, the automatic retry time when present, and **Retry hiring**. The recommendation-scoped
+`HiringEndpoints` retry route requires an owner, reuses the existing operation/slot identity, respects
+an outstanding provider cooldown and preserves manual-selection overrides. Fulfilled retries return
+the completed recommendation rather than a misleading 404. Review-required waits resume only after
+an explicit retry; they do not repeatedly fail in background callbacks.
+
+`RepositoryMetadataCacheHandler` caches only bounded GitHub repository metadata, partitioned by the
+credential identity. It coalesces concurrent reads, observes provider cooldowns across repositories,
+retains commit-pinned files for longer than mutable refs, and revalidates mutable facts with ETags.
+Errors and release payload downloads are not cached. Changing credentials creates a separate partition.
+Approval, package/grant checks and current hiring authority are never cached by this handler.
+
+`ValidateCatalogPreview` permits network requests to reach the existing immutable hiring review.
+`AgentHireDialog` prominently discloses public-web access before approval. Delegated confirmation
+still enforces both saved and live permission limits, and owner confirmation still binds the exact
+reviewed package and network grants. The former blanket `all-public` rejection prevented owners
+from opening the review it told them to perform.
+
+Regression map: `HiringDependencyRecoveryTests`, `HiringAutonomyPostgresTests`,
+`RepositoryMetadataCacheTests`, `OverviewHiringCandidateTests` and existing catalog-access tests.
+The November 16 Qwen Games incident involved an anonymous GitHub allowance of 60/60 exhausted
+requests, repeated Chief recovery failures, a rolled-back error card, and then the independent
+public-web preview rejection. These are reusable dependency/review paths; no game or employee
+identity controls their behavior.
+
 ## Employee dismissal
 
 `OrganizationUserService.DeleteAsync` calls `EmployeeActionExpiration.ExpireAsync` before

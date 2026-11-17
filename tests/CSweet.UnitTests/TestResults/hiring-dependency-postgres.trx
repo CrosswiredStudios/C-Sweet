@@ -1,0 +1,46 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="eadbd65c-57c2-4d12-9e1d-44e1b2911940" name="PC@DESKTOP-1LDJV2J 2026-11-16 18:02:07" runUser="DESKTOP-1LDJV2J\PC" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Times creation="2026-11-16T18:02:07.3232280-08:00" queuing="2026-11-16T18:02:07.3232284-08:00" start="2026-11-16T18:02:00.0038278-08:00" finish="2026-11-16T18:02:15.4562883-08:00" />
+  <TestSettings name="default" id="1d82b7d3-3f40-4e9e-8f1c-312d1969b307">
+    <Deployment runDeploymentRoot="PC_DESKTOP-1LDJV2J_2026-11-16_18_02_07" />
+  </TestSettings>
+  <Results>
+    <UnitTestResult executionId="68e7246c-cc3d-42a0-bba4-f7c4aed5d352" testId="f668991f-200b-a6b9-b9d6-f038fef997cf" testName="CSweet.UnitTests.HiringServiceTests.HiringAutonomy_PostgresDependencyWaitAndOutboxSurviveFailedPreview" computerName="DESKTOP-1LDJV2J" duration="00:00:04.1266655" startTime="2026-11-16T18:02:07.3145006-08:00" endTime="2026-11-16T18:02:11.4324369-08:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="68e7246c-cc3d-42a0-bba4-f7c4aed5d352" />
+    <UnitTestResult executionId="7fa2aafe-e1ea-4549-bb44-a08c2c092d85" testId="5220620d-0c08-32d1-f079-b16bf6cd6f4f" testName="CSweet.UnitTests.HiringServiceTests.HiringAutonomy_PostgresSerializesDuplicateSlotsAndCompetingSpending" computerName="DESKTOP-1LDJV2J" duration="00:00:03.9593296" startTime="2026-11-16T18:02:11.4335195-08:00" endTime="2026-11-16T18:02:15.3918305-08:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="7fa2aafe-e1ea-4549-bb44-a08c2c092d85" />
+    <UnitTestResult executionId="5ec28514-fd0a-4537-befb-74eafb643998" testId="2116444a-e558-b160-8907-751b90d3e9f7" testName="CSweet.UnitTests.HiringServiceTests.HiringAutonomy_PostgresManualSelectionSerializesWithHireCommit" computerName="DESKTOP-1LDJV2J" duration="00:00:06.2708638" startTime="2026-11-16T18:02:01.0287205-08:00" endTime="2026-11-16T18:02:07.3045360-08:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="5ec28514-fd0a-4537-befb-74eafb643998" />
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="CSweet.UnitTests.HiringServiceTests.HiringAutonomy_PostgresSerializesDuplicateSlotsAndCompetingSpending" storage="c:\users\pc\documents\github\csweet\artifacts\hiring-dependency\bin\csweet.unittests\debug\csweet.unittests.dll" id="5220620d-0c08-32d1-f079-b16bf6cd6f4f">
+      <Execution id="7fa2aafe-e1ea-4549-bb44-a08c2c092d85" />
+      <TestMethod codeBase="C:\Users\PC\Documents\GitHub\csweet\artifacts\hiring-dependency\bin\CSweet.UnitTests\debug\CSweet.UnitTests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="CSweet.UnitTests.HiringServiceTests" name="HiringAutonomy_PostgresSerializesDuplicateSlotsAndCompetingSpending" />
+    </UnitTest>
+    <UnitTest name="CSweet.UnitTests.HiringServiceTests.HiringAutonomy_PostgresManualSelectionSerializesWithHireCommit" storage="c:\users\pc\documents\github\csweet\artifacts\hiring-dependency\bin\csweet.unittests\debug\csweet.unittests.dll" id="2116444a-e558-b160-8907-751b90d3e9f7">
+      <Execution id="5ec28514-fd0a-4537-befb-74eafb643998" />
+      <TestMethod codeBase="C:\Users\PC\Documents\GitHub\csweet\artifacts\hiring-dependency\bin\CSweet.UnitTests\debug\CSweet.UnitTests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="CSweet.UnitTests.HiringServiceTests" name="HiringAutonomy_PostgresManualSelectionSerializesWithHireCommit" />
+    </UnitTest>
+    <UnitTest name="CSweet.UnitTests.HiringServiceTests.HiringAutonomy_PostgresDependencyWaitAndOutboxSurviveFailedPreview" storage="c:\users\pc\documents\github\csweet\artifacts\hiring-dependency\bin\csweet.unittests\debug\csweet.unittests.dll" id="f668991f-200b-a6b9-b9d6-f038fef997cf">
+      <Execution id="68e7246c-cc3d-42a0-bba4-f7c4aed5d352" />
+      <TestMethod codeBase="C:\Users\PC\Documents\GitHub\csweet\artifacts\hiring-dependency\bin\CSweet.UnitTests\debug\CSweet.UnitTests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="CSweet.UnitTests.HiringServiceTests" name="HiringAutonomy_PostgresDependencyWaitAndOutboxSurviveFailedPreview" />
+    </UnitTest>
+  </TestDefinitions>
+  <TestEntries>
+    <TestEntry testId="f668991f-200b-a6b9-b9d6-f038fef997cf" executionId="68e7246c-cc3d-42a0-bba4-f7c4aed5d352" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="5220620d-0c08-32d1-f079-b16bf6cd6f4f" executionId="7fa2aafe-e1ea-4549-bb44-a08c2c092d85" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="2116444a-e558-b160-8907-751b90d3e9f7" executionId="5ec28514-fd0a-4537-befb-74eafb643998" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+  </TestEntries>
+  <TestLists>
+    <TestList name="Results Not in a List" id="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestList name="All Loaded Results" id="19431567-8539-422a-85d7-44ee4e166bda" />
+  </TestLists>
+  <ResultSummary outcome="Completed">
+    <Counters total="3" executed="3" passed="3" failed="0" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
+    <Output>
+      <StdOut>[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v3.1.5+1b188a7b0a (64-bit .NET 10.0.12)&#xD;
+[xUnit.net 00:00:00.20]   Discovering: CSweet.UnitTests&#xD;
+[xUnit.net 00:00:00.73]   Discovered:  CSweet.UnitTests&#xD;
+[xUnit.net 00:00:00.75]   Starting:    CSweet.UnitTests&#xD;
+[xUnit.net 00:00:15.13]   Finished:    CSweet.UnitTests&#xD;
+</StdOut>
+    </Output>
+  </ResultSummary>
+</TestRun>

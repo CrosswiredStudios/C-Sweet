@@ -22,6 +22,7 @@ public sealed class AgentHireOperationWorker(
                 await using var scope = scopeFactory.CreateAsyncScope();
                 var service = scope.ServiceProvider.GetRequiredService<IAgentHireOperationService>();
                 await service.ProcessNextAsync(_leaseOwner, stoppingToken);
+                await scope.ServiceProvider.GetRequiredService<HiringService>().RecoverNextHiringDependencyAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

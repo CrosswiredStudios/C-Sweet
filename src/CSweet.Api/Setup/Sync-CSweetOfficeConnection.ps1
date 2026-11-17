@@ -8,8 +8,12 @@ function New-CSweetOfficeConnectionConfiguration {
     }
     $expected = $ExpectedSha256.Replace(':', '').Replace('-', '').ToLowerInvariant()
     $actual = ([string]$ObservedCertificate.certificateSha256).Replace(':', '').Replace('-', '').ToLowerInvariant()
+    # An exact authorized pin establishes trust for a self-signed development certificate.
+    # Missing certificates and hostname mismatches remain invalid independently of the pin.
+    $rejectedErrors = [int][Net.Security.SslPolicyErrors]::RemoteCertificateNotAvailable -bor
+        [int][Net.Security.SslPolicyErrors]::RemoteCertificateNameMismatch
     if ($expected -notmatch '^[0-9a-f]{64}$' -or $expected -cne $actual -or
-        (([int]$ObservedCertificate.policyErrors -band 6) -ne 0) -or
+        (([int]$ObservedCertificate.policyErrors -band $rejectedErrors) -ne 0) -or
         ([DateTime]$ObservedCertificate.notBefore).ToUniversalTime() -gt [DateTime]::UtcNow -or
         ([DateTime]$ObservedCertificate.notAfter).ToUniversalTime() -lt [DateTime]::UtcNow) {
         throw 'The Office control-plane certificate does not match the authorized pin, host or validity period.'
@@ -24,6 +28,14 @@ function New-CSweetOfficeConnectionConfiguration {
     return [pscustomobject]@{ Node = [pscustomobject]$updated; Pin = $expected }
 }
 
+function Read-CSweetOfficeServiceCommand {
+    param([string] $Command)
+    if ($Command -notmatch '^"([^"]+)"\s+--contentRoot\s+"([^"]+)"(?:\s+--environment\s+(?:Production|"Production"))?\s*$') {
+        throw 'The existing Office service has an unrecognized installation command.'
+    }
+    return [pscustomobject]@{ Executable = $Matches[1]; ContentRoot = $Matches[2] }
+}
+
 function Sync-CSweetOfficeConnection {
     param([Guid] $OfficeId, [string] $InstallRoot, [string] $DataRoot,
         [string] $ControlPlaneUrl, [string] $ExpectedSha256)
@@ -31,11 +43,12 @@ function Sync-CSweetOfficeConnection {
         throw 'Office connection repair requires its current identity and protected storage roots.'
     }
     $service = Get-CimInstance Win32_Service -Filter "Name='CSweet.Office.Node'"
-    if ($null -eq $service -or $service.PathName -notmatch '^"([^"]+)"\s+--contentRoot\s+"([^"]+)"\s*$') {
+    if ($null -eq $service) {
         throw 'The existing Office service has an unrecognized installation command.'
     }
-    $executable = [IO.Path]::GetFullPath($Matches[1])
-    $contentRoot = [IO.Path]::GetFullPath($Matches[2])
+    $command = Read-CSweetOfficeServiceCommand ([string]$service.PathName)
+    $executable = [IO.Path]::GetFullPath($command.Executable)
+    $contentRoot = [IO.Path]::GetFullPath($command.ContentRoot)
     $protectedRoot = [IO.Path]::GetFullPath($InstallRoot).TrimEnd('\') + '\'
     if (-not $contentRoot.StartsWith($protectedRoot, [StringComparison]::OrdinalIgnoreCase) -or
         -not $executable.StartsWith($contentRoot.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) -or

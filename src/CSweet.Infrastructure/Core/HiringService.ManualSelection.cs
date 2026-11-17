@@ -21,6 +21,9 @@ public sealed partial class HiringService
             x.AssignedAgentInstallationId != null && installations.Contains(x.AssignedAgentInstallationId.Value))
             .Select(x => new { x.OrganizationId, x.AssignedAgentInstallationId, x.CreationIdempotencyKey, x.ResultSummary }).ToListAsync(token);
         var result = new List<HiringRecommendationResponse>(cards.Count);
+        var recommendationKeys = plans.Select(x => HiringDependencyOperation + ":" + x.Id.ToString("N")).ToArray();
+        var waits = await db.PluginOperationalStates.AsNoTracking().Where(x => x.Kind == DependencyWaits.Kind &&
+            installations.Contains(x.AgentInstallationId) && recommendationKeys.Contains(x.ExternalKey)).ToListAsync(token);
         var branding = new Dictionary<(Guid OrganizationId, string Reference), AvailableAgent?>();
         foreach (var card in cards)
         {
@@ -34,7 +37,13 @@ public sealed partial class HiringService
             var blocked = automatic ? blockedAttempts.SingleOrDefault(x => x.OrganizationId == plan.OrganizationId &&
                 x.AssignedAgentInstallationId == plan.RequestingInstallationId && x.CreationIdempotencyKey == $"{ChiefWorkCards.Prefix}hire:{plan.Id:N}")?.ResultSummary : null;
             var display = await WithCurrentCandidateBrandingAsync(plan.OrganizationId, card, branding, token);
-            result.Add(display with { AutomaticHiringEnabled = automatic, AutomaticHiringBlockReason = blocked });
+            var wait = waits.SingleOrDefault(x => x.OrganizationId == plan.OrganizationId && x.AgentInstallationId == plan.RequestingInstallationId &&
+                x.ExternalKey == HiringDependencyOperation + ":" + plan.Id.ToString("N"));
+            var state = wait is null ? null : DependencyWaits.Read(wait);
+            var hasError = automatic && state?.Status is "WaitingDependency" or "NeedsReview" or "Failed";
+            result.Add(display with { AutomaticHiringEnabled = automatic, AutomaticHiringBlockReason = hasError ? state!.Message : blocked,
+                AutomaticHiringStatus = automatic ? state?.Status : null, AutomaticHiringErrorCode = hasError ? state!.Code : null,
+                AutomaticHiringRetryAt = hasError ? state!.RetryAt : null });
         }
         return result;
     }
@@ -88,6 +97,7 @@ public sealed partial class HiringService
                 x.CreationIdempotencyKey == $"chief-work:hire:{plan.Id:N}" && !x.IsExecutable, token);
             if (card is not null && card.Status != WorkTaskStatus.Completed)
                 await ChiefWorkCards.FinishActionAsync(db, card, WorkTaskStatus.Cancelled, reason, token);
+            await SettleHiringDependencyAsync(organizationId, plan.RequestingInstallationId, plan.Id, "Cancelled", reason, token);
             await db.SaveChangesAsync(token); // Includes hiring, operation and personal-board refresh outboxes.
             await audit.WriteAsync("hiring.recommendation.manual-selection", nameof(WorkforcePlan), plan.Id,
                 $"Owner {owner.Id:D} stopped automatic hiring for {plan.Title}; {plan.FulfilledHeadcount}/{plan.Headcount} seats already filled.", cancellationToken: token);

@@ -60,8 +60,36 @@ public sealed class OverviewHiringCandidateTests
         var html = await renderer.Dispatcher.InvokeAsync(async () => (await renderer.RenderComponentAsync<OverviewHiringCandidateCard>(ParameterView.FromDictionary(
             new Dictionary<string, object?> { ["OrganizationId"] = Guid.NewGuid(), ["Recommendation"] = recommendation }))).ToHtmlString());
         Assert.Contains("Automatic hiring needs attention", html); Assert.Contains("enabled LLM provider profile", html);
+        Assert.Contains("Retry hiring", html); Assert.Contains("mud-alert-outlined-error", html);
         Assert.Contains("Review hiring", html); Assert.Contains("Choose this role manually", html);
         Assert.DoesNotContain("is handling this role", html);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task RetryAutomaticHiringPostsTheBoundRoleAndRetainsErrors(bool succeeds)
+    {
+        var org = Guid.NewGuid(); var id = Guid.NewGuid(); var refreshed = 0;
+        var recommendation = new HiringRecommendationResponse(id, null, "Producer", "Own delivery", "Pending", null, [], DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var api = new ManualSelectionHandler(recommendation, succeeds);
+        var activator = new CapturingActivator();
+        var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
+        services.AddSingleton<IComponentActivator>(activator); services.AddSingleton<IJSRuntime, NoJavaScript>();
+        services.AddSingleton(new HttpClient(api) { BaseAddress = new("http://localhost/") });
+        await using var provider = services.BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
+        var rendered = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderComponentAsync<AutomaticHiringControl>(ParameterView.FromDictionary(
+            new Dictionary<string, object?> { ["OrganizationId"] = org, ["RecommendationId"] = id,
+                ["BlockReason"] = "GitHub rate limit reached", ["RetryAt"] = DateTimeOffset.UtcNow.AddMinutes(3),
+                ["Retried"] = EventCallback.Factory.Create(this, () => refreshed++) })));
+        var html = await renderer.Dispatcher.InvokeAsync(rendered.ToHtmlString);
+        Assert.Contains("Automatic retry after", html); Assert.Contains("GitHub rate limit reached", html);
+        var retry = Assert.Single(activator.Buttons, x => x.Variant == Variant.Filled);
+        await renderer.Dispatcher.InvokeAsync(() => retry.OnClick.InvokeAsync(new MouseEventArgs()));
+        Assert.Equal($"/api/core/organizations/{org:D}/hiring/recommendations/{id:D}/retry", api.PostedPath);
+        Assert.Equal(succeeds ? 1 : 0, refreshed);
+        if (!succeeds) Assert.Contains("Could not retry hiring", await renderer.Dispatcher.InvokeAsync(rendered.ToHtmlString));
     }
 
     [Theory]

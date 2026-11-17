@@ -1,0 +1,11 @@
+{
+  "roleKey": "game-technical-director",
+  "title": "game-technical-director",
+  "roleCategoryKey": "game-technical-director",
+  "requiredCapabilities": [
+    "work.execution.run",
+    "platform.artifact.read.v1",
+    "platform.artifact.create.v1",
+    "platform.artifact.submit.v1"
+  ]
+}

@@ -13,6 +13,11 @@ Scope: `CSweet.Memory`, the C-Sweet platform, broker/runtime integration, agent 
 
 This is the current implementation plan. It starts from the existing implementation and describes only the work still needed. Use the register below to track completion; the detailed work packages define what each completed outcome must prove.
 
+The November 15 [automatic agent memory and work recovery proposal](automatic-agent-continuity-and-recovery.md)
+details automatic journals, linked operational history, SDK lifecycle integration and verified
+recovery through public interactions. It maps its work to this register, including M11–M14,
+M19 and M21. It is a review draft and changes no milestone completion or release claims.
+
 ## 1. Starting point
 
 ### Delegation product blocker and future continuity (October 12, 2026)

@@ -71,6 +71,14 @@ public sealed class SetupApiClient : ISetupApiClient
         return await ReadLocalSetupActionResponseAsync(response, cancellationToken);
     }
 
+    public async Task<LocalOfficeSetupActionResponse> CancelLocalOfficeSetupSessionAsync(
+        Guid sessionId, CancellationToken cancellationToken = default)
+    {
+        using var response = await _httpClient.PostAsync(
+            $"api/setup/execution-capacity/local-sessions/{sessionId:D}/cancel", null, cancellationToken);
+        return await ReadLocalSetupActionResponseAsync(response, cancellationToken);
+    }
+
     public async Task<LocalOfficeSetupActionResponse> LaunchLocalOfficeSetupSessionAsync(
         Guid sessionId,
         LaunchLocalOfficeSetupRequest request,

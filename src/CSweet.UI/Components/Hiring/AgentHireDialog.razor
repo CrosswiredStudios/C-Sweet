@@ -113,6 +113,10 @@
                         </section>
                     }
                     <section class="profile-access">
+                        @if (_preview.NetworkAccess.Contains("all-public", StringComparer.Ordinal))
+                        {
+                            <MudAlert Severity="Severity.Warning">This agent requests access to public websites. Approving this hire grants that network access along with the platform permissions shown below.</MudAlert>
+                        }
                         <button type="button" class="profile-disclosure" aria-expanded="@_grantDetailsOpen" aria-controls="hire-access-details" @onclick="ToggleGrantDetails">
                             <MudIcon Icon="@Icons.Material.Outlined.Security" />
                             <span>@L["AgentHireDialog.ReviewAccess"]</span>

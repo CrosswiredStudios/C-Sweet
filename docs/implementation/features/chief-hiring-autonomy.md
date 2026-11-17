@@ -119,6 +119,34 @@ availability, specialization ranking, and publisher preference. It persists the 
 clears a prior selection. Human-required roles and unavailable candidates retain an actionable
 explanation rather than inventing a package.
 
+`HiringService.CandidateFit.cs` distinguishes a package's provided services from permissions
+it requests to call other services. Staffing requirements can include both. Discovery uses
+the approved role family and preferences without filtering the full requirement list against
+the catalog's provided-only `Capabilities`. If that listing cannot establish coverage,
+`AssessHiringCapabilitiesAsync` uses `BuildWorkflowSnapshotAsync` to inspect the same package
+and approved-definition grants used by the normal hire review. It creates no hire or grant.
+`SatisfiesHiringCapabilities` checks provided services plus reviewed requested grants during
+assessment and final confirmation; all existing delegation and package revalidation still apply.
+A package lookup failure reports unverified coverage rather than "no suitable agent".
+
+Qwen Games, November 15, 2026: the approved `game-technical-director` request and Victor Lin's
+role key already matched. The request also required `platform.artifact.read.v1`,
+`platform.artifact.create.v1`, and `platform.artifact.submit.v1`. Victor declares those under
+`requires`, while the curated listing advertises his provided services. The old provided-only
+selection and confirmation checks rejected the correct candidate. The minimal retained approved
+request is `Fixtures/qwen-technical-director-hiring-requirements.json`;
+`HiringServiceTests.QwenTechnicalDirector_UsesRequestedArtifactCapabilitiesThroughSelectionAndHire`
+exercises real catalog filtering, delegated hire completion, and genuinely missing capability
+rejection. This is a capability-direction error, requiring no role-name inference.
+
+Recovery uses a normal candidate reassessment after the platform update. An owner-requested
+manual selection remains manual; this fix does not restore automatic authority for that role.
+No installed agent payload changes are required.
+
+Validation: isolated build and focused hiring, catalog, and candidate-endpoint regression run
+passed 127 tests with 2 skipped. The Qwen fixture covers selection and successful delegated
+confirmation; a missing required artifact capability remains rejected.
+
 `SubmitDelegatedAsync` binds every request to the authenticated active Chief and its live
 recommendation. Each headcount slot uses `delegated-hire:{recommendation}:{fulfilledCount}`
 with the existing immutable marketplace preview and `AgentHireOperation` pipeline.

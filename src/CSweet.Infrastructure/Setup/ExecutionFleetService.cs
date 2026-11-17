@@ -463,6 +463,52 @@ public sealed partial class ExecutionFleetService(
             await GetOnboardingStatusAsync(cancellationToken));
     }
 
+    public async Task<LocalOfficeSetupActionResponse> CancelLocalSetupSessionAsync(
+        Guid sessionId, Guid createdByUserId, CancellationToken cancellationToken = default)
+    {
+        var session = await dbContext.LocalOfficeSetupSessions.SingleOrDefaultAsync(x =>
+            x.Id == sessionId && x.CreatedByUserId == createdByUserId, cancellationToken);
+        if (session is null)
+            return await LocalFailureAsync("session_not_found", "The local setup session was not found.", cancellationToken);
+        if (session.Status == LocalOfficeSetupSessionStatus.Revoked)
+            return new(true, null, "Choose the Office drive and capacity again.", null,
+                await GetOnboardingStatusAsync(cancellationToken));
+        if (session.Status != LocalOfficeSetupSessionStatus.Created ||
+            session.AdministratorApprovalRequestedAt is not null || session.UpgradeOfficeId is not null ||
+            session.AutomaticUpdate || session.RecoveryAction != "none")
+            return await LocalFailureAsync("setup_cannot_cancel",
+                "Windows setup has already started. Finish or recover the current installation before changing its drive.", cancellationToken);
+
+        var now = timeProvider.GetUtcNow();
+        var invalidatedHandoff = Hash(Base64Url(RandomNumberGenerator.GetBytes(32)));
+        if (dbContext.Database.IsRelational())
+        {
+            // Compete with the durable launch claim so a drive change cannot race an installer.
+            var cancelled = await dbContext.LocalOfficeSetupSessions.Where(x => x.Id == session.Id &&
+                x.Status == LocalOfficeSetupSessionStatus.Created && x.AdministratorApprovalRequestedAt == null &&
+                x.HandoffSecretHash == session.HandoffSecretHash)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(x => x.Status, LocalOfficeSetupSessionStatus.Revoked)
+                    .SetProperty(x => x.HandoffSecretHash, invalidatedHandoff)
+                    .SetProperty(x => x.UpdatedAt, now), cancellationToken);
+            await dbContext.Entry(session).ReloadAsync(cancellationToken);
+            if (cancelled == 0 && session.Status != LocalOfficeSetupSessionStatus.Revoked)
+                return await LocalFailureAsync("setup_cannot_cancel",
+                    "Office setup changed. Refresh its status before changing the drive.", cancellationToken);
+        }
+        else
+        {
+            session.Status = LocalOfficeSetupSessionStatus.Revoked;
+            session.HandoffSecretHash = invalidatedHandoff;
+            session.UpdatedAt = now;
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        await auditWriter.WriteAsync("office.local-setup.cancelled", nameof(LocalOfficeSetupSession), session.Id,
+            "Cancelled an unlaunched Office setup request to revise the installation choices.", cancellationToken: cancellationToken);
+        return new(true, null, "Choose the Office drive and capacity again.", null,
+            await GetOnboardingStatusAsync(cancellationToken));
+    }
+
     public async Task<LocalOfficeSetupActionResponse> LaunchLocalSetupSessionAsync(
         Guid sessionId,
         Guid createdByUserId,

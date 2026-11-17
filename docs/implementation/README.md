@@ -20,6 +20,12 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+[Automatic agent memory and work recovery](features/automatic-agent-continuity-and-recovery.md)
+proposes SDK-owned continuity, automatic journals, connected work history, shared memory prompt
+composition and verified recovery through public interactions, with third-party compatibility,
+failure tests, full delivery journeys and upgrade/release acceptance. This is a review draft;
+implementation has not started.
+
 [Staffing review continuation](staffing-review-continuation.md) maps exact dependency waits, latest-review
 reassessment, full staffing narratives, generic third-party interactions and retained Brickfall recovery.
 

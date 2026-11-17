@@ -30,7 +30,16 @@
     {
         @if (_localSession is not null)
         {
-            <div class="host-target-summary"><MudIcon Icon="@Icons.Material.Outlined.Computer" /><span>@L["AgentHostOnboardingStep.ThisMachineCSweetOffice"]</span></div>
+            <div class="host-target-summary">
+                <MudIcon Icon="@Icons.Material.Outlined.Computer" />
+                <span>@L["AgentHostOnboardingStep.ThisMachineCSweetOffice"]</span>
+                @if (CanChangeLocalSetup)
+                {
+                    <MudButton Variant="Variant.Text" Color="Color.Primary" Class="host-target-change"
+                               aria-label="Change drive or capacity" Disabled="@(_busy || IsCompleting)"
+                               OnClick="ChangeLocalSetupAsync">Change</MudButton>
+                }
+            </div>
         }
         else
         {
@@ -398,6 +407,36 @@
     }
 
     private Guid? _dismissedLocalSessionId;
+
+    private bool CanChangeLocalSetup => _localSession is { State: "created", AdministratorApprovalRequestedAt: null,
+        RecoveryAction: "none", UpgradeOfficeId: null, AutomaticUpdate: false }
+        && !_localApprovalRequested;
+
+    private async Task ChangeLocalSetupAsync()
+    {
+        if (_busy || IsCompleting || !CanChangeLocalSetup) return;
+        BeginStatusMutation();
+        _busy = true;
+        _actionMessage = null;
+        try
+        {
+            var result = await SetupApi.CancelLocalOfficeSetupSessionAsync(_localSession!.Id);
+            _status = result.Status;
+            if (result.Succeeded)
+                await ResetLocalSetupAsync();
+            else
+                SetAction(false, result.Message);
+        }
+        catch
+        {
+            SetAction(false, "Office setup could not be cancelled. Try again to change the drive or capacity.");
+        }
+        finally
+        {
+            _busy = false;
+            EndStatusMutation();
+        }
+    }
 
     private Task ResetLocalSetupAsync()
     {
@@ -810,7 +849,14 @@
         }
 
         <footer class="local-wizard-actions">
-            <MudButton Variant="Variant.Text" Disabled="@(_busy || IsCompleting)" OnClick="OnBack">Back</MudButton>
+            @if (CanChangeLocalSetup)
+            {
+                <MudButton Variant="Variant.Text" Disabled="@(_busy || IsCompleting)" OnClick="ChangeLocalSetupAsync">Back</MudButton>
+            }
+            else
+            {
+                <MudButton Variant="Variant.Text" Disabled="@(_busy || IsCompleting)" OnClick="OnBack">Back</MudButton>
+            }
             @if (LocalOfficeIsReady)
             {
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Filled.ArrowForward"

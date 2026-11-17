@@ -297,7 +297,17 @@ public sealed partial class HiringService
         await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
             ? await db.Database.BeginTransactionAsync(token) : null;
         await LockHiringOrganizationAsync(organizationId, token);
-        var result = await SelectCandidateCoreAsync(organizationId, installationId, recommendationId, token);
+        _ = await RequireRecommendationAsync(organizationId, installationId, recommendationId, token);
+        HiringCandidateSelectionResponse result;
+        var pending = await PendingHiringDependencyAsync(organizationId, installationId, recommendationId, token);
+        if (pending is not null)
+            result = new(recommendationId, HiringSelectionMode.Automatic, null, pending.Message ?? "Waiting for a dependency.", pending.Message);
+        else try { result = await SelectCandidateCoreAsync(organizationId, installationId, recommendationId, token); }
+        catch (CSweet.Application.Setup.AgentImportPreviewException error) when (error.IsDependencyFailure)
+        {
+            await RecordHiringFailureAsync(organizationId, installationId, recommendationId, error, token);
+            result = new(recommendationId, HiringSelectionMode.Automatic, null, error.Message, error.Message);
+        }
         if (transaction is not null) await transaction.CommitAsync(token);
         return result;
     }
@@ -330,16 +340,32 @@ public sealed partial class HiringService
         var candidates = await (agentCatalog ?? throw new InvalidOperationException("Agent catalog unavailable."))
             .GetAvailableAgentsAsync(organizationId, new AvailableAgentSearchQuery(
                 Role: context?.RoleCategoryKey is null ? plan.Title : null, Limit: 100,
-                RequiredCapabilities: ReadStrings(approvedRole?.RequiredCapabilitiesJson),
                 RoleCategoryKey: context?.RoleCategoryKey, PreferredSpecializationKeys: context?.PreferredSpecializationKeys), token);
         var eligible = candidates.Agents.Where(x => x.Availability is AgentAvailabilityState.AvailableToInstall or AgentAvailabilityState.InstalledEnabled);
         eligible = eligible.Where(agentCatalog!.IsAutomaticSelectionAllowed);
         // Only the platform's embedded catalog establishes first-party provenance.
         if (policy.Settings.Publishers == HiringPublisherPreference.FirstPartyOnly)
             eligible = eligible.Where(IsFirstParty);
-        var selected = eligible.OrderByDescending(x => policy.Settings.Publishers == HiringPublisherPreference.PreferFirstParty && IsFirstParty(x))
-            .ThenByDescending(x => x.Score).ThenBy(x => x.AgentReference, StringComparer.Ordinal).FirstOrDefault();
-        var rationale = selected is null ? NoSuitableAgentRationale :
+        var requiredCapabilities = ReadStrings(approvedRole?.RequiredCapabilitiesJson);
+        AvailableAgent? selected = null;
+        string? assessmentFailure = null;
+        foreach (var candidate in eligible.OrderByDescending(x => policy.Settings.Publishers == HiringPublisherPreference.PreferFirstParty && IsFirstParty(x))
+                     .ThenByDescending(x => x.Score).ThenBy(x => x.AgentReference, StringComparer.Ordinal))
+        {
+            try
+            {
+                if (!await AssessHiringCapabilitiesAsync(plan, candidate, requiredCapabilities, token)) continue;
+                selected = candidate;
+                break;
+            }
+            catch (CSweet.Application.Setup.AgentImportPreviewException error) when (error.IsDependencyFailure) { throw; }
+            catch (Exception error) when (error is InvalidOperationException or ArgumentException or
+                CSweet.Application.Setup.AgentImportPreviewException or HttpRequestException)
+            {
+                assessmentFailure ??= $"Could not verify {candidate.Name}'s package requirements: {error.Message} Retry candidate assessment when the package is available.";
+            }
+        }
+        var rationale = selected is null ? assessmentFailure ?? NoSuitableAgentRationale :
             $"{selected.Name} matches the approved {plan.Title} role. Publisher: {selected.Publisher}. " +
             (IsFirstParty(selected) ? "From the platform first-party catalog." : "Third-party package; review its permissions before hiring.");
         plan.SelectedCatalogAgentJson = selected is null ? null : JsonSerializer.Serialize(selected, JsonOptions);
@@ -441,6 +467,11 @@ public sealed partial class HiringService
             if (transaction is not null) await transaction.CommitAsync(token);
             return new(recommendationId, null, "NeedsReview", "The owner is choosing this role manually.");
         }
+        if (await PendingHiringDependencyAsync(organizationId, installationId, recommendationId, token) is { } waiting)
+        {
+            if (transaction is not null) await transaction.CommitAsync(token);
+            return waiting;
+        }
         var auditCard = await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.ActionAsync(db, organizationId, installationId,
             $"hire:{recommendationId:N}", $"Hire {recommendation.Title}", token);
         DelegatedHireResponse result;
@@ -455,17 +486,15 @@ public sealed partial class HiringService
                 await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.FinishActionAsync(db, auditCard,
                     result.Status == "Succeeded" ? WorkTaskStatus.Completed : result.Status is "NeedsReview" or "Failed" or "NeedsSetup"
                         ? WorkTaskStatus.Blocked : WorkTaskStatus.Running, result.Message ?? $"Automatic hiring: {result.Status}.", token);
+            await SettleHiringDependencyAsync(organizationId, installationId, recommendationId, result.Status, result.Message, token);
             await db.SaveChangesAsync(token);
         }
-        catch
+        catch (Exception error) when (error is CSweet.Application.Setup.AgentImportPreviewException or HttpRequestException or
+            InvalidOperationException or ArgumentException or UnauthorizedAccessException)
         {
-            if (auditCard is not null)
-            {
-                await CSweet.Infrastructure.WorkManagement.ChiefWorkCards.FinishActionAsync(db, auditCard, WorkTaskStatus.Blocked,
-                    "Automatic hiring did not complete. See the recorded workflow and failure evidence.", CancellationToken.None);
-                await db.SaveChangesAsync(CancellationToken.None);
-            }
-            throw;
+            // Expected provider/configuration failures are durable outcomes. Throwing would
+            // roll back the very status and wake time needed to recover this recommendation.
+            result = await RecordHiringFailureAsync(organizationId, installationId, recommendationId, error, token);
         }
         if (transaction is not null) await transaction.CommitAsync(token);
         return result;
@@ -475,12 +504,12 @@ public sealed partial class HiringService
         Guid recommendationId, Guid? auditCardId, CancellationToken token = default)
     {
         var plan = await RequireRecommendationAsync(organizationId, installationId, recommendationId, token);
-        var selection = await SelectCandidateAsync(organizationId, installationId, recommendationId, token);
-        if (selection.Candidate is not { } candidate) return new(plan.Id, null, "NeedsReview", selection.Rationale);
         var current = await ReadPolicyAsync(organizationId, installationId, token);
         var bound = await BoundPolicyAsync(plan, token);
         if (!current.SetupComplete || current.Settings.Mode != HiringSelectionMode.Automatic || bound.Mode != HiringSelectionMode.Automatic)
             return new(plan.Id, null, "NeedsReview", "This plan has no automatic hiring delegation.");
+        var selection = await SelectCandidateCoreAsync(organizationId, installationId, recommendationId, token);
+        if (selection.Candidate is not { } candidate) return new(plan.Id, null, "NeedsReview", selection.Rationale);
         var owner = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(x => x.Id == current.OwnerId &&
             x.OrganizationId == organizationId && x.IsActive && x.PermissionLevel == OrganizationPermissionLevel.Owner && x.ApplicationUserId.HasValue, token);
         var preview = await PreviewMarketplaceHireAsync(organizationId, owner.ApplicationUserId!.Value,

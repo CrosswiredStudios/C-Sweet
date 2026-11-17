@@ -36,6 +36,9 @@ public interface IExecutionFleetService
         Guid createdByUserId,
         CancellationToken cancellationToken = default);
 
+    Task<LocalOfficeSetupActionResponse> CancelLocalSetupSessionAsync(
+        Guid sessionId, Guid createdByUserId, CancellationToken cancellationToken = default);
+
     Task<LocalOfficeSetupActionResponse> LaunchLocalSetupSessionAsync(
         Guid sessionId,
         Guid createdByUserId,

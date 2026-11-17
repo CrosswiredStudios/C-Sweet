@@ -41,6 +41,15 @@ public static class SetupEndpoints
             return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
         }).RequireAuthorization("HostAdministration");
 
+        group.MapPost("/execution-capacity/local-sessions/{sessionId:guid}/cancel", async (
+            Guid sessionId, ClaimsPrincipal principal, IExecutionFleetService service, CancellationToken ct) =>
+        {
+            var userId = principal.GetApplicationUserId();
+            if (!userId.HasValue) return Results.Unauthorized();
+            var result = await service.CancelLocalSetupSessionAsync(sessionId, userId.Value, ct);
+            return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
+        }).RequireAuthorization("HostAdministration");
+
         group.MapPost("/execution-capacity/local-sessions/{sessionId:guid}/cancel-update", async (
             Guid sessionId, ClaimsPrincipal principal, IExecutionFleetService service, CancellationToken ct) =>
         {
