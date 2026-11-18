@@ -24,6 +24,35 @@ namespace CSweet.UnitTests;
 public sealed class AgentCoordinationServiceTests
 {
     [Fact]
+    public async Task ContributionDiscoveryPagesOnlyOriginalRequestsFromTheCurrentBoardTeam()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var board = Guid.NewGuid(); var team = Guid.NewGuid(); var project = Guid.NewGuid();
+        f.Db.WorkBoards.Add(new() { Id = board, OrganizationId = f.OrganizationId, TeamId = team, WorkstreamId = project });
+        f.Db.TeamMemberships.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.OrganizationId, TeamId = team, OrganizationUserId = f.InitiatorId });
+        var expected = new List<Guid>();
+        for (var i = 0; i < 19; i++)
+        {
+            var id = Guid.NewGuid();
+            var s = new DomainCoordinationSession { Id = id, OrganizationId = f.OrganizationId, SourceKind = "Board",
+                SourceBoardId = board, WorkstreamId = project, TeamId = team, InitiatorOrganizationUserId = f.InitiatorId,
+                TargetOrganizationUserId = f.TargetId, IdempotencyKey = id.ToString() };
+            s.Turns.Add(new() { Id = Guid.NewGuid(), SessionId = id, EventId = Guid.NewGuid(), Ordinal = 0,
+                SpeakerOrganizationUserId = f.InitiatorId, ArtifactType = "planning-cycle", ArtifactKey = i == 18 ? "other" : "source" });
+            if (i < 18) expected.Add(id);
+            f.Db.AgentCoordinationSessions.Add(s);
+        }
+        await f.Db.SaveChangesAsync();
+        var query = new BoardContributionQuery(project, team, board, f.TargetId, "planning-cycle", "source");
+        var first = await f.Service.DiscoverBoardContributionsAsync(f.OrganizationId, f.InitiatorId, query);
+        var last = await f.Service.DiscoverBoardContributionsAsync(f.OrganizationId, f.InitiatorId, query with { AfterSessionId = first.NextCursor });
+        Assert.Equal(16, first.SessionIds.Count); Assert.Null(last.NextCursor);
+        Assert.Equal(expected.Order(), first.SessionIds.Concat(last.SessionIds));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.DiscoverBoardContributionsAsync(f.OrganizationId, f.TargetId, query));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => f.Service.DiscoverBoardContributionsAsync(f.OrganizationId, f.InitiatorId, query with { WorkstreamId = Guid.NewGuid() }));
+    }
+
+    [Fact]
     public async Task ResumedBlockedSessionPublishesANewSummaryWithoutReusingTheHistoricalMessageKey()
     {
         await using var fixture = await Fixture.CreateAsync();

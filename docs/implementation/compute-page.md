@@ -83,11 +83,45 @@ polling loops are introduced. The local snapshot is durable state, not an execut
 Existing compute-available and broker outboxes continue to wake agents; current authorization and
 state reads remain authoritative.
 
+## Installation-owned base images
+
+`ComputeSharedImageStore` in `CSweet.Compute.HyperV` publishes verified VHDX images to
+`%ProgramData%\CSweet\ComputeImages\<sha256>.vhdx`. This protected directory is a sibling of
+the legacy `Compute` and business-scoped `ComputeBusinesses` directories. It is never part of
+business retirement. Image identity is content-based and independent of business, source filename
+and guest operating system; the current automatic preparation workflow still supplies Linux/x64.
+
+`Install-ComputeLocalProvider.ps1` passes the prepared image to
+`LocalComputeInstaller.ConfigureAsync` without making a business-local image copy. The installer
+imports it into the shared store and writes that path into the provider's own certified catalog.
+`Ensure-ComputeLinuxImage.ps1` continues to serialize preparation and reuse its verified build
+cache, so creating a business does not require another download/build of unchanged image inputs.
+
+Publication uses a private staging file, SHA-256 verification, disk flush and atomic no-overwrite
+rename. Concurrent installers converge on the same verified file. Existing files are verified before
+reuse; corrupt images fail setup rather than being overwritten under other providers. Store paths
+require trusted Windows ownership/ACLs and reject redirected paths. Providers retain their own
+certifications, enrollment, grants, quotas, journals and workload directories. `HyperVComputeDriver`
+still copies the base into a private writable VM disk; no writable disks are shared.
+
+Normal `repair-local` updates also import legacy images after verifying the exact enrolled source
+path and digest. `PreserveEnrolledTemplate` retains the original template metadata and features.
+The existing runtime updater backs up catalog/settings together with its runtime and restores them
+on validation failure. Prior image files remain available for rollback and existing installs continue
+to work until their next normal repair/update. No live migration is performed by source changes.
+
+Published shared images and old business-local copies are retained; automatic garbage collection
+is not implemented. Future reclamation must account for every provider catalog, rollback reference
+and in-flight image reader. Business deletion must never delete the installation-owned store.
+
 ## Verification
 
 - `ComputeProgressRenderingTests`: progress/ETA, quiet versus unknown, owner controls, and delayed collapse.
 - `ComputePreparationProgressTests`: attempt isolation, safe text, retained terminal history, receipt identity, malformed evidence and health/retry semantics.
 - `ComputeLocalSetupHandoffTests`: actual installer-reader roundtrip, legacy compatibility, and strict rejection of unknown or invalid handoff fields.
+- `ComputeSharedImageStoreTests`: cross-business reuse, concurrent publication, version coexistence,
+  corruption/cancellation, protected-file rejection, repair identity preservation and retirement boundaries.
+- `ComputeCatalogInstallationTests`: independent certified providers concurrently open one shared base image.
 - `ComputeManagementTests`: owner/business scope, idempotent setup/creation, project and lifetime checks, revoked-grant preservation.
 - `ComputePreparationMigrationTests`: model/snapshot agreement and additive nullable SQL.
 - `tests/ComputeSetupProgress.Tests.ps1`, `tests/ComputeInstallerReceipt.Tests.ps1`, and `tests/AutomaticComputeImage.Tests.ps1`: atomic progress snapshots, bounded/reset history, process receipts and image-cache behavior.

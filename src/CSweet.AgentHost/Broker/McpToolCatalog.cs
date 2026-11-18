@@ -775,7 +775,7 @@ public sealed class McpToolCatalog(
             {"type":"object","required":["sessionId"],"properties":{"sessionId":{"type":"string","format":"uuid"}},"additionalProperties":false}
             """),
         CommunicationCapabilities.CoordinationList => Schema("""
-            {"type":"object","properties":{"chatId":{"type":["string","null"],"format":"uuid"},"activeOnly":{"type":"boolean"}},"additionalProperties":false}
+            {"type":"object","properties":{"chatId":{"type":["string","null"],"format":"uuid"},"activeOnly":{"type":"boolean"},"boardContributions":{"type":"object","required":["workstreamId","teamId","boardId","targetOrganizationUserId","requestType","requestKey"],"properties":{"workstreamId":{"type":"string","format":"uuid"},"teamId":{"type":"string","format":"uuid"},"boardId":{"type":"string","format":"uuid"},"targetOrganizationUserId":{"type":"string","format":"uuid"},"requestType":{"type":"string","minLength":1,"maxLength":200},"requestKey":{"type":"string","minLength":1,"maxLength":256},"afterSessionId":{"type":["string","null"],"format":"uuid"}},"additionalProperties":false}},"additionalProperties":false}
             """),
         CommunicationCapabilities.CoordinationResume => Schema("""
             {"type":"object","required":["sessionId","expectedRevision","reason","idempotencyKey"],"properties":{"sessionId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"reason":{"type":"string","minLength":1,"maxLength":2048},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}

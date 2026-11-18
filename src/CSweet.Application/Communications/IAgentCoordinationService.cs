@@ -39,6 +39,9 @@ public interface IAgentCoordinationService
         Guid sessionId,
         CancellationToken cancellationToken = default);
 
+    Task<BoardContributionPage> DiscoverBoardContributionsAsync(Guid organizationId, Guid actorOrganizationUserId,
+        BoardContributionQuery query, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<AgentCoordinationSession>> ListAsync(
         Guid organizationId,
         Guid actorOrganizationUserId,

@@ -25,7 +25,10 @@ internal static class LocalComputeInstaller
         var root = installation.Root;
         WindowsComputeProtectedPaths.Verify(root);
         var runtime = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
-        WindowsComputeProtectedPaths.Verify(runtime); WindowsComputeProtectedPaths.Verify(imagePath);
+        WindowsComputeProtectedPaths.Verify(runtime);
+        // New setup imports the application-prepared image into protected storage below.
+        // Repair must still start from the exact protected image in the enrolled catalog.
+        if (handoff is null) WindowsComputeProtectedPaths.Verify(imagePath);
         var acceptance = XDocument.Load(acceptancePath);
         var counters = acceptance.Descendants().Single(x => x.Name.LocalName == "Counters");
         if (!int.TryParse(counters.Attribute("passed")?.Value, out var passed) || passed < 1 ||
@@ -35,7 +38,7 @@ internal static class LocalComputeInstaller
         var digest = "sha256:" + await HashFileAsync(imagePath, token);
         var template = new ComputeTemplate("linux-local-" + digest[7..31], "linux", "x64", digest,
             handoff is null ? ["guest-execution", "python"] : ["guest-execution", "python", "docker", "node", "docker-apps-v1", ComputeBrowserTest.Feature]);
-        ComputeProviderConfiguration configuration;
+        ComputeProviderConfiguration? configuration = null;
         if (File.Exists(configurationPath))
         {
             configuration = await ComputeProviderConfigurationLoader.ReadAsync(configurationPath, token);
@@ -49,13 +52,17 @@ internal static class LocalComputeInstaller
                 var installedCatalog = Path.Combine(root, "catalog.json");
                 WindowsComputeProtectedPaths.Verify(installedCatalog);
                 var installed = JsonSerializer.Deserialize<ComputeTemplateCatalogDocument>(await File.ReadAllTextAsync(installedCatalog, token), ComputeProtocol.Json);
-                if (installed?.Templates.Any(x => x.Template.Id == template.Id && x.Template.ImageDigest == digest &&
-                        Path.GetFullPath(x.ImagePath).Equals(Path.GetFullPath(imagePath), StringComparison.OrdinalIgnoreCase)) != true)
-                    throw new InvalidOperationException("Repair must preserve the enrolled image.");
-                template = installed.Templates.Single(x => x.Template.Id == template.Id).Template;
+                template = PreserveEnrolledTemplate(installed, imagePath, template);
             }
         }
-        else
+        else if (handoff is null)
+            throw new InvalidOperationException("Repair requires an existing enrolled provider.");
+
+        // Preserve the enrolled image checks above before migrating its storage location.
+        // Import before creating a new provider key, so a failed image import can be retried.
+        // The digest/template and business identity stay unchanged; old files remain for rollback.
+        imagePath = await new ComputeSharedImageStore().ImportAsync(imagePath, digest, token);
+        if (configuration is null)
         {
             if (handoff is null) throw new InvalidOperationException("Repair requires an existing enrolled provider.");
             using var key = CngKey.Create(CngAlgorithm.ECDsaP256, "CSweet.Compute." + handoff.SetupId.ToString("N"), new()
@@ -171,6 +178,15 @@ internal static class LocalComputeInstaller
     {
         await using var stream = File.OpenRead(path);
         return Convert.ToHexStringLower(await SHA256.HashDataAsync(stream, token));
+    }
+
+    internal static ComputeTemplate PreserveEnrolledTemplate(ComputeTemplateCatalogDocument? installed,
+        string imagePath, ComputeTemplate candidate)
+    {
+        if (installed?.Templates.Any(x => x.Template.Id == candidate.Id && x.Template.ImageDigest == candidate.ImageDigest &&
+                Path.GetFullPath(x.ImagePath).Equals(Path.GetFullPath(imagePath), StringComparison.OrdinalIgnoreCase)) != true)
+            throw new InvalidOperationException("Repair must preserve the enrolled image.");
+        return installed.Templates.Single(x => x.Template.Id == candidate.Id).Template;
     }
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private static async Task WriteAsync<T>(string path, T value, CancellationToken token)

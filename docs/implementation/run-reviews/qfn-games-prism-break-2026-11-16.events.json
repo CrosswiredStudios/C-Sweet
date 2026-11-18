@@ -1,0 +1,179 @@
+{
+  "business": "QFN Games",
+  "organizationId": "729838c3-7be4-4cc7-bfd4-1c5c3dd847df",
+  "project": "Prism Break",
+  "projectId": "8d1d7954-1cac-49ff-ab28-230d20220394",
+  "boardId": "e5cac6f6-62e8-46f2-88f1-caaa593a1abb",
+  "snapshotAt": "2026-11-17T05:05:54.9018164Z",
+  "installedVersions": {
+    "producer": "6.21.1",
+    "technicalDirector": "6.13.0"
+  },
+  "scope": "Selected handoffs from epic definition through the first sprint admission decision. Times are UTC.",
+  "events": [
+    {
+      "id": "package-accepted",
+      "at": "2026-11-17T04:36:45.387641Z",
+      "sender": "Project",
+      "recipient": "Producer",
+      "result": "Accepted production package recorded",
+      "source": "Producer portfolio packageAcceptedAt",
+      "nextOwner": "Producer"
+    },
+    {
+      "id": "draft-sprint",
+      "at": "2026-11-17T04:40:33.027894Z",
+      "sender": "Producer",
+      "recipient": "Work board",
+      "result": "Created Production Sprint 1 as Planned",
+      "source": "a172c84b-2f7c-4d29-a4ac-3dde9eeea721",
+      "nextOwner": "Producer"
+    },
+    {
+      "id": "outline-completed",
+      "at": "2026-11-17T04:46:57.823428Z",
+      "sender": "Technical Director",
+      "recipient": "Producer",
+      "result": "Completed technical outline session",
+      "source": "991b22dd-57be-4583-90db-d6b450f350db",
+      "nextOwner": "Producer"
+    },
+    {
+      "id": "epics-present",
+      "at": "2026-11-17T04:48:35.124864Z",
+      "sender": "Producer",
+      "recipient": "Work board",
+      "result": "Eleven epic records on the project board by this timestamp",
+      "source": "board items, latest epic updatedAt",
+      "nextOwner": "Producer"
+    },
+    {
+      "id": "refinement-requested",
+      "at": "2026-11-17T04:50:07.232020Z",
+      "sender": "Producer",
+      "recipient": "Technical Director",
+      "result": "Requested roadmap-epic-1.story-1",
+      "source": "a5d95b5b-509e-4734-978d-6e1b2efe49ca",
+      "nextOwner": "Technical Director"
+    },
+    {
+      "id": "ownership-advice",
+      "at": "2026-11-17T04:50:30.764666Z",
+      "sender": "Technical Director",
+      "recipient": "Producer",
+      "result": "Completed scoped ownership consultation",
+      "source": "c6eed015-1643-4ecc-9dc2-f9a0687e6605",
+      "nextOwner": "Producer"
+    },
+    {
+      "id": "delivery-read",
+      "at": "2026-11-17T04:55:04.314128Z",
+      "sender": "Producer",
+      "recipient": "Platform",
+      "result": "Successful read of same project delivery plans after grant denials",
+      "source": "6b2849cf-7a86-4e7e-8a95-b3b0cf72ea4f",
+      "nextOwner": "Technical Director"
+    },
+    {
+      "id": "draft-index",
+      "at": "2026-11-17T04:55:33.458517Z",
+      "sender": "Technical Director",
+      "recipient": "Operating state",
+      "result": "Saved six proposed task titles and coverage",
+      "source": "technical-draft:3bc85c8cc2a65e0085f99b6ab7ad6c8cf46c4e53fe621de3f1cec8393cb68c5f",
+      "nextOwner": "Technical Director"
+    },
+    {
+      "id": "proposal-returned",
+      "at": "2026-11-17T04:56:50.408070Z",
+      "sender": "Technical Director",
+      "recipient": "Producer",
+      "result": "Returned typed proposal with validated briefs",
+      "source": "a5d95b5b-509e-4734-978d-6e1b2efe49ca turn 1",
+      "nextOwner": "Producer"
+    },
+    {
+      "id": "refinement-completed",
+      "at": "2026-11-17T04:56:50.900614Z",
+      "sender": "Coordination service",
+      "recipient": "Producer",
+      "result": "Session completed",
+      "source": "a5d95b5b-509e-4734-978d-6e1b2efe49ca",
+      "nextOwner": "Producer"
+    },
+    {
+      "id": "capacity-recorded",
+      "at": "2026-11-17T04:56:52.329719Z",
+      "sender": "Technical Director",
+      "recipient": "Director",
+      "result": "Build capacity request recorded as Preparing",
+      "source": "fd5cb236-7b85-4b96-919a-5d04219dbaf8",
+      "nextOwner": "Director"
+    },
+    {
+      "id": "first-assessment",
+      "at": "2026-11-17T05:00:08Z",
+      "sender": "Producer",
+      "recipient": "Operating state",
+      "result": "Selected the guardrails Story, proceed, keepDraft false, resource Certifying",
+      "source": "a5600d42-bda8-4a77-92c9-e8313680a980",
+      "nextOwner": "Producer"
+    },
+    {
+      "id": "feasibility-completed",
+      "at": "2026-11-17T05:00:20.523496Z",
+      "sender": "Technical Director",
+      "recipient": "Director",
+      "result": "Feasibility collaboration completed",
+      "source": "3bf37a52-65b7-412b-9ebb-5d4383a876a6",
+      "nextOwner": "Director"
+    },
+    {
+      "id": "admission-input",
+      "at": "2026-11-17T05:01:01.660901Z",
+      "sender": "Producer",
+      "recipient": "Model provider",
+      "result": "Recorded review prompt has null provisionalStory and provisional fields",
+      "source": "83139f65-eaa5-ff20-3370-292616482dfe",
+      "nextOwner": "Producer"
+    },
+    {
+      "id": "second-assessment",
+      "at": "2026-11-17T05:01:28Z",
+      "sender": "Producer",
+      "recipient": "Operating state",
+      "result": "Selected same Story, proceed, keepDraft false, resource Ready, changed review basis",
+      "source": "9606297d-b074-4349-a052-05edbe229b1f",
+      "nextOwner": "Producer"
+    },
+    {
+      "id": "deferred-admission",
+      "at": "2026-11-17T05:01:28.671183Z",
+      "sender": "Producer",
+      "recipient": "Personal board",
+      "result": "Retained draft outside board, next review at 05:16:28.613824Z",
+      "source": "ff6349bb-f202-43ef-bdae-60d394154519",
+      "nextOwner": "Producer"
+    },
+    {
+      "id": "observed-wait",
+      "at": "2026-11-17T05:05:54.9018164Z",
+      "sender": "Activity dashboard",
+      "recipient": "Observer",
+      "result": "Producer waiting on retained refinement",
+      "source": "dashboard/activity checkedAt",
+      "nextOwner": "Producer"
+    }
+  ],
+  "finalState": {
+    "epics": 11,
+    "stories": 0,
+    "tasks": 0,
+    "sprintStatus": "Planned",
+    "sprintItems": 0,
+    "capacityPoints": null,
+    "startedAt": null,
+    "firstExecutableTicketAt": null,
+    "nextPlanningReviewAt": "2026-11-17T05:16:28.613824Z"
+  }
+}

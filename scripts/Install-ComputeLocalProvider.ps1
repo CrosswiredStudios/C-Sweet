@@ -47,7 +47,8 @@ try {
             # A retained provider can outlive a recreated C-Sweet database. The installed service
             # may predate the recovery command, so publish the current control utility beside this
             # one-time handoff. Update only its stopped runtime payload; preserve its protected
-            # identity, journal, catalog, images and live workloads.
+            # identity, journal and live workloads. Repair imports the enrolled image into
+            # the installation-owned store and updates its catalog; old files remain for rollback.
             Write-ComputeSetupProgress -Path $setupProgress -Phase 'connect-service' -Message 'Restoring the compute connection.' -AttemptId $preparationAttempt
             $recoveryRoot = Join-Path $logRoot 'recovery-provider'
             $failureCode = 'compute_provider_publish_failed'
@@ -173,9 +174,7 @@ try {
             Set-Content -LiteralPath (Join-Path $protectedRoot 'compute-owner.json') -Encoding UTF8
     }
     $runtimeRoot = Join-Path $protectedRoot 'runtime'
-    $imagesRoot = Join-Path $protectedRoot 'images'
     New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
-    New-Item -ItemType Directory -Path $imagesRoot -Force | Out-Null
     $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
     if ($null -ne $service) {
         # The application schedules image upgrades only after all resource teardown is confirmed.
@@ -197,14 +196,13 @@ try {
     if ($resolvedRuntime -ne [IO.Path]::GetFullPath((Join-Path $protectedRoot 'runtime'))) { throw 'Unexpected runtime path.' }
     Get-ChildItem -LiteralPath $resolvedRuntime -Force | Remove-Item -Recurse -Force
     Get-ChildItem -LiteralPath $publishRoot -File | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $runtimeRoot -Force }
-    $installedImage = Join-Path $imagesRoot (Split-Path -Leaf $imagePath)
-    Copy-Item -LiteralPath $imagePath -Destination $installedImage -Force
     # Elevation can otherwise preserve the user's owner SID on new files. Set trusted ownership explicitly.
     & "$env:SystemRoot\System32\icacls.exe" $protectedRoot '/setowner' '*S-1-5-32-544' '/T' '/C' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Compute payload ownership could not be protected.' }
     $providerExecutable = Join-Path $runtimeRoot 'CSweet.Compute.HyperV.exe'
     $failureCode = 'compute_enrollment_failed'
-    & $providerExecutable configure-local $HandoffPath $installedImage (Join-Path $acceptanceRoot 'compute.trx')
+    # Configure imports once by digest into the protected installation-wide image store.
+    & $providerExecutable configure-local $HandoffPath $imagePath (Join-Path $acceptanceRoot 'compute.trx')
     if ($LASTEXITCODE -eq 10) { $failureCode = 'setup_configuration_invalid' }
     if ($LASTEXITCODE -ne 0) { throw 'The compute provider could not be enrolled.' }
     & (Join-Path $repositoryRoot 'scripts\Register-ComputeGuestService.ps1') | Out-Host
