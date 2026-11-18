@@ -77,7 +77,8 @@ public sealed class StackCheckpointTests(ITestOutputHelper output)
         var delivery = JsonSerializer.Deserialize<WorkItemDeliverySpecification>(ticket.DeliverySpecificationJson!, JsonSerializerOptions.Web)!;
         var setup = Assert.Single(delivery.AcceptanceCriteria, c => c.Contains(stack.Setup, StringComparison.Ordinal));
         if (!string.IsNullOrWhiteSpace(stack.Lockfile)) Assert.Contains(stack.Lockfile, setup);
-        Assert.Equal(platform.Adrian.OrganizationUserId, ticket.AccountableOrganizationUserId);
+        var engineer = Assert.Single(platform.Roster.Members, member => member.DeclaredRoleKeys.Contains("game-engineer"));
+        Assert.Equal(Guid.Parse(engineer.EmployeeId), ticket.AccountableOrganizationUserId);
         output.WriteLine($"Sprint {sprint.Sequence} | assigned setup ticket {ticket.Id} | {timer.Elapsed.TotalSeconds:F1}s from checkpoint\n{setup}");
     }
 
