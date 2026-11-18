@@ -365,7 +365,7 @@ public sealed partial class WorkDispatchRecoveryTests
         return new(installation, execution, policy, stage);
     }
     private sealed record State(AgentInstallation Installation, WorkSprintExecution Execution, WorkOrchestrationPolicyRevision Policy, WorkStageExecution Stage);
-    private sealed class Runtime(CSweetDbContext db) : IAgentRuntimeManager
+    internal sealed class Runtime(CSweetDbContext db) : IAgentRuntimeManager
     {
         public int Wakes { get; private set; }
         public async Task<bool> EnsureRuntimeQueuedAsync(Guid id, string reason, bool interactive = false, CancellationToken cancellationToken = default)

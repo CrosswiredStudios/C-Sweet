@@ -650,7 +650,8 @@ public sealed partial class WorkOrchestrationService(
             {
                 var stage = policy.Stages.SingleOrDefault(x => x.Key == assignment.StageKey);
                 if (stage is null) continue;
-                if (stage.Type == WorkOrchestrationStageType.AgentExecution)
+                if (stage.Type == WorkOrchestrationStageType.AgentExecution ||
+                    stage.Type == WorkOrchestrationStageType.MemberExecution && assignment.PrincipalKind == WorkOrchestrationPrincipalKind.AgentInstallation)
                 {
                     var installation = assignment.AgentInstallationId.HasValue
                         ? await db.AgentInstallations.AsNoTracking().Include(x => x.PackageVersion).SingleOrDefaultAsync(x =>
@@ -675,17 +676,7 @@ public sealed partial class WorkOrchestrationService(
                     errors.Add(new("assignment.human", "Manual stage lacks an active human assignment.", item.Id, stage.Key, assignment.Id));
                 if (stage.Type == WorkOrchestrationStageType.MemberExecution)
                 {
-                    if (assignment.PrincipalKind == WorkOrchestrationPrincipalKind.AgentInstallation)
-                    {
-                        var installation = assignment.AgentInstallationId.HasValue
-                            ? await db.AgentInstallations.AsNoTracking().Include(x => x.PackageVersion).SingleOrDefaultAsync(x =>
-                                x.Id == assignment.AgentInstallationId && x.IsEnabled &&
-                                x.RevisionStatus == PluginRevisionStatus.Active && x.BusinessId == organizationId.ToString(), cancellationToken)
-                            : null;
-                        if (installation is null || !ProvidesExecutionCapability(installation.PackageVersion?.ManifestJson))
-                            errors.Add(new("assignment.agent", "Assigned installation is inactive or does not provide work.execution.run.", item.Id, stage.Key, assignment.Id));
-                    }
-                    else if (assignment.PrincipalKind == WorkOrchestrationPrincipalKind.Human)
+                    if (assignment.PrincipalKind == WorkOrchestrationPrincipalKind.Human)
                     {
                         if (!assignment.OrganizationUserId.HasValue ||
                             !await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
@@ -693,7 +684,7 @@ public sealed partial class WorkOrchestrationService(
                                 x.IsActive && x.EmployeeType == EmployeeType.Human, cancellationToken))
                             errors.Add(new("assignment.human", "Member stage lacks an active human assignment.", item.Id, stage.Key, assignment.Id));
                     }
-                    else
+                    else if (assignment.PrincipalKind != WorkOrchestrationPrincipalKind.AgentInstallation)
                     {
                         errors.Add(new("assignment.member", "Member stage requires a human or agent assignment.", item.Id, stage.Key, assignment.Id));
                     }

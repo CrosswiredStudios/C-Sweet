@@ -120,7 +120,9 @@ public sealed class HierarchicalTaskRuntimeTests
         Func<Fixture,string,Task<DeliveryBranchResult>>? publishCandidate = null,
         Func<Fixture,SourceControlPublication,DeliveryBranchResult,Task<WorkExecutionOutcomeV1>>? technicalReview = null,
         Func<Fixture,string,bool,Task<WorkExecutionOutcomeV1>>? qualityReview = null,
-        bool identicalStageTimestamps = false, bool integrationConflict = false, bool oldPolicy = false, bool targetChange = false, int publicSprintSequence = 0)
+        bool identicalStageTimestamps = false, bool integrationConflict = false, bool oldPolicy = false, bool targetChange = false,
+        int publicSprintSequence = 0, AgentInstallation? claimAs = null,
+        Func<Task<CSweet.WorkManagement.Contracts.WorkSprint>>? prepareAgentSprint = null)
     {
         foreach (var person in new[] { f.Author, f.Qa, f.Technical })
         {
@@ -188,11 +190,21 @@ public sealed class HierarchicalTaskRuntimeTests
             (await f.Db.WorkOrchestrationPolicies.SingleAsync(p => p.Id == policy.PolicyId)).PublishedRevisionId = policy.Id;
             f.Task.Status = WorkTaskStatus.Ready;
             await f.Db.SaveChangesAsync();
-            var sprints = new WorkSprintService(f.Db, new CSweet.Infrastructure.Security.ScopedActionAuthorizationService(f.Db), new TestAuditEventWriter());
-            var created = await sprints.CreateAsync(f.Org, f.Board.Id, f.Manager.ApplicationUserId.Value,
-                new("Sprint " + publicSprintSequence, "Deliver the selected approved work", null, null, "journey-sprint-" + publicSprintSequence));
-            await sprints.SetItemSprintAsync(f.Org, f.Board.Id, f.Task.Id, f.Manager.ApplicationUserId.Value,
-                new(created.Id, f.Task.Revision, "journey-scope-" + publicSprintSequence));
+            (Guid Id, long Revision) created;
+            if (prepareAgentSprint is not null)
+            {
+                var planned = await prepareAgentSprint();
+                created = (planned.Id, planned.Revision);
+            }
+            else
+            {
+                var sprints = new WorkSprintService(f.Db, new CSweet.Infrastructure.Security.ScopedActionAuthorizationService(f.Db), new TestAuditEventWriter());
+                var planned = await sprints.CreateAsync(f.Org, f.Board.Id, f.Manager.ApplicationUserId.Value,
+                    new("Sprint " + publicSprintSequence, "Deliver the selected approved work", null, null, "journey-sprint-" + publicSprintSequence));
+                await sprints.SetItemSprintAsync(f.Org, f.Board.Id, f.Task.Id, f.Manager.ApplicationUserId.Value,
+                    new(planned.Id, f.Task.Revision, "journey-scope-" + publicSprintSequence));
+                created = (planned.Id, planned.Revision);
+            }
             var starter = new WorkOrchestrationService(f.Db, TimeProvider.System, new CSweet.Infrastructure.Security.ScopedActionAuthorizationService(f.Db), f.Client);
             var currentManager = await f.Db.CoreOrganizationUsers.SingleAsync(u => u.Id == f.Board.ManagerOrganizationUserId);
             var startPrincipal = currentManager.AgentInstallationId ?? currentManager.ApplicationUserId ?? throw new InvalidOperationException("The current manager needs an authenticated principal.");
@@ -209,7 +221,7 @@ public sealed class HierarchicalTaskRuntimeTests
         TimeProvider clock = identicalStageTimestamps ? new FrozenClock(DateTimeOffset.UtcNow.AddMinutes(1)) : TimeProvider.System;
         var manual = new WorkOrchestrationService(f.Db, clock);
         var inbox = new AgentWorkInbox(f.Db, new EphemeralDataProtectionProvider(), clock);
-        var runtime = new WorkOrchestrator(f.Db, inbox, null!, null!,
+        var runtime = new WorkOrchestrator(f.Db, inbox, null!, claimAs is null ? null! : new WorkDispatchRecoveryTests.Runtime(f.Db),
             [new TaskIntegrationWorkActionExecutor(f.Db, f.Client, clock)], clock, NullLogger<WorkOrchestrator>.Instance);
         async Task Pulse() => await (Task)typeof(WorkOrchestrator).GetMethod("ReconcileExecutionAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(runtime, [execution.Id, CancellationToken.None])!;
@@ -220,6 +232,32 @@ public sealed class HierarchicalTaskRuntimeTests
             await manual.CompleteManualAsync(f.Org, f.Board.Id, stage.Id, person.ApplicationUserId!.Value,
                 new(f.Board.Id, execution.Id, stage.Id, outcome, "Exact evidence observed", JsonSerializer.SerializeToElement(output, Json), Guid.NewGuid().ToString("N"))
                 { Evidence = evidence ?? [] });
+        }
+        if (claimAs is not null)
+        {
+            var process = new AgentRuntimeInstance { Id = Guid.NewGuid(), TickId = Guid.NewGuid(), AgentInstallationId = claimAs.Id,
+                QueuedAt = clock.GetUtcNow(), RuntimeDeadlineAt = clock.GetUtcNow().AddMinutes(10) };
+            f.Db.AgentRuntimeInstances.Add(process);
+            await f.Db.SaveChangesAsync();
+            await runtime.PulseAsync();
+            var stage = Current();
+            Assert.Equal(authorKey, stage.StageKey);
+            var lease = await inbox.ClaimAsync(new McpAgentSession { Id = Guid.NewGuid(), RuntimeInstanceId = process.Id, TickId = process.TickId,
+                OrganizationId = f.Org.ToString(), AgentInstallationId = claimAs.Id }, default);
+            Assert.NotNull(lease);
+            Assert.Equal(lease.WorkId, Assert.Single(stage.Attempts).AgentWorkItemId);
+            Assert.Equal(f.Author.Id, stage.OrganizationUserId);
+            Assert.Equal(claimAs.Id, stage.AgentInstallationId);
+            Assert.Equal(WorkStageExecutionStatus.Running, stage.Status);
+            Assert.Equal(f.Task.Id, item.WorkItemId);
+            Assert.Equal(execution.Id, item.SprintExecutionId);
+            Assert.Equal(sprint.Id, execution.SprintId);
+            Assert.Equal(WorkSprintStatus.Active, sprint.Status);
+            Assert.Equal(1, sprint.Sequence);
+            Assert.True(f.Task.EstimatePoints > 0 && f.Task.EstimatePoints <= sprint.CapacityPoints);
+            var receipt = await f.Db.AgentWorkAttempts.SingleAsync(a => a.AgentWorkItemId == lease.WorkId);
+            Assert.True(receipt.ClaimedAt >= sprint.StartedAt);
+            return;
         }
         if (publicSprintSequence > 0) {
             await Pulse(); Assert.Equal(authorKey, item.CurrentStageKey);

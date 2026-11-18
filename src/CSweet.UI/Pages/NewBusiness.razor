@@ -20,8 +20,8 @@
             <MudButton Disabled="@(!_existingBusiness.HasValue || _saving)" OnClick="ResumeExisting">Continue with this business</MudButton><MudDivider Class="my-4" />
         }
         <MudTextField T="string" @bind-Value="_name" Label="Business name" Required="true" MaxLength="256" Immediate="true" Disabled="_saving" Variant="Variant.Outlined" />
-        <MudTextField T="string" @bind-Value="_industry" Label="Industry (optional)" MaxLength="160" Disabled="_saving" Variant="Variant.Outlined" />
-        <MudTextField T="string" @bind-Value="_mission" Label="Mission (optional)" Lines="3" MaxLength="4096" Disabled="_saving" Variant="Variant.Outlined" />
+        <MudTextField T="string" @bind-Value="_industry" Label="Industry (optional)" MaxLength="160" Immediate="true" Disabled="_saving" Variant="Variant.Outlined" />
+        <MudTextField T="string" @bind-Value="_mission" Label="Mission (optional)" Lines="3" MaxLength="4096" Immediate="true" Disabled="_saving" Variant="Variant.Outlined" />
         <div class="business-dialog-actions mt-6"><MudButton Href="/" Disabled="_saving">Cancel</MudButton><MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateAsync" Disabled="@(_saving || string.IsNullOrWhiteSpace(_name))">@(_saving ? "Creating…" : "Create business")</MudButton></div>
     </MudPaper>
 </div>
