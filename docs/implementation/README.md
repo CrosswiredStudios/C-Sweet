@@ -20,6 +20,10 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+[Standalone agent testing framework](agent-testing-framework.md) plans the shared SDK dispatcher,
+incident and new-flow scenarios, and the Codex and Claude Code development workflow from a local
+`dotnet test` run through pull-request and release verification.
+
 [Automatic agent memory and work recovery](features/automatic-agent-continuity-and-recovery.md)
 proposes SDK-owned continuity, automatic journals, connected work history, shared memory prompt
 composition and verified recovery through public interactions, with third-party compatibility,
