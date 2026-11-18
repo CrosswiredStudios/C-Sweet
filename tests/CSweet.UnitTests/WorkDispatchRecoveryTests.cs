@@ -17,6 +17,45 @@ namespace CSweet.UnitTests;
 
 public sealed partial class WorkDispatchRecoveryTests
 {
+    [Fact]
+    public async Task Assigned_implementer_claims_the_first_dispatched_sprint_leaf()
+    {
+        await using var db = CreateDb();
+        var state = await Seed(db, 1);
+        var now = DateTimeOffset.UtcNow;
+        var studio = state.Execution.OrganizationId;
+        state.Installation.PackageVersion = new AgentPackageVersion { Id = Guid.NewGuid(), ManifestJson = """{"provides":[{"name":"work.execution.run"}]}""" };
+        db.AgentPackageVersions.Add(state.Installation.PackageVersion);
+        var sprint = new WorkSprint { Id = state.Execution.SprintId, OrganizationId = studio, BoardId = state.Execution.BoardId,
+            Sequence = 1, StartedAt = now, Status = WorkSprintStatus.Active };
+        var leaf = state.Stage.ItemExecution!.WorkItem!;
+        leaf.SprintId = sprint.Id;
+        var engineer = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = studio, IsActive = true,
+            EmployeeType = EmployeeType.Agent, AgentInstallationId = state.Installation.Id };
+        state.Stage.OrganizationUserId = engineer.Id;
+        var runtime = new AgentRuntimeInstance { Id = Guid.NewGuid(), AgentInstallationId = state.Installation.Id,
+            TickId = Guid.NewGuid(), QueuedAt = now, RuntimeDeadlineAt = now.AddMinutes(10) };
+        db.AddRange(sprint, engineer, runtime);
+        await db.SaveChangesAsync();
+        var inbox = new AgentWorkInbox(db, new EphemeralDataProtectionProvider(), TimeProvider.System);
+        var orchestrator = new WorkOrchestrator(db, inbox, null!, new Runtime(db), [], TimeProvider.System, NullLogger<WorkOrchestrator>.Instance);
+        await orchestrator.PulseAsync();
+        var session = new McpAgentSession { Id = Guid.NewGuid(), OrganizationId = studio.ToString(), AgentInstallationId = state.Installation.Id,
+            RuntimeInstanceId = runtime.Id, TickId = runtime.TickId };
+        var claim = await inbox.ClaimAsync(session, default);
+        Assert.NotNull(claim);
+        var work = await db.AgentWorkItems.SingleAsync(w => w.Id == claim.WorkId);
+        var attempt = await db.WorkExecutionAttempts.SingleAsync(a => a.AgentWorkItemId == work.Id);
+        var receipt = await db.AgentWorkAttempts.SingleAsync(a => a.AgentWorkItemId == work.Id);
+        Assert.Equal("WorkStageExecution", work.SourceType);
+        Assert.Equal(state.Stage.Id, attempt.StageExecutionId);
+        Assert.Equal(engineer.AgentInstallationId, work.AgentInstallationId);
+        Assert.Equal(runtime.Id, receipt.RuntimeInstanceId);
+        Assert.True(receipt.ClaimedAt >= sprint.StartedAt);
+        Assert.Equal(WorkStageExecutionStatus.Running, state.Stage.Status);
+        Assert.Equal(leaf.Id, state.Execution.Items.Single().WorkItemId);
+    }
+
     [Theory]
     [InlineData(0, 1)]
     [InlineData(7, 7)]
@@ -326,7 +365,7 @@ public sealed partial class WorkDispatchRecoveryTests
         return new(installation, execution, policy, stage);
     }
     private sealed record State(AgentInstallation Installation, WorkSprintExecution Execution, WorkOrchestrationPolicyRevision Policy, WorkStageExecution Stage);
-    private sealed class Runtime(CSweetDbContext db) : IAgentRuntimeManager
+    internal sealed class Runtime(CSweetDbContext db) : IAgentRuntimeManager
     {
         public int Wakes { get; private set; }
         public async Task<bool> EnsureRuntimeQueuedAsync(Guid id, string reason, bool interactive = false, CancellationToken cancellationToken = default)

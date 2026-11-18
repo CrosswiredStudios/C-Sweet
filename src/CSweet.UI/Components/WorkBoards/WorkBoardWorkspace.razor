@@ -41,6 +41,16 @@
         <section class="board-info"><strong>@Detail.Board.Key</strong><p>@Detail.Board.Description</p></section>
     }
     <LinkedCommitmentsStrip Commitments="Detail.LinkedCommitments" OrganizationId="Detail.Board.OrganizationId" OnChanged="OnRefresh" />
+    @if (Detail.PlanningContributions.Count > 0)
+    {
+        <section class="board-info" aria-label="Proposed increments">
+            <strong>Proposed increments</strong>
+            @foreach (var draft in Detail.PlanningContributions)
+            {
+                <p @key="draft.StoryKey">@draft.Title · @draft.Status · @draft.ResponsibleEmployee</p>
+            }
+        </section>
+    }
     <div class="board-content">
         @if (CanReadSprints && !string.IsNullOrWhiteSpace(SprintError))
         {

@@ -1066,6 +1066,8 @@
         {
             if (IsImportProviderField(field) && provider is not null)
                 _importConfigurationValues[field.Key] = provider.Id.ToString();
+            else if (AgentConfigurationDefaults.Read(field) is { } declared)
+                _importConfigurationValues[field.Key] = declared;
             else if (field.Type.Equals(AgentConfigurationFieldTypes.Boolean, StringComparison.OrdinalIgnoreCase))
                 _importConfigurationValues[field.Key] = false;
             else if (field.Type.Equals(AgentConfigurationFieldTypes.Select, StringComparison.OrdinalIgnoreCase))

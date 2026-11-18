@@ -453,9 +453,10 @@ public sealed class HierarchicalDeliveryServiceTests
         { Artifact = artifact; Db = new(options ?? new DbContextOptionsBuilder<CSweetDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options); }
         public static async Task<Fixture> Create(bool artifact, bool twoRepositories = false)
         { var f = new Fixture(artifact); await f.Seed(twoRepositories); return f; }
-        public async Task Seed(bool twoRepositories = false)
+        public async Task Seed(bool twoRepositories = false, Guid? existingBusiness = null, bool includeWorkItems = true)
         {
-            Db.CoreOrganizations.Add(new() { Id = Org, Name = "Fresh hierarchical project" });
+            if (existingBusiness is Guid businessId) Org = businessId;
+            else Db.CoreOrganizations.Add(new() { Id = Org, Name = "Fresh hierarchical project" });
             OrganizationUser Person(string name) => new() { Id = Guid.NewGuid(), OrganizationId = Org, DisplayName = name, IsActive = true, EmployeeType = EmployeeType.Human };
             Manager = Person("Manager"); Author = Person("Author"); Qa = Person("Independent QA"); Technical = Person("Technical reviewer");
             Db.CoreOrganizationUsers.AddRange(Manager, Author, Qa, Technical);
@@ -475,6 +476,11 @@ public sealed class HierarchicalDeliveryServiceTests
                 foreach (var action in new[] { CSweet.Contracts.WorkManagement.WorkItemActions.Read, CSweet.Contracts.WorkManagement.WorkBoardActions.Configure })
                     Db.ScopedActionGrants.Add(new() { Id = Guid.NewGuid(), OrganizationId = Org, SubjectKind = GrantSubjectKind.OrganizationUser,
                         SubjectId = person.Id, ScopeKind = GrantScopeKind.Board, ScopeId = Board.Id, Action = action });
+            }
+            if (!includeWorkItems)
+            {
+                await Db.SaveChangesAsync();
+                return;
             }
             WorkTask Item(WorkItemKind kind, bool executable, Guid? parent) => new() { Id = Guid.NewGuid(), OrganizationId = Org,
                 BoardId = Board.Id, Kind = kind, IsExecutable = executable, ParentWorkTaskId = parent, Title = kind.ToString(), PlanningRevision = 1,

@@ -20,6 +20,14 @@ The first production goal is not the marketplace. The first production goal is a
 
 ## Document map
 
+[Game studio first-sprint implementation plan](game-studio-first-sprint.md) assigns the platform
+and agent changes, gives the recovery sequence for the retained PRISM BREAK proposal, and defines
+how a fresh team proves it can start a sprint and claim its first implementation task.
+
+[Standalone agent testing framework](agent-testing-framework.md) plans the shared SDK dispatcher,
+incident and new-flow scenarios, and the Codex and Claude Code development workflow from a local
+`dotnet test` run through pull-request and release verification.
+
 [Automatic agent memory and work recovery](features/automatic-agent-continuity-and-recovery.md)
 proposes SDK-owned continuity, automatic journals, connected work history, shared memory prompt
 composition and verified recovery through public interactions, with third-party compatibility,

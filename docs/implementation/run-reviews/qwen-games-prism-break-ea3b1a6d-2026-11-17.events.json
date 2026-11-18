@@ -1,0 +1,3475 @@
+{
+  "organizationId": "ea3b1a6d-0826-4ce9-9b28-876584a27785",
+  "projectId": "e2cb7d6f-f583-4271-addc-d4dc8d15e0e3",
+  "asOf": "2026-11-17T21:51:22.41526Z",
+  "method": "Repeatable-read PostgreSQL snapshot of organization-scoped audit and business records. Supplementary call, approval, comment and delivery records bounded by the same cutoff. Times UTC. Message text is summarized. A turn is annotated on its message. Mirrored comments and delivery receipts are references to the same work. Provider attempts include background memory. Routine audit events are counted by type and outcome.",
+  "auditRows": 38344,
+  "messageCount": 96,
+  "coordinationTurnCount": 38,
+  "conversationCount": 9,
+  "sessions": [
+    {
+      "id": "ea8482e8-8b2a-4451-a9bd-fb3494bec017",
+      "subject": "Propose the accepted game project",
+      "initiator": "Marcus Vale",
+      "target": "Gabriel Reyes",
+      "at": "2026-11-17T20:16:48.712596Z",
+      "completedAt": "2026-11-17T20:18:03.642426Z",
+      "status": "Completed"
+    },
+    {
+      "id": "c9aa3a3c-b114-4e4f-807c-b4f049681d24",
+      "subject": "Develop creative direction and GDD",
+      "initiator": "Marcus Vale",
+      "target": "Naomi Chen",
+      "at": "2026-11-17T20:18:05.386771Z",
+      "completedAt": "2026-11-17T20:19:47.881521Z",
+      "status": "Completed"
+    },
+    {
+      "id": "53743d74-0bfa-4ad6-b6b7-8d4e38f547ce",
+      "subject": "Prepare the production brief from the approved pitch and GDD",
+      "initiator": "Marcus Vale",
+      "target": "Gabriel Reyes",
+      "at": "2026-11-17T20:19:50.358192Z",
+      "completedAt": "2026-11-17T20:25:59.497161Z",
+      "status": "Completed"
+    },
+    {
+      "id": "a2a2dcc7-9fc7-4cd9-b5ae-f804ffe710ca",
+      "subject": "Creative review of exact project evidence",
+      "initiator": "Marcus Vale",
+      "target": "Naomi Chen",
+      "at": "2026-11-17T20:21:42.595478Z",
+      "completedAt": "2026-11-17T20:23:01.824235Z",
+      "status": "Completed"
+    },
+    {
+      "id": "031994aa-340e-42e9-99b5-5a293402d60e",
+      "subject": "Creative review of exact project evidence",
+      "initiator": "Marcus Vale",
+      "target": "Naomi Chen",
+      "at": "2026-11-17T20:24:46.136326Z",
+      "completedAt": "2026-11-17T20:25:45.679421Z",
+      "status": "Completed"
+    },
+    {
+      "id": "7d89c8af-53fa-4929-82d1-c9b8fc6406ee",
+      "subject": "Technical delivery and decomposition proposal",
+      "initiator": "Gabriel Reyes",
+      "target": "Victor Lin",
+      "at": "2026-11-17T20:27:38.58937Z",
+      "completedAt": "2026-11-17T20:31:29.520596Z",
+      "status": "Completed"
+    },
+    {
+      "id": "29e5bcb7-4353-40ee-bd13-8a8f7b567ef3",
+      "subject": "Refine next increment: roadmap-epic-1.story-1",
+      "initiator": "Gabriel Reyes",
+      "target": "Victor Lin",
+      "at": "2026-11-17T20:34:03.071563Z",
+      "completedAt": "2026-11-17T21:42:45.488627Z",
+      "status": "Completed"
+    },
+    {
+      "id": "5f5578b3-998c-48ad-b0ed-46644020307d",
+      "subject": "Request project build capacity",
+      "initiator": "Marcus Vale",
+      "target": "Victor Lin",
+      "at": "2026-11-17T20:41:43.805305Z",
+      "completedAt": "2026-11-17T20:41:45.159482Z",
+      "status": "Completed"
+    },
+    {
+      "id": "d484db4c-4c4c-4a50-9f52-5a5cda4b14d4",
+      "subject": "Toolchain feasibility approval",
+      "initiator": "Marcus Vale",
+      "target": "Victor Lin",
+      "at": "2026-11-17T20:43:52.53176Z",
+      "completedAt": "2026-11-17T20:44:39.475145Z",
+      "status": "Completed"
+    },
+    {
+      "id": "e8b87333-90fc-4924-8633-179fe21b9b0d",
+      "subject": "Technical delivery and decomposition proposal",
+      "initiator": "Gabriel Reyes",
+      "target": "Victor Lin",
+      "at": "2026-11-17T20:58:07.225619Z",
+      "completedAt": "2026-11-17T21:00:04.919849Z",
+      "status": "Completed"
+    }
+  ],
+  "events": [
+    {
+      "at": "2026-11-17T19:56:04.50758Z",
+      "kind": "organization",
+      "sourceId": "ea3b1a6d-0826-4ce9-9b28-876584a27785",
+      "summary": "Qwen Games created."
+    },
+    {
+      "at": "2026-11-17T19:57:40.091328Z",
+      "kind": "hire",
+      "sourceId": "3f5e5cfd-8fcc-402b-b625-fbecf9428422",
+      "summary": "Evelyn Brooks joins the business.",
+      "reportsTo": "CEO"
+    },
+    {
+      "at": "2026-11-17T19:58:10.183891Z",
+      "kind": "provider attempt",
+      "sourceId": "c2f96dac-de0d-4162-b54c-c318fad203b4",
+      "summary": "operating-profile-assessment",
+      "agent": "com.csweet.chief-of-staff",
+      "version": "2.17.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T19:58:11.563661Z",
+      "inputTokens": 1568,
+      "outputTokens": 240
+    },
+    {
+      "at": "2026-11-17T19:58:12.530071Z",
+      "kind": "message",
+      "sourceId": "a6f35e60-4fff-42b3-acce-9aca4b2a09f7",
+      "summary": "Evelyn opens hiring preferences.",
+      "sender": "Evelyn Brooks",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T19:58:12.634631Z",
+      "kind": "executive question",
+      "sourceId": "685cb80e-4303-4f51-b663-4883eca93ccb",
+      "summary": "How should I help with hiring?",
+      "answer": "automatic",
+      "answeredAt": "2026-11-17T20:02:29.555725Z"
+    },
+    {
+      "at": "2026-11-17T20:02:29.583639Z",
+      "kind": "message",
+      "sourceId": "0499d923-d8dd-433e-a690-ca8442eeca73",
+      "summary": "CEO selects automatic hiring.",
+      "sender": "CEO",
+      "recipients": [
+        "Evelyn Brooks"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:02:33.430389Z",
+      "kind": "provider attempt",
+      "sourceId": "8a2009c7-9532-490c-aab9-5a4b8d59cdf1",
+      "summary": "shared-delegation",
+      "agent": "com.csweet.chief-of-staff",
+      "version": "2.17.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:02:35.546725Z",
+      "inputTokens": 1070,
+      "outputTokens": 375
+    },
+    {
+      "at": "2026-11-17T20:02:36.547789Z",
+      "kind": "message",
+      "sourceId": "9eb77066-469c-4ded-97c5-c960f8cf0d42",
+      "summary": "Evelyn asks for the bounds of delegated hiring authority.",
+      "sender": "Evelyn Brooks",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:02:36.620564Z",
+      "kind": "executive question",
+      "sourceId": "1d5c16d2-6136-4a66-888b-73e099dcd0c9",
+      "summary": "How much automatic hiring authority should I have?",
+      "answer": "broad",
+      "answeredAt": "2026-11-17T20:13:15.716406Z"
+    },
+    {
+      "at": "2026-11-17T20:02:39.210552Z",
+      "kind": "provider attempt",
+      "sourceId": "35515682-7351-4637-bc0f-68a790ed1231",
+      "summary": "memory-enrichment",
+      "agent": "com.csweet.chief-of-staff",
+      "version": "2.17.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:02:47.334657Z",
+      "inputTokens": 380,
+      "outputTokens": 2534
+    },
+    {
+      "at": "2026-11-17T20:13:15.724772Z",
+      "kind": "message",
+      "sourceId": "b9a4e8f6-9305-40e9-bac6-e44d67b3850e",
+      "summary": "CEO delegates broadly within platform restrictions.",
+      "sender": "CEO",
+      "recipients": [
+        "Evelyn Brooks"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:13:17.753145Z",
+      "kind": "provider attempt",
+      "sourceId": "3faa0575-84ba-4437-9878-2af90f066608",
+      "summary": "shared-delegation",
+      "agent": "com.csweet.chief-of-staff",
+      "version": "2.17.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:13:20.340448Z",
+      "inputTokens": 1072,
+      "outputTokens": 390
+    },
+    {
+      "at": "2026-11-17T20:13:21.919154Z",
+      "kind": "message",
+      "sourceId": "e251995b-271c-4517-ab29-aba3365ad1d3",
+      "summary": "Evelyn asks which publishers to consider.",
+      "sender": "Evelyn Brooks",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:13:22.006541Z",
+      "kind": "executive question",
+      "sourceId": "1aa3a6b0-606b-4aef-bd18-ce687fcce09d",
+      "summary": "Which publishers should I consider for hiring?",
+      "answer": "prefer",
+      "answeredAt": "2026-11-17T20:13:42.144198Z"
+    },
+    {
+      "at": "2026-11-17T20:13:22.440894Z",
+      "kind": "provider attempt",
+      "sourceId": "b7597cee-f7aa-435e-be5e-087d5bb4c9de",
+      "summary": "memory-enrichment",
+      "agent": "com.csweet.chief-of-staff",
+      "version": "2.17.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:13:24.255116Z",
+      "inputTokens": 382,
+      "outputTokens": 477
+    },
+    {
+      "at": "2026-11-17T20:13:42.152952Z",
+      "kind": "message",
+      "sourceId": "b7e489ca-95c9-421e-b460-7954cf2a3564",
+      "summary": "CEO prefers first-party publishers.",
+      "sender": "CEO",
+      "recipients": [
+        "Evelyn Brooks"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:13:43.662261Z",
+      "kind": "provider attempt",
+      "sourceId": "63e13991-1093-4fe3-8ea9-1489bd5fb156",
+      "summary": "memory-enrichment",
+      "agent": "com.csweet.chief-of-staff",
+      "version": "2.17.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:13:50.221587Z",
+      "inputTokens": 354,
+      "outputTokens": 2257
+    },
+    {
+      "at": "2026-11-17T20:13:43.781702Z",
+      "kind": "provider attempt",
+      "sourceId": "ff0fde68-69a5-4b16-be27-dd842c581298",
+      "summary": "shared-delegation",
+      "agent": "com.csweet.chief-of-staff",
+      "version": "2.17.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:13:51.764414Z",
+      "inputTokens": 1072,
+      "outputTokens": 444
+    },
+    {
+      "at": "2026-11-17T20:13:53.084791Z",
+      "kind": "message",
+      "sourceId": "48f1988d-5c80-4ee3-a723-6a576576a546",
+      "summary": "Evelyn confirms the hiring policy.",
+      "sender": "Evelyn Brooks",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:13:53.717561Z",
+      "kind": "message",
+      "sourceId": "23f5f1ae-08b5-4bae-a022-7176adc0dece",
+      "summary": "Evelyn asks which business responsibility to staff first.",
+      "sender": "Evelyn Brooks",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:13:54.132605Z",
+      "kind": "executive question",
+      "sourceId": "490bfabb-9646-4392-8ae1-5bdf9abfb5bb",
+      "summary": "Where would you like the company to focus first?",
+      "answer": "creative-product",
+      "answeredAt": "2026-11-17T20:14:02.283889Z"
+    },
+    {
+      "at": "2026-11-17T20:14:02.290794Z",
+      "kind": "message",
+      "sourceId": "7b4c719d-9951-44aa-a07b-23bfa128748a",
+      "summary": "CEO chooses Creative & Product.",
+      "sender": "CEO",
+      "recipients": [
+        "Evelyn Brooks"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:14:04.270292Z",
+      "kind": "provider attempt",
+      "sourceId": "495daac6-c6b6-42d2-ba23-f72cca7d967d",
+      "summary": "shared-delegation",
+      "agent": "com.csweet.chief-of-staff",
+      "version": "2.17.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:14:05.822228Z",
+      "inputTokens": 1079,
+      "outputTokens": 277
+    },
+    {
+      "at": "2026-11-17T20:14:07.004573Z",
+      "kind": "message",
+      "sourceId": "eef791ab-82cd-4ba9-a0b5-3b8ae63721e5",
+      "summary": "Evelyn takes responsibility for closing that leadership gap.",
+      "sender": "Evelyn Brooks",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:14:08.842896Z",
+      "kind": "message",
+      "sourceId": "89a2e515-3f18-4e90-8daf-69aef56bedd2",
+      "summary": "Evelyn identifies the need for a game business Director.",
+      "sender": "Evelyn Brooks",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:14:11.68403Z",
+      "kind": "provider attempt",
+      "sourceId": "ca7f9300-40d1-4296-98ca-9bfd626f35fe",
+      "summary": "memory-enrichment",
+      "agent": "com.csweet.chief-of-staff",
+      "version": "2.17.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:14:21.142651Z",
+      "inputTokens": 395,
+      "outputTokens": 3325
+    },
+    {
+      "at": "2026-11-17T20:14:29.626918Z",
+      "kind": "hire",
+      "sourceId": "f9a37596-ebb2-4ffd-a1c6-a502d75c9df5",
+      "summary": "Marcus Vale joins the business.",
+      "reportsTo": "CEO"
+    },
+    {
+      "at": "2026-11-17T20:14:29.997846Z",
+      "kind": "message",
+      "sourceId": "61fe48c2-d7c4-4f6b-9021-f589894acff7",
+      "summary": "Evelyn reports that the Director hire succeeded.",
+      "sender": "Evelyn Brooks",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:14:33.085773Z",
+      "kind": "message",
+      "sourceId": "67c5e1c0-d90b-4677-91cf-94199fdbff11",
+      "summary": "Evelyn closes the Director hiring recommendation.",
+      "sender": "Evelyn Brooks",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:15:01.628825Z",
+      "kind": "message",
+      "sourceId": "e41a8152-d2b5-458f-bf96-6f8d7b475a2b",
+      "summary": "Marcus offers to shape the pitch and asks how the CEO wants to participate.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519"
+    },
+    {
+      "at": "2026-11-17T20:15:01.732598Z",
+      "kind": "executive question",
+      "sourceId": "9b8994f7-9c7f-444a-8fb7-042dbe3c4dc2",
+      "summary": "How involved do you want to be in creative direction?",
+      "answer": "milestone-review",
+      "answeredAt": "2026-11-17T20:15:06.256062Z"
+    },
+    {
+      "at": "2026-11-17T20:15:06.263388Z",
+      "kind": "message",
+      "sourceId": "6465e1be-cbc7-4af1-8869-b3771608076b",
+      "summary": "CEO chooses milestone reviews.",
+      "sender": "CEO",
+      "recipients": [
+        "Marcus Vale"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519"
+    },
+    {
+      "at": "2026-11-17T20:15:09.193828Z",
+      "kind": "executive question",
+      "sourceId": "0829a823-4672-4c37-ba21-c5a86018880f",
+      "summary": "What kind of game would you like to make? Share your initial game direction: the player experience or core loop, target platforms and deployment targets, and any engine, technical, budget or resource constraints. Include any real external deadline and why it matters. You can ask me to propose starting concepts. I’ll turn our agreed direction into an official game pitch for your review; hiring waits for your approval.",
+      "answer": "See the game request message 02dc07c6.",
+      "answeredAt": "2026-11-17T20:15:11.892781Z"
+    },
+    {
+      "at": "2026-11-17T20:15:09.417008Z",
+      "kind": "message",
+      "sourceId": "39ae0597-0a5f-47e4-abbe-fb523903de89",
+      "summary": "Marcus asks for initial game direction and offers to own unspecified choices.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519"
+    },
+    {
+      "at": "2026-11-17T20:15:11.901104Z",
+      "kind": "message",
+      "sourceId": "02dc07c6-7180-4bab-9f5a-75f572b63979",
+      "summary": "CEO requests a polished desktop-web Breakout clone with rich effects and chiptune, no deadline or budget limit, and no profiling or stress testing.",
+      "sender": "CEO",
+      "recipients": [
+        "Marcus Vale"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519"
+    },
+    {
+      "at": "2026-11-17T20:15:17.867662Z",
+      "kind": "provider attempt",
+      "sourceId": "0f1da342-add4-4fcc-bf40-63b96e0db691",
+      "summary": "creative-pitch",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:15:27.648343Z",
+      "inputTokens": 7919,
+      "outputTokens": 1365
+    },
+    {
+      "at": "2026-11-17T20:15:18.952422Z",
+      "kind": "provider attempt",
+      "sourceId": "70d69f70-5241-411d-82b9-7937d0fa4f23",
+      "summary": "memory-enrichment",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:15:41.454795Z",
+      "inputTokens": 417,
+      "outputTokens": 3147
+    },
+    {
+      "at": "2026-11-17T20:15:30.011705Z",
+      "kind": "message",
+      "sourceId": "4722a9a4-f2da-4892-98be-b1ae31d4990a",
+      "summary": "Marcus submits pitch revision 1 for CEO approval.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519"
+    },
+    {
+      "at": "2026-11-17T20:15:41.761399Z",
+      "kind": "provider attempt",
+      "sourceId": "ecc5b28c-a159-4810-b6ba-bd5e8c8a4b66",
+      "summary": "memory-enrichment",
+      "agent": "csweet.memory.enrichment",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:15:47.704409Z",
+      "inputTokens": 418,
+      "outputTokens": 2236
+    },
+    {
+      "at": "2026-11-17T20:15:43.218874Z",
+      "kind": "message",
+      "sourceId": "3e09179e-cb5f-49de-9ea9-c5950f9e5882",
+      "summary": "Evelyn asks whether to begin another leadership search.",
+      "sender": "Evelyn Brooks",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:15:43.275554Z",
+      "kind": "executive question",
+      "sourceId": "4c3ec0f2-2a7e-4fc0-8686-6686a607f380",
+      "summary": "What would you like to work on next?",
+      "answer": "not-now",
+      "answeredAt": "2026-11-17T20:15:52.014522Z"
+    },
+    {
+      "at": "2026-11-17T20:15:48.980647Z",
+      "kind": "approval",
+      "sourceId": "60710cbf-3a46-4267-adc3-7902692015c4",
+      "summary": "Official Game Pitch approved.",
+      "actor": "CEO"
+    },
+    {
+      "at": "2026-11-17T20:15:49.918151Z",
+      "kind": "provider attempt",
+      "sourceId": "b547cf37-145a-490f-bdfb-037265ad1c89",
+      "summary": "memory-enrichment",
+      "agent": "csweet.memory.enrichment",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:15:56.861105Z",
+      "inputTokens": 620,
+      "outputTokens": 2486
+    },
+    {
+      "at": "2026-11-17T20:15:52.022639Z",
+      "kind": "message",
+      "sourceId": "2f03ac86-f795-446b-a81d-b46abde17df1",
+      "summary": "CEO asks Evelyn to stop opening further leadership areas.",
+      "sender": "CEO",
+      "recipients": [
+        "Evelyn Brooks"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:15:53.658389Z",
+      "kind": "message",
+      "sourceId": "8d7e6f82-f969-494d-a9b4-ead6367c692e",
+      "summary": "Marcus acknowledges pitch approval and takes the studio staffing proposal.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519"
+    },
+    {
+      "at": "2026-11-17T20:15:54.102638Z",
+      "kind": "provider attempt",
+      "sourceId": "d74cc31b-c6f8-4e4a-8bc3-780d3a740424",
+      "summary": "shared-delegation",
+      "agent": "com.csweet.chief-of-staff",
+      "version": "2.17.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:15:58.813224Z",
+      "inputTokens": 1074,
+      "outputTokens": 539
+    },
+    {
+      "at": "2026-11-17T20:15:55.321499Z",
+      "kind": "message",
+      "sourceId": "1ec36ddb-bf28-4cec-bb33-c994d878f440",
+      "summary": "Marcus requests a Creative Director and Producer.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519"
+    },
+    {
+      "at": "2026-11-17T20:15:57.975094Z",
+      "kind": "staffing decision",
+      "sourceId": "1e80b83c-d895-4ca9-a110-4a7e3550ec92",
+      "summary": "Initial studio staffing approved and subsequently superseded.",
+      "requester": "Marcus Vale",
+      "manager": "CEO"
+    },
+    {
+      "at": "2026-11-17T20:15:59.067943Z",
+      "kind": "provider attempt",
+      "sourceId": "e2b1a276-52f5-4824-b20d-c8902ef249c5",
+      "summary": "memory-enrichment",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:16:14.963642Z",
+      "inputTokens": 569,
+      "outputTokens": 6579
+    },
+    {
+      "at": "2026-11-17T20:15:59.668666Z",
+      "kind": "message",
+      "sourceId": "e4fc8c35-0319-46b9-95a4-447bdde82f5d",
+      "summary": "Evelyn confirms the pause on proactive leadership.",
+      "sender": "Evelyn Brooks",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:16:01.669651Z",
+      "kind": "message",
+      "sourceId": "dcf820e9-2203-4ec8-923b-25b6b9e21505",
+      "summary": "Evelyn takes the approved two-role staffing plan into hiring.",
+      "sender": "Evelyn Brooks",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:16:21.360864Z",
+      "kind": "provider attempt",
+      "sourceId": "680af005-bdf2-4ad1-8ccb-614651b1ce81",
+      "summary": "memory-enrichment",
+      "agent": "com.csweet.chief-of-staff",
+      "version": "2.17.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:16:26.638284Z",
+      "inputTokens": 405,
+      "outputTokens": 1368
+    },
+    {
+      "at": "2026-11-17T20:16:22.226703Z",
+      "kind": "hire",
+      "sourceId": "b5d2ec1a-d569-4a68-b39e-35fd299e31ad",
+      "summary": "Naomi Chen joins the business.",
+      "reportsTo": "Marcus Vale"
+    },
+    {
+      "at": "2026-11-17T20:16:22.82079Z",
+      "kind": "message",
+      "sourceId": "ea559e1c-c471-4293-8e10-63d165bce207",
+      "summary": "Evelyn reports Naomi's hire.",
+      "sender": "Evelyn Brooks",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:16:27.74742Z",
+      "kind": "message",
+      "sourceId": "71b128b2-aaa4-4355-b144-61034f85a1b3",
+      "summary": "Marcus asks for portfolio reporting cadence and format.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519"
+    },
+    {
+      "at": "2026-11-17T20:16:33.120774Z",
+      "kind": "executive question",
+      "sourceId": "83fcd76c-6c30-42eb-a360-40f6541604fc",
+      "summary": "How often should I send portfolio updates? Weekly is my recommendation, with material decisions and blockers escalated separately. You can also enter 'Reports on request'.",
+      "answer": "milestones",
+      "answeredAt": "2026-11-17T20:18:20.557631Z"
+    },
+    {
+      "at": "2026-11-17T20:16:43.466272Z",
+      "kind": "hire",
+      "sourceId": "42993ff4-2604-4001-b1a9-208afc6d4293",
+      "summary": "Gabriel Reyes joins the business.",
+      "reportsTo": "Marcus Vale"
+    },
+    {
+      "at": "2026-11-17T20:16:43.795402Z",
+      "kind": "message",
+      "sourceId": "820a23df-8932-43b7-8d85-45423b02181d",
+      "summary": "Evelyn reports Gabriel's hire.",
+      "sender": "Evelyn Brooks",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:16:45.710702Z",
+      "kind": "message",
+      "sourceId": "142468b6-4c1e-4ceb-9045-431c37b0df55",
+      "summary": "Evelyn confirms the Creative Director recommendation is fulfilled.",
+      "sender": "Evelyn Brooks",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:16:46.267266Z",
+      "kind": "provider attempt",
+      "sourceId": "53975cfa-7cd7-4431-86a0-6cd8600f7b2c",
+      "summary": "creative-director-project-identity",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:16:47.555582Z",
+      "inputTokens": 2667,
+      "outputTokens": 281
+    },
+    {
+      "at": "2026-11-17T20:16:46.755078Z",
+      "kind": "message",
+      "sourceId": "d7601564-f0e1-405b-9929-73b4ecbf1e9f",
+      "summary": "Evelyn confirms the Producer recommendation is fulfilled.",
+      "sender": "Evelyn Brooks",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:16:48.712922Z",
+      "kind": "message",
+      "sourceId": "d9e61fd4-afa9-4a00-a0c5-a13ddeeb2760",
+      "summary": "Marcus asks Gabriel to submit the accepted game as a project.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "Gabriel Reyes"
+      ],
+      "conversationId": "ad0c59a1-c65c-46d4-b553-4d1ac9b6a775",
+      "turnId": "4c4e02f7-bc48-4eef-8131-a5d6e6d8a4b2",
+      "sessionId": "ea8482e8-8b2a-4451-a9bd-fb3494bec017",
+      "turnOrdinal": 0,
+      "disposition": "Continue"
+    },
+    {
+      "at": "2026-11-17T20:16:52.047552Z",
+      "kind": "message",
+      "sourceId": "5b502524-a678-4799-9877-d8279f911e58",
+      "summary": "Naomi offers to develop the pitch into creative direction and a GDD.",
+      "sender": "Naomi Chen",
+      "recipients": [
+        "Marcus Vale"
+      ],
+      "conversationId": "77fb2e64-b5e2-4837-8041-a5fa3a218754"
+    },
+    {
+      "at": "2026-11-17T20:16:53.642249Z",
+      "kind": "provider attempt",
+      "sourceId": "2cc894a5-5d8d-4a18-b70e-7a5230487ce0",
+      "summary": "shared-delegation",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:16:54.939756Z",
+      "inputTokens": 1092,
+      "outputTokens": 247
+    },
+    {
+      "at": "2026-11-17T20:16:56.382251Z",
+      "kind": "message",
+      "sourceId": "ddfeee9f-fb79-476c-85d8-252a956a1d17",
+      "summary": "Marcus replies that only his manager can accept the vision.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "Naomi Chen"
+      ],
+      "conversationId": "77fb2e64-b5e2-4837-8041-a5fa3a218754"
+    },
+    {
+      "at": "2026-11-17T20:17:17.879835Z",
+      "kind": "message",
+      "sourceId": "a84e5ac1-fbe2-4c46-b130-7205640a2036",
+      "summary": "Gabriel asks Marcus for the accepted pitch and GDD and defines delivery ownership.",
+      "sender": "Gabriel Reyes",
+      "recipients": [
+        "Marcus Vale"
+      ],
+      "conversationId": "ad0c59a1-c65c-46d4-b553-4d1ac9b6a775"
+    },
+    {
+      "at": "2026-11-17T20:17:20.920025Z",
+      "kind": "provider attempt",
+      "sourceId": "bcbde7aa-8812-4453-aaf4-3c5aef781eb3",
+      "summary": "producer-project-proposal",
+      "agent": "com.csweet.video-game-producer",
+      "version": "6.22.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:17:42.899491Z",
+      "inputTokens": 4474,
+      "outputTokens": 6818
+    },
+    {
+      "at": "2026-11-17T20:17:21.349692Z",
+      "kind": "provider attempt",
+      "sourceId": "f3998e64-741c-4687-bea8-3f189b6ba514",
+      "summary": "shared-delegation",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:17:46.758158Z",
+      "inputTokens": 1112,
+      "outputTokens": 1185
+    },
+    {
+      "at": "2026-11-17T20:17:44.973921Z",
+      "kind": "message",
+      "sourceId": "80be6a37-5237-4c07-a760-7af637bff1af",
+      "summary": "Gabriel submits the project proposal for manager review.",
+      "sender": "Gabriel Reyes",
+      "recipients": [
+        "Marcus Vale"
+      ],
+      "conversationId": "ad0c59a1-c65c-46d4-b553-4d1ac9b6a775",
+      "turnId": "e559cb2e-b337-4bae-87df-3f402e7333eb",
+      "sessionId": "ea8482e8-8b2a-4451-a9bd-fb3494bec017",
+      "turnOrdinal": 1,
+      "disposition": "Continue"
+    },
+    {
+      "at": "2026-11-17T20:17:48.826934Z",
+      "kind": "message",
+      "sourceId": "18bd9d8a-8f87-4761-91f8-f1726fcb7a1a",
+      "summary": "Marcus records a task to share the pitch and GDD with Gabriel.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "Gabriel Reyes"
+      ],
+      "conversationId": "ad0c59a1-c65c-46d4-b553-4d1ac9b6a775"
+    },
+    {
+      "at": "2026-11-17T20:17:48.992591Z",
+      "kind": "chat.turn.completedwithwarnings",
+      "sourceId": "bbd992c1-a83d-410f-a1d6-679088513b3f",
+      "summary": "chat.turn.completedwithwarnings",
+      "actor": "C-Sweet platform",
+      "outcome": "CompletedWithWarnings"
+    },
+    {
+      "at": "2026-11-17T20:17:51.222Z",
+      "kind": "provider attempt",
+      "sourceId": "b3d33f98-8e21-4423-8aff-dc37a3622e02",
+      "summary": "creative-director-project-review",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:18:01.810002Z",
+      "inputTokens": 6943,
+      "outputTokens": 2949
+    },
+    {
+      "at": "2026-11-17T20:18:03.410519Z",
+      "kind": "workstream",
+      "sourceId": "e2cb7d6f-f583-4271-addc-d4dc8d15e0e3",
+      "summary": "PRISM BREAK created."
+    },
+    {
+      "at": "2026-11-17T20:18:03.64243Z",
+      "kind": "message",
+      "sourceId": "143c360c-acbf-413d-8ef7-eec6bc91dbfe",
+      "summary": "Marcus approves and creates PRISM BREAK.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "Gabriel Reyes"
+      ],
+      "conversationId": "ad0c59a1-c65c-46d4-b553-4d1ac9b6a775",
+      "turnId": "cbc710e6-e587-4a2a-997a-e454099ac8d7",
+      "sessionId": "ea8482e8-8b2a-4451-a9bd-fb3494bec017",
+      "turnOrdinal": 2,
+      "disposition": "Completed"
+    },
+    {
+      "at": "2026-11-17T20:18:05.386788Z",
+      "kind": "message",
+      "sourceId": "89d29d8a-6635-410c-b53b-8e40d8e04396",
+      "summary": "Marcus commissions Naomi's GDD.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "Naomi Chen"
+      ],
+      "conversationId": "77fb2e64-b5e2-4837-8041-a5fa3a218754",
+      "turnId": "ee8ce67f-16b5-44c7-9ca5-9ee20e7152ab",
+      "sessionId": "c9aa3a3c-b114-4e4f-807c-b4f049681d24",
+      "turnOrdinal": 0,
+      "disposition": "Continue"
+    },
+    {
+      "at": "2026-11-17T20:18:06.035141Z",
+      "kind": "agent.capability.executed",
+      "sourceId": "be325e5b-6029-48d2-8931-0a0b73f22b42",
+      "summary": "The project delivery grant is required: work.delivery.read.v1",
+      "actor": "com.csweet.video-game-producer",
+      "outcome": "Failed"
+    },
+    {
+      "at": "2026-11-17T20:18:06.416214Z",
+      "kind": "provider attempt",
+      "sourceId": "91793fb8-f327-4952-857f-d3d06b6d45e0",
+      "summary": "creative-design",
+      "agent": "com.csweet.video-game-creative-director",
+      "version": "4.2.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:18:47.972071Z",
+      "inputTokens": 2638,
+      "outputTokens": 12442
+    },
+    {
+      "at": "2026-11-17T20:18:20.565466Z",
+      "kind": "message",
+      "sourceId": "89571a88-636c-42cb-ae8b-0954a4e2ef88",
+      "summary": "CEO chooses milestone-based portfolio updates.",
+      "sender": "CEO",
+      "recipients": [
+        "Marcus Vale"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519"
+    },
+    {
+      "at": "2026-11-17T20:18:22.561171Z",
+      "kind": "executive question",
+      "sourceId": "086b8fd0-01d0-4373-97cf-9937befdfc92",
+      "summary": "Which format should your portfolio updates use?",
+      "answer": "messages",
+      "answeredAt": "2026-11-17T20:18:25.454773Z"
+    },
+    {
+      "at": "2026-11-17T20:18:22.82047Z",
+      "kind": "message",
+      "sourceId": "d483a62d-a2f4-4fdb-ba60-29c6b3ba34da",
+      "summary": "Marcus asks for the remaining reporting preference.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519"
+    },
+    {
+      "at": "2026-11-17T20:18:25.463604Z",
+      "kind": "message",
+      "sourceId": "5a9fc763-6ad6-4ebf-994a-6e7b34d27446",
+      "summary": "CEO chooses messages for reports.",
+      "sender": "CEO",
+      "recipients": [
+        "Marcus Vale"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519"
+    },
+    {
+      "at": "2026-11-17T20:18:28.134413Z",
+      "kind": "message",
+      "sourceId": "c750cbf4-9a7c-4810-9acb-a8dc7d369a2b",
+      "summary": "Marcus confirms the milestone reporting preference.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519"
+    },
+    {
+      "at": "2026-11-17T20:18:32.404371Z",
+      "kind": "provider attempt",
+      "sourceId": "22801729-4899-4e66-8d9c-a0f9f3ed361b",
+      "summary": "memory-enrichment",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:18:56.344883Z",
+      "inputTokens": 412,
+      "outputTokens": 2760
+    },
+    {
+      "at": "2026-11-17T20:18:49.951274Z",
+      "kind": "message",
+      "sourceId": "17d800ef-5a83-40d8-b5cf-bb31c04414f6",
+      "summary": "Naomi submits the GDD against the approved pitch.",
+      "sender": "Naomi Chen",
+      "recipients": [
+        "Marcus Vale"
+      ],
+      "conversationId": "77fb2e64-b5e2-4837-8041-a5fa3a218754",
+      "turnId": "5efddcf9-bd10-4b17-a8ac-859188783c61",
+      "sessionId": "c9aa3a3c-b114-4e4f-807c-b4f049681d24",
+      "turnOrdinal": 1,
+      "disposition": "Continue"
+    },
+    {
+      "at": "2026-11-17T20:18:51.178782Z",
+      "kind": "provider attempt",
+      "sourceId": "ac2cc229-c46a-4789-a404-865be40637c3",
+      "summary": "gdd-semantic-review",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:19:31.694559Z",
+      "inputTokens": 11977,
+      "outputTokens": 11201
+    },
+    {
+      "at": "2026-11-17T20:19:00.668156Z",
+      "kind": "provider attempt",
+      "sourceId": "70eec466-06fd-4f50-9670-3e45283f741a",
+      "summary": "memory-enrichment",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:19:34.263613Z",
+      "inputTokens": 388,
+      "outputTokens": 812
+    },
+    {
+      "at": "2026-11-17T20:19:32.322507Z",
+      "kind": "provider attempt",
+      "sourceId": "5395bdbb-349b-45a5-8a2a-2ff527305954",
+      "summary": "gdd-semantic-review",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:19:45.879531Z",
+      "inputTokens": 12863,
+      "outputTokens": 3798
+    },
+    {
+      "at": "2026-11-17T20:19:46.993866Z",
+      "kind": "approval",
+      "sourceId": "761bd523-5f3c-4263-bfb0-d05cbaf2700c",
+      "summary": "Game Design Document approved.",
+      "actor": "Marcus Vale"
+    },
+    {
+      "at": "2026-11-17T20:19:47.881524Z",
+      "kind": "message",
+      "sourceId": "ad82a6b9-3fba-4624-bf15-e9b3b616d771",
+      "summary": "Marcus confirms acceptance of the GDD and releases Producer planning.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "Naomi Chen"
+      ],
+      "conversationId": "77fb2e64-b5e2-4837-8041-a5fa3a218754",
+      "turnId": "dcce580b-b270-43ae-b670-fe749642747c",
+      "sessionId": "c9aa3a3c-b114-4e4f-807c-b4f049681d24",
+      "turnOrdinal": 2,
+      "disposition": "Completed"
+    },
+    {
+      "at": "2026-11-17T20:19:47.881624Z",
+      "kind": "message",
+      "sourceId": "acc5ac28-4638-446a-95e9-45ab1a3dc9c3",
+      "summary": "Marcus confirms acceptance of the GDD and releases Producer planning.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519",
+      "sameTurnAsMessageId": "ad82a6b9-3fba-4624-bf15-e9b3b616d771"
+    },
+    {
+      "at": "2026-11-17T20:19:50.358207Z",
+      "kind": "message",
+      "sourceId": "b50e5580-76c4-4e94-b9c6-38bf83ca2939",
+      "summary": "Marcus asks Gabriel to develop a production brief and resolve questions before proposing staffing.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "Gabriel Reyes"
+      ],
+      "conversationId": "ad0c59a1-c65c-46d4-b553-4d1ac9b6a775",
+      "turnId": "22c30cfc-1b37-4753-a45e-86dea6fff061",
+      "sessionId": "53743d74-0bfa-4ad6-b6b7-8d4e38f547ce",
+      "turnOrdinal": 0,
+      "disposition": "Continue"
+    },
+    {
+      "at": "2026-11-17T20:19:51.147011Z",
+      "kind": "provider attempt",
+      "sourceId": "bd0233e3-7494-4fca-b7a7-66200f81c4a5",
+      "summary": "producer-pitch-refinement",
+      "agent": "com.csweet.video-game-producer",
+      "version": "6.22.1",
+      "status": "Cancelled",
+      "completedAt": "2026-11-17T20:20:27.5399Z",
+      "inputTokens": null,
+      "outputTokens": null
+    },
+    {
+      "at": "2026-11-17T20:19:52.380371Z",
+      "kind": "project decision",
+      "sourceId": "f4ff3639-89cb-4841-95fb-3881a93823f0",
+      "summary": "How should the team create this game's visual and audio assets? Code-made effects need no external media service; supplied or AI-generated files require reviewed sources and usage rights. This does not change the game engine.",
+      "selectedOption": "procedural",
+      "status": "Decided",
+      "actor": "Marcus Vale"
+    },
+    {
+      "at": "2026-11-17T20:20:26.13498Z",
+      "kind": "agent.work.attempt.stopped",
+      "sourceId": "2188591d-3683-4836-b281-55d8004c5ca2",
+      "summary": "Producer work attempt stopped after a retryable HTTP 502.",
+      "actor": "C-Sweet platform",
+      "outcome": "Failed"
+    },
+    {
+      "at": "2026-11-17T20:20:27.526492Z",
+      "kind": "agent.work.failed",
+      "sourceId": "1005e4bf-9310-45d6-a677-6c77cd605611",
+      "summary": "agent-failure:v1;code=runtime.transport;retryable=true;exceptionType=HttpRequestException;httpStatus=502;diagnosticId=8953207a-05a3-4446-8f7f-e749ac79f7cc",
+      "actor": "com.csweet.video-game-producer",
+      "outcome": "Failed"
+    },
+    {
+      "at": "2026-11-17T20:20:28.588105Z",
+      "kind": "agent.capability.executed",
+      "sourceId": "dc121a0e-772d-40a5-aa42-83616513c6d6",
+      "summary": "The project delivery grant is required: work.delivery.read.v1",
+      "actor": "com.csweet.video-game-producer",
+      "outcome": "Failed"
+    },
+    {
+      "at": "2026-11-17T20:20:29.791636Z",
+      "kind": "provider attempt",
+      "sourceId": "98d95337-ccf1-47ff-ad43-772aa3956482",
+      "summary": "producer-pitch-refinement",
+      "agent": "com.csweet.video-game-producer",
+      "version": "6.22.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:21:16.4484Z",
+      "inputTokens": 11090,
+      "outputTokens": 14459
+    },
+    {
+      "at": "2026-11-17T20:20:41.086237Z",
+      "kind": "incident opened",
+      "sourceId": "f804013b-1f5b-4145-bf60-00346dd6345a",
+      "summary": "Planning coordination stopped",
+      "affectedWorkItem": null
+    },
+    {
+      "at": "2026-11-17T20:20:44.775173Z",
+      "kind": "provider attempt",
+      "sourceId": "4950434f-998a-42ea-a2df-53d3e0b53b74",
+      "summary": "manager-incident",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:21:25.786161Z",
+      "inputTokens": 13583,
+      "outputTokens": 2671
+    },
+    {
+      "at": "2026-11-17T20:21:18.198092Z",
+      "kind": "message",
+      "sourceId": "73268e79-f722-4319-b63a-51eb76a5f4fd",
+      "summary": "Gabriel returns the first brief and requests direction concerning acceptance evidence and creative details.",
+      "sender": "Gabriel Reyes",
+      "recipients": [
+        "Marcus Vale"
+      ],
+      "conversationId": "ad0c59a1-c65c-46d4-b553-4d1ac9b6a775",
+      "turnId": "2e689a4b-b576-4e7b-bb78-08b4965d4715",
+      "sessionId": "53743d74-0bfa-4ad6-b6b7-8d4e38f547ce",
+      "turnOrdinal": 1,
+      "disposition": "Continue"
+    },
+    {
+      "at": "2026-11-17T20:21:26.972789Z",
+      "kind": "agent.capability.executed",
+      "sourceId": "e6418896-897e-4f21-aa0b-3f4facf3ae7b",
+      "summary": "The report's source evidence changed.",
+      "actor": "com.csweet.video-game-director",
+      "outcome": "Failed"
+    },
+    {
+      "at": "2026-11-17T20:21:27.721327Z",
+      "kind": "provider attempt",
+      "sourceId": "5f3d5eb6-11e0-49ff-88ce-9c43a385df0d",
+      "summary": "manager-incident",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:21:41.059491Z",
+      "inputTokens": 13578,
+      "outputTokens": 3663
+    },
+    {
+      "at": "2026-11-17T20:21:42.595496Z",
+      "kind": "message",
+      "sourceId": "c97491dd-5fd5-45f5-919e-c41d61b1fe62",
+      "summary": "Marcus asks Naomi to review creative evidence on the first brief.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "Naomi Chen"
+      ],
+      "conversationId": "77fb2e64-b5e2-4837-8041-a5fa3a218754",
+      "turnId": "a6012394-5214-4ca6-995b-f099ba3f7635",
+      "sessionId": "a2a2dcc7-9fc7-4cd9-b5ae-f804ffe710ca",
+      "turnOrdinal": 0,
+      "disposition": "Continue"
+    },
+    {
+      "at": "2026-11-17T20:21:42.978945Z",
+      "kind": "message",
+      "sourceId": "2567c23e-b173-4381-bd5b-ed497f70a941",
+      "summary": "Marcus records the parent session waiting for the first creative review.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "Gabriel Reyes"
+      ],
+      "conversationId": "ad0c59a1-c65c-46d4-b553-4d1ac9b6a775",
+      "turnId": "5d658695-1dda-4cd1-bb50-239cb85722f9",
+      "sessionId": "53743d74-0bfa-4ad6-b6b7-8d4e38f547ce",
+      "turnOrdinal": 2,
+      "disposition": "Blocked"
+    },
+    {
+      "at": "2026-11-17T20:21:42.979048Z",
+      "kind": "message",
+      "sourceId": "4cbb3f71-e534-4020-9de8-1337075ea517",
+      "summary": "Marcus records the parent session waiting for the first creative review.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519",
+      "sameTurnAsMessageId": "2567c23e-b173-4381-bd5b-ed497f70a941"
+    },
+    {
+      "at": "2026-11-17T20:21:43.781743Z",
+      "kind": "provider attempt",
+      "sourceId": "4b9d7b1b-0158-4b54-b437-f47018fde710",
+      "summary": "creative-review",
+      "agent": "com.csweet.video-game-creative-director",
+      "version": "4.2.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:22:29.838799Z",
+      "inputTokens": 14898,
+      "outputTokens": 11433
+    },
+    {
+      "at": "2026-11-17T20:21:57.142885Z",
+      "kind": "provider attempt",
+      "sourceId": "5083c815-3bb8-43b0-9c22-dff7ea392b01",
+      "summary": "manager-incident",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:22:51.794302Z",
+      "inputTokens": 13952,
+      "outputTokens": 6424
+    },
+    {
+      "at": "2026-11-17T20:22:30.997358Z",
+      "kind": "message",
+      "sourceId": "b3885d72-434a-4790-9724-64618eca3043",
+      "summary": "Naomi accepts the creative plan and supplies advisory findings.",
+      "sender": "Naomi Chen",
+      "recipients": [
+        "Marcus Vale"
+      ],
+      "conversationId": "77fb2e64-b5e2-4837-8041-a5fa3a218754",
+      "turnId": "3f3ca26d-3026-425f-a11f-adb807c5cc4f",
+      "sessionId": "a2a2dcc7-9fc7-4cd9-b5ae-f804ffe710ca",
+      "turnOrdinal": 1,
+      "disposition": "Continue"
+    },
+    {
+      "at": "2026-11-17T20:22:54.244847Z",
+      "kind": "message",
+      "sourceId": "28df762c-a400-4c88-a006-89407573dc98",
+      "summary": "Marcus sends the CEO a detailed-design portfolio update.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519"
+    },
+    {
+      "at": "2026-11-17T20:22:57.865465Z",
+      "kind": "agent.capability.executed",
+      "sourceId": "f059f168-a268-4996-ab15-23daf6c17577",
+      "summary": "The project delivery grant is required: work.delivery.read.v1",
+      "actor": "com.csweet.video-game-producer",
+      "outcome": "Failed"
+    },
+    {
+      "at": "2026-11-17T20:23:01.824239Z",
+      "kind": "message",
+      "sourceId": "61bbb9d5-7c09-42a8-8e6f-9c3199aebdba",
+      "summary": "Marcus records Naomi's findings on the first brief.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "Naomi Chen"
+      ],
+      "conversationId": "77fb2e64-b5e2-4837-8041-a5fa3a218754",
+      "turnId": "8820018d-b025-4ff4-9213-05209132f636",
+      "sessionId": "a2a2dcc7-9fc7-4cd9-b5ae-f804ffe710ca",
+      "turnOrdinal": 2,
+      "disposition": "Completed"
+    },
+    {
+      "at": "2026-11-17T20:23:01.824341Z",
+      "kind": "message",
+      "sourceId": "f2193c4d-b96a-4cec-a505-e12c9eb098ba",
+      "summary": "Marcus records Naomi's findings on the first brief.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519",
+      "sameTurnAsMessageId": "61bbb9d5-7c09-42a8-8e6f-9c3199aebdba"
+    },
+    {
+      "at": "2026-11-17T20:23:03.159775Z",
+      "kind": "provider attempt",
+      "sourceId": "3799ad80-600a-4037-bfcb-c9acbcb201a1",
+      "summary": "director-production-baseline-review",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:23:41.390959Z",
+      "inputTokens": 8735,
+      "outputTokens": 9207
+    },
+    {
+      "at": "2026-11-17T20:23:42.220585Z",
+      "kind": "message",
+      "sourceId": "7ec2d81e-3bd2-4894-9944-f1ec44c8ace2",
+      "summary": "Marcus returns revision 1 with concrete answers on evidence, formation language, music and ownership.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "Gabriel Reyes"
+      ],
+      "conversationId": "ad0c59a1-c65c-46d4-b553-4d1ac9b6a775",
+      "turnId": "ff8db86a-1bb2-4164-ae5c-5ee5e20d390a",
+      "sessionId": "53743d74-0bfa-4ad6-b6b7-8d4e38f547ce",
+      "turnOrdinal": 3,
+      "disposition": "Continue"
+    },
+    {
+      "at": "2026-11-17T20:23:43.221909Z",
+      "kind": "provider attempt",
+      "sourceId": "58d05732-6272-4452-91e0-d49950906e59",
+      "summary": "producer-pitch-refinement",
+      "agent": "com.csweet.video-game-producer",
+      "version": "6.22.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:24:42.993221Z",
+      "inputTokens": 15784,
+      "outputTokens": 21240
+    },
+    {
+      "at": "2026-11-17T20:24:44.833161Z",
+      "kind": "message",
+      "sourceId": "6a6c0dda-9e61-4dda-afcf-20441686ba4f",
+      "summary": "Gabriel submits revision 2 with the requested decisions and reports that his questions are answered.",
+      "sender": "Gabriel Reyes",
+      "recipients": [
+        "Marcus Vale"
+      ],
+      "conversationId": "ad0c59a1-c65c-46d4-b553-4d1ac9b6a775",
+      "turnId": "a511b768-e787-4d90-b75d-1fa41ccea40f",
+      "sessionId": "53743d74-0bfa-4ad6-b6b7-8d4e38f547ce",
+      "turnOrdinal": 4,
+      "disposition": "Continue"
+    },
+    {
+      "at": "2026-11-17T20:24:46.136341Z",
+      "kind": "message",
+      "sourceId": "f326f40a-83ac-493e-8366-1ecddaf81460",
+      "summary": "Marcus commissions Naomi's review of revision 2.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "Naomi Chen"
+      ],
+      "conversationId": "77fb2e64-b5e2-4837-8041-a5fa3a218754",
+      "turnId": "9a2bbd31-ca62-416c-946e-d8296068b333",
+      "sessionId": "031994aa-340e-42e9-99b5-5a293402d60e",
+      "turnOrdinal": 0,
+      "disposition": "Continue"
+    },
+    {
+      "at": "2026-11-17T20:24:46.482065Z",
+      "kind": "message",
+      "sourceId": "43ec60f5-9fe7-4c8b-952a-cd754f963c81",
+      "summary": "Marcus records the parent session waiting for the second creative review.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "Gabriel Reyes"
+      ],
+      "conversationId": "ad0c59a1-c65c-46d4-b553-4d1ac9b6a775",
+      "turnId": "3818bbcd-6bfb-4b00-87e4-ff0378342762",
+      "sessionId": "53743d74-0bfa-4ad6-b6b7-8d4e38f547ce",
+      "turnOrdinal": 5,
+      "disposition": "Blocked"
+    },
+    {
+      "at": "2026-11-17T20:24:46.482131Z",
+      "kind": "message",
+      "sourceId": "584d1351-4a84-435e-93cc-cf1c0d334ffd",
+      "summary": "Marcus records the parent session waiting for the second creative review.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519",
+      "sameTurnAsMessageId": "43ec60f5-9fe7-4c8b-952a-cd754f963c81"
+    },
+    {
+      "at": "2026-11-17T20:24:47.179358Z",
+      "kind": "provider attempt",
+      "sourceId": "5e8d844b-eb15-4455-acea-07372485ea53",
+      "summary": "creative-review",
+      "agent": "com.csweet.video-game-creative-director",
+      "version": "4.2.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:25:23.57944Z",
+      "inputTokens": 18083,
+      "outputTokens": 10960
+    },
+    {
+      "at": "2026-11-17T20:25:12.850447Z",
+      "kind": "agent.capability.executed",
+      "sourceId": "ccea509b-9af1-477e-85bc-66cc72ba0e0c",
+      "summary": "The project delivery grant is required: work.delivery.read.v1",
+      "actor": "com.csweet.video-game-producer",
+      "outcome": "Failed"
+    },
+    {
+      "at": "2026-11-17T20:25:24.273201Z",
+      "kind": "provider attempt",
+      "sourceId": "07f18382-2719-483b-900c-64e2095ec21d",
+      "summary": "creative-review",
+      "agent": "com.csweet.video-game-creative-director",
+      "version": "4.2.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:25:42.054431Z",
+      "inputTokens": 20542,
+      "outputTokens": 6530
+    },
+    {
+      "at": "2026-11-17T20:25:44.198776Z",
+      "kind": "message",
+      "sourceId": "22dd71ba-ce15-4f28-a477-c82bfe7dea38",
+      "summary": "Naomi accepts revision 2 for creative pre-production.",
+      "sender": "Naomi Chen",
+      "recipients": [
+        "Marcus Vale"
+      ],
+      "conversationId": "77fb2e64-b5e2-4837-8041-a5fa3a218754",
+      "turnId": "f3ae9b64-72cc-403d-9f2b-0654af98a188",
+      "sessionId": "031994aa-340e-42e9-99b5-5a293402d60e",
+      "turnOrdinal": 1,
+      "disposition": "Continue"
+    },
+    {
+      "at": "2026-11-17T20:25:45.679426Z",
+      "kind": "message",
+      "sourceId": "88a1ebb7-08c9-4d14-8adc-6bcc768243a0",
+      "summary": "Marcus records Naomi's findings on revision 2.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "Naomi Chen"
+      ],
+      "conversationId": "77fb2e64-b5e2-4837-8041-a5fa3a218754",
+      "turnId": "1463f835-6639-40ff-90cb-0db444603a09",
+      "sessionId": "031994aa-340e-42e9-99b5-5a293402d60e",
+      "turnOrdinal": 2,
+      "disposition": "Completed"
+    },
+    {
+      "at": "2026-11-17T20:25:45.679539Z",
+      "kind": "message",
+      "sourceId": "c6e9f74d-9679-40f1-af27-ac9674a3b0c2",
+      "summary": "Marcus records Naomi's findings on revision 2.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519",
+      "sameTurnAsMessageId": "88a1ebb7-08c9-4d14-8adc-6bcc768243a0"
+    },
+    {
+      "at": "2026-11-17T20:25:46.824918Z",
+      "kind": "provider attempt",
+      "sourceId": "5282c1a5-a273-48bc-bd30-12ceba7e07bc",
+      "summary": "director-production-baseline-review",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:25:55.120092Z",
+      "inputTokens": 11781,
+      "outputTokens": 1527
+    },
+    {
+      "at": "2026-11-17T20:25:56.368291Z",
+      "kind": "approval",
+      "sourceId": "7d83c695-4413-4921-bd4b-619c0ea01bfb",
+      "summary": "Exact approved production sources approved.",
+      "actor": "Marcus Vale"
+    },
+    {
+      "at": "2026-11-17T20:25:56.525954Z",
+      "kind": "approval",
+      "sourceId": "eecd3c24-97d7-46b8-9dd2-8cc3d6a1696b",
+      "summary": "Collaborative game production brief approved.",
+      "actor": "Marcus Vale"
+    },
+    {
+      "at": "2026-11-17T20:25:56.628065Z",
+      "kind": "message",
+      "sourceId": "c47f6841-621c-4d60-abe8-e5b87d90d726",
+      "summary": "Marcus accepts the production brief for planning and staffing.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "Gabriel Reyes"
+      ],
+      "conversationId": "ad0c59a1-c65c-46d4-b553-4d1ac9b6a775",
+      "turnId": "43c202eb-236e-4413-9d8d-52836d5f2d43",
+      "sessionId": "53743d74-0bfa-4ad6-b6b7-8d4e38f547ce",
+      "turnOrdinal": 6,
+      "disposition": "Continue"
+    },
+    {
+      "at": "2026-11-17T20:25:58.230651Z",
+      "kind": "message",
+      "sourceId": "cefeb2b2-9267-4b8c-93a5-0d7424343362",
+      "summary": "Gabriel acknowledges the brief and takes staffing.",
+      "sender": "Gabriel Reyes",
+      "recipients": [
+        "Marcus Vale"
+      ],
+      "conversationId": "ad0c59a1-c65c-46d4-b553-4d1ac9b6a775",
+      "turnId": "4f0d8997-aa10-48ff-8fe7-05f2ad6664ce",
+      "sessionId": "53743d74-0bfa-4ad6-b6b7-8d4e38f547ce",
+      "turnOrdinal": 7,
+      "disposition": "Completed"
+    },
+    {
+      "at": "2026-11-17T20:25:58.853522Z",
+      "kind": "package",
+      "sourceId": "ecb5126f-a5b5-4cf1-b5d1-69296c03acc8",
+      "summary": "Approved game-production planning inputs approved."
+    },
+    {
+      "at": "2026-11-17T20:25:59.411484Z",
+      "kind": "message",
+      "sourceId": "0b3785bb-2d96-4692-b37e-5f79a29159cb",
+      "summary": "Marcus reports the vision handoff milestone to the CEO.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519"
+    },
+    {
+      "at": "2026-11-17T20:25:59.497165Z",
+      "kind": "message",
+      "sourceId": "9501e603-f340-41b9-85d3-b2bb4e2708f6",
+      "summary": "Marcus confirms the vision and asks Gabriel to coordinate production evidence.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "Gabriel Reyes"
+      ],
+      "conversationId": "ad0c59a1-c65c-46d4-b553-4d1ac9b6a775",
+      "turnId": "b3b060be-7d94-4ada-965f-4863d4b77ac2",
+      "sessionId": "53743d74-0bfa-4ad6-b6b7-8d4e38f547ce",
+      "turnOrdinal": 8,
+      "disposition": "Completed"
+    },
+    {
+      "at": "2026-11-17T20:25:59.497273Z",
+      "kind": "message",
+      "sourceId": "8adbd40b-8e36-415a-b17f-c732350b0e18",
+      "summary": "Marcus confirms the vision and asks Gabriel to coordinate production evidence.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519",
+      "sameTurnAsMessageId": "9501e603-f340-41b9-85d3-b2bb4e2708f6"
+    },
+    {
+      "at": "2026-11-17T20:26:00.352332Z",
+      "kind": "provider attempt",
+      "sourceId": "dc6762e3-a5df-41ca-838d-49d69ff1d8c0",
+      "summary": "producer-kickoff-staffing",
+      "agent": "com.csweet.video-game-producer",
+      "version": "6.22.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:26:41.036123Z",
+      "inputTokens": 8482,
+      "outputTokens": 10773
+    },
+    {
+      "at": "2026-11-17T20:26:01.153642Z",
+      "kind": "message",
+      "sourceId": "aa7f7de6-1176-4616-b85a-4c665f5db9b3",
+      "summary": "Marcus reports the accepted package and its exact members.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "Gabriel Reyes"
+      ],
+      "conversationId": "ad0c59a1-c65c-46d4-b553-4d1ac9b6a775"
+    },
+    {
+      "at": "2026-11-17T20:26:11.125286Z",
+      "kind": "incident resolved",
+      "sourceId": "f804013b-1f5b-4145-bf60-00346dd6345a",
+      "summary": "Planning coordination stopped"
+    },
+    {
+      "at": "2026-11-17T20:26:41.925237Z",
+      "kind": "message",
+      "sourceId": "2f906044-eb11-4acb-90ac-aa4e7c597882",
+      "summary": "Gabriel requests only a Technical Director.",
+      "sender": "Gabriel Reyes",
+      "recipients": [
+        "Marcus Vale"
+      ],
+      "conversationId": "ad0c59a1-c65c-46d4-b553-4d1ac9b6a775"
+    },
+    {
+      "at": "2026-11-17T20:26:42.91195Z",
+      "kind": "provider attempt",
+      "sourceId": "ff1a642f-1fe1-436a-b914-df28a55f2300",
+      "summary": "shared-delegation",
+      "agent": "com.csweet.video-game-producer",
+      "version": "6.22.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:26:48.376913Z",
+      "inputTokens": 1197,
+      "outputTokens": 1572
+    },
+    {
+      "at": "2026-11-17T20:26:44.347899Z",
+      "kind": "provider attempt",
+      "sourceId": "52ad35b9-2308-40ea-a97d-45c4330cd654",
+      "summary": "director-staffing-review",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:27:00.370677Z",
+      "inputTokens": 8633,
+      "outputTokens": 3109
+    },
+    {
+      "at": "2026-11-17T20:26:49.831372Z",
+      "kind": "provider attempt",
+      "sourceId": "bc95a43f-2188-410a-be9f-6afba6040801",
+      "summary": "producer-manager-chat",
+      "agent": "com.csweet.video-game-producer",
+      "version": "6.22.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:27:27.493674Z",
+      "inputTokens": 12533,
+      "outputTokens": 7368
+    },
+    {
+      "at": "2026-11-17T20:27:01.149554Z",
+      "kind": "staffing decision",
+      "sourceId": "b5030858-b8a2-475d-907f-a1e25f6a8795",
+      "summary": "Technical Director approved. Implementation and QA staffing deferred.",
+      "requester": "Gabriel Reyes",
+      "manager": "Marcus Vale"
+    },
+    {
+      "at": "2026-11-17T20:27:05.028679Z",
+      "kind": "message",
+      "sourceId": "d92d9f5a-c9e3-410a-8080-1c40a71d819a",
+      "summary": "Evelyn takes the approved Technical Director request into hiring.",
+      "sender": "Evelyn Brooks",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:27:25.869865Z",
+      "kind": "hire",
+      "sourceId": "d6a8bb24-4e19-41f3-98eb-5bc50dd9a36e",
+      "summary": "Victor Lin joins the business.",
+      "reportsTo": "Marcus Vale"
+    },
+    {
+      "at": "2026-11-17T20:27:26.469656Z",
+      "kind": "message",
+      "sourceId": "ef741c7a-cd74-4e48-9e7e-2660a54b173c",
+      "summary": "Evelyn reports Victor's hire.",
+      "sender": "Evelyn Brooks",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:27:29.342011Z",
+      "kind": "message",
+      "sourceId": "0c19552e-64b3-4443-8504-5de969defe44",
+      "summary": "Evelyn confirms the recommendation is fulfilled.",
+      "sender": "Evelyn Brooks",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "464b1e4f-7191-4e27-8b27-a58d89cc2171"
+    },
+    {
+      "at": "2026-11-17T20:27:29.544813Z",
+      "kind": "agent.capability.executed",
+      "sourceId": "5467c6bc-c173-4a7e-841d-7b3c1a5614e1",
+      "summary": "The project delivery grant is required: work.delivery.read.v1",
+      "actor": "com.csweet.video-game-producer",
+      "outcome": "Failed"
+    },
+    {
+      "at": "2026-11-17T20:27:32.923046Z",
+      "kind": "message",
+      "sourceId": "ec57f735-d4ed-4f96-b644-19bdd555801c",
+      "summary": "Gabriel confirms the existing project and accepted handoff.",
+      "sender": "Gabriel Reyes",
+      "recipients": [
+        "Marcus Vale"
+      ],
+      "conversationId": "ad0c59a1-c65c-46d4-b553-4d1ac9b6a775"
+    },
+    {
+      "at": "2026-11-17T20:27:37.678494Z",
+      "kind": "sprint",
+      "sourceId": "6542afe0-cdfd-4108-bcfa-6aeee6b6677d",
+      "summary": "Production Sprint 1 created as Planned.",
+      "boardId": "03cbd492-51b0-4bb7-922a-f4f48c6117ed"
+    },
+    {
+      "at": "2026-11-17T20:27:38.589413Z",
+      "kind": "message",
+      "sourceId": "7ffbd68a-88fa-4c30-b25a-679ded1048a1",
+      "summary": "Gabriel asks Victor for the whole-scope Epic outline and defers detailed planning.",
+      "sender": "Gabriel Reyes",
+      "recipients": [
+        "Victor Lin"
+      ],
+      "conversationId": "dc0eff1e-91e0-4856-9c35-c7f1e4efd4c6",
+      "turnId": "414ca1fb-0506-4dc4-80ee-f2257290002a",
+      "sessionId": "7d89c8af-53fa-4929-82d1-c9b8fc6406ee",
+      "turnOrdinal": 0,
+      "disposition": "Continue"
+    },
+    {
+      "at": "2026-11-17T20:27:44.519393Z",
+      "kind": "message",
+      "sourceId": "2a8275e0-0c51-4256-95b2-05c7d4197700",
+      "summary": "Marcus sends a portfolio update showing oversight and no subordinate delivery report.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519"
+    },
+    {
+      "at": "2026-11-17T20:27:56.663646Z",
+      "kind": "provider attempt",
+      "sourceId": "cc374e5b-aa18-40a5-a3e0-a698e626c436",
+      "summary": "video-game-technical-planning",
+      "agent": "com.csweet.video-game-technical-director",
+      "version": "6.13.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:29:31.899429Z",
+      "inputTokens": 22118,
+      "outputTokens": 27783
+    },
+    {
+      "at": "2026-11-17T20:29:33.89986Z",
+      "kind": "provider attempt",
+      "sourceId": "9c42337f-5607-45c1-9c9d-3f2dfc3c4bc8",
+      "summary": "video-game-technical-planning",
+      "agent": "com.csweet.video-game-technical-director",
+      "version": "6.13.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:31:28.096737Z",
+      "inputTokens": 4803,
+      "outputTokens": 36427
+    },
+    {
+      "at": "2026-11-17T20:31:29.239127Z",
+      "kind": "message",
+      "sourceId": "8f234f52-baf9-4779-8fd1-444102781e25",
+      "summary": "Victor returns the scope outline for publication.",
+      "sender": "Victor Lin",
+      "recipients": [
+        "Gabriel Reyes"
+      ],
+      "conversationId": "dc0eff1e-91e0-4856-9c35-c7f1e4efd4c6",
+      "turnId": "d2dc38bd-b8b2-46fc-a92f-4b6d9273edeb",
+      "sessionId": "7d89c8af-53fa-4929-82d1-c9b8fc6406ee",
+      "turnOrdinal": 1,
+      "disposition": "Completed"
+    },
+    {
+      "at": "2026-11-17T20:31:29.5206Z",
+      "kind": "message",
+      "sourceId": "552254be-0009-4fe5-bcc0-aca1b2ef9587",
+      "summary": "Gabriel acknowledges the roadmap receipt and retains publication responsibility.",
+      "sender": "Gabriel Reyes",
+      "recipients": [
+        "Victor Lin"
+      ],
+      "conversationId": "dc0eff1e-91e0-4856-9c35-c7f1e4efd4c6",
+      "turnId": "e7ba588f-cde5-4047-ad45-6994df7e42c0",
+      "sessionId": "7d89c8af-53fa-4929-82d1-c9b8fc6406ee",
+      "turnOrdinal": 2,
+      "disposition": "Completed"
+    },
+    {
+      "at": "2026-11-17T20:31:33.502976Z",
+      "kind": "provider attempt",
+      "sourceId": "604011f8-09b8-4656-b1ce-7388900a9766",
+      "summary": "producer-roadmap-ownership",
+      "agent": "com.csweet.video-game-producer",
+      "version": "6.22.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:33:30.984209Z",
+      "inputTokens": 31770,
+      "outputTokens": 37672
+    },
+    {
+      "at": "2026-11-17T20:33:32.644433Z",
+      "kind": "board item",
+      "sourceId": "d2a17c75-f0c0-4691-80cf-d6f3b3ea7fec",
+      "summary": "[roadmap-epic-1] First Increment: Chromium Renderer and Creative Budget Feasibility Spike",
+      "boardId": "03cbd492-51b0-4bb7-922a-f4f48c6117ed"
+    },
+    {
+      "at": "2026-11-17T20:33:32.857177Z",
+      "kind": "board item",
+      "sourceId": "d84d6cb3-5fce-49be-9a5f-e4bb471c0e55",
+      "summary": "[roadmap-epic-2] Base Breakout Session Flow and Single-Playfield Foundation",
+      "boardId": "03cbd492-51b0-4bb7-922a-f4f48c6117ed"
+    },
+    {
+      "at": "2026-11-17T20:33:33.007034Z",
+      "kind": "board item",
+      "sourceId": "04be1ef8-400e-4d14-9b4d-523e80637d24",
+      "summary": "[roadmap-epic-8] Playtest Protocol Deliverable",
+      "boardId": "03cbd492-51b0-4bb7-922a-f4f48c6117ed"
+    },
+    {
+      "at": "2026-11-17T20:33:33.150999Z",
+      "kind": "board item",
+      "sourceId": "3e2706e3-03e6-458c-bc2f-eff053f93160",
+      "summary": "[roadmap-epic-3] Core Paddle, Ball, Pickups, and Input Fallback",
+      "boardId": "03cbd492-51b0-4bb7-922a-f4f48c6117ed"
+    },
+    {
+      "at": "2026-11-17T20:33:33.407786Z",
+      "kind": "board item",
+      "sourceId": "46fb7a86-d356-49db-b304-b080070eeb90",
+      "summary": "[roadmap-epic-4] Resonance, Scoring, HUD Meter, and Tier-Linked Procedural Music",
+      "boardId": "03cbd492-51b0-4bb7-922a-f4f48c6117ed"
+    },
+    {
+      "at": "2026-11-17T20:33:33.548964Z",
+      "kind": "board item",
+      "sourceId": "503ed684-25fc-4cfe-98f6-953f4a25ea16",
+      "summary": "[roadmap-epic-5] Authored Level Content and Crystalline Material Language",
+      "boardId": "03cbd492-51b0-4bb7-922a-f4f48c6117ed"
+    },
+    {
+      "at": "2026-11-17T20:33:33.682414Z",
+      "kind": "board item",
+      "sourceId": "9aa18448-adc8-4789-8db5-0b70d88c561d",
+      "summary": "[roadmap-epic-6] Collision FX Suite and Full-versus-Stripped Variants",
+      "boardId": "03cbd492-51b0-4bb7-922a-f4f48c6117ed"
+    },
+    {
+      "at": "2026-11-17T20:33:33.812118Z",
+      "kind": "board item",
+      "sourceId": "c4541de2-47c8-4f90-8427-81664e199e68",
+      "summary": "[roadmap-epic-7] Accessibility System and Validation Notes",
+      "boardId": "03cbd492-51b0-4bb7-922a-f4f48c6117ed"
+    },
+    {
+      "at": "2026-11-17T20:33:33.927076Z",
+      "kind": "board item",
+      "sourceId": "c989a0cb-298e-48e5-b05e-ccd80d06012d",
+      "summary": "[roadmap-epic-9] Technical Decision Record",
+      "boardId": "03cbd492-51b0-4bb7-922a-f4f48c6117ed"
+    },
+    {
+      "at": "2026-11-17T20:33:34.037996Z",
+      "kind": "board item",
+      "sourceId": "7feb51b6-05c7-4311-be98-5d7d31b54ce0",
+      "summary": "[roadmap-epic-10] Integrated Chromium PoC Acceptance Build and Console Checks",
+      "boardId": "03cbd492-51b0-4bb7-922a-f4f48c6117ed"
+    },
+    {
+      "at": "2026-11-17T20:33:34.169556Z",
+      "kind": "board item",
+      "sourceId": "5a88a902-8909-4d79-af1b-159ef6ee4616",
+      "summary": "[roadmap-epic-11] Playtest Evidence Records",
+      "boardId": "03cbd492-51b0-4bb7-922a-f4f48c6117ed"
+    },
+    {
+      "at": "2026-11-17T20:33:35.364932Z",
+      "kind": "provider attempt",
+      "sourceId": "65b52806-d696-4c81-a358-1a94589295a0",
+      "summary": "agent-inference",
+      "agent": "com.csweet.video-game-producer",
+      "version": "6.22.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:34:01.924735Z",
+      "inputTokens": 16478,
+      "outputTokens": 7421
+    },
+    {
+      "at": "2026-11-17T20:34:02.531396Z",
+      "kind": "planning review",
+      "sourceId": "fd41108d-9754-4e91-96c5-a02d01cd7562",
+      "summary": "Producer recorded select.",
+      "receiptKey": "game-plan-assessment:6d6cfc33624b74b441efdda523acd89589aed103558dbfd302117e0224ca955d"
+    },
+    {
+      "at": "2026-11-17T20:34:03.071581Z",
+      "kind": "message",
+      "sourceId": "2b6b2254-ffc1-425f-8806-a47a6f8c50a3",
+      "summary": "Gabriel asks Victor to detail the renderer spike and assumes the current roster is sufficient.",
+      "sender": "Gabriel Reyes",
+      "recipients": [
+        "Victor Lin"
+      ],
+      "conversationId": "dc0eff1e-91e0-4856-9c35-c7f1e4efd4c6",
+      "turnId": "68336aee-ed2c-4ef6-b32d-131bd625635b",
+      "sessionId": "29e5bcb7-4353-40ee-bd13-8a8f7b567ef3",
+      "turnOrdinal": 0,
+      "disposition": "Continue"
+    },
+    {
+      "at": "2026-11-17T20:34:04.448031Z",
+      "kind": "provider attempt",
+      "sourceId": "ff6e2932-c994-4ad2-9682-7a7428722fa3",
+      "summary": "video-game-technical-planning",
+      "agent": "com.csweet.video-game-technical-director",
+      "version": "6.13.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:35:15.213044Z",
+      "inputTokens": 23891,
+      "outputTokens": 20057
+    },
+    {
+      "at": "2026-11-17T20:35:16.032585Z",
+      "kind": "provider attempt",
+      "sourceId": "d68b49f4-56cf-4aab-8fae-35b7944d91b2",
+      "summary": "video-game-technical-planning",
+      "agent": "com.csweet.video-game-technical-director",
+      "version": "6.13.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:36:38.209362Z",
+      "inputTokens": 25832,
+      "outputTokens": 24704
+    },
+    {
+      "at": "2026-11-17T20:36:39.43746Z",
+      "kind": "provider attempt",
+      "sourceId": "461db4d1-737b-4992-8e4f-e246824d114c",
+      "summary": "video-game-technical-planning",
+      "agent": "com.csweet.video-game-technical-director",
+      "version": "6.13.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:37:27.982729Z",
+      "inputTokens": 25980,
+      "outputTokens": 15952
+    },
+    {
+      "at": "2026-11-17T20:37:28.548079Z",
+      "kind": "provider attempt",
+      "sourceId": "bf91aa5c-0f1a-4bf9-91e7-44b3f6c2a060",
+      "summary": "video-game-technical-planning",
+      "agent": "com.csweet.video-game-technical-director",
+      "version": "6.13.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:38:10.870735Z",
+      "inputTokens": 26013,
+      "outputTokens": 14362
+    },
+    {
+      "at": "2026-11-17T20:38:12.075287Z",
+      "kind": "message",
+      "sourceId": "5961bc6e-e13e-4947-9e83-4302c0514413",
+      "summary": "Victor reports three failed task-index attempts and recommends escalating a platform issue.",
+      "sender": "Victor Lin",
+      "recipients": [
+        "Gabriel Reyes"
+      ],
+      "conversationId": "dc0eff1e-91e0-4856-9c35-c7f1e4efd4c6",
+      "turnId": "de4f408a-1ce7-439a-ab94-919eaee4d251",
+      "sessionId": "29e5bcb7-4353-40ee-bd13-8a8f7b567ef3",
+      "turnOrdinal": 1,
+      "disposition": "Blocked"
+    },
+    {
+      "at": "2026-11-17T20:38:12.42736Z",
+      "kind": "message",
+      "sourceId": "a78306be-ee6d-49a2-b4ba-32026e0cccaa",
+      "summary": "Gabriel records the specialist session as blocked.",
+      "sender": "Gabriel Reyes",
+      "recipients": [
+        "Victor Lin"
+      ],
+      "conversationId": "dc0eff1e-91e0-4856-9c35-c7f1e4efd4c6",
+      "turnId": "c54fed47-41ff-4f49-995f-5e4f03193919",
+      "sessionId": "29e5bcb7-4353-40ee-bd13-8a8f7b567ef3",
+      "turnOrdinal": 2,
+      "disposition": "Blocked"
+    },
+    {
+      "at": "2026-11-17T20:38:14.988076Z",
+      "kind": "provider attempt",
+      "sourceId": "d6cc6d9a-8c68-4f94-91ac-b3e24999aeb1",
+      "summary": "producer-roadmap-ownership",
+      "agent": "com.csweet.video-game-producer",
+      "version": "6.22.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:39:45.248936Z",
+      "inputTokens": 39592,
+      "outputTokens": 29006
+    },
+    {
+      "at": "2026-11-17T20:38:26.104012Z",
+      "kind": "incident opened",
+      "sourceId": "bf2675a9-9d85-42e3-a738-8262350a4ba2",
+      "summary": "Planning coordination stopped",
+      "affectedWorkItem": null
+    },
+    {
+      "at": "2026-11-17T20:39:47.11038Z",
+      "kind": "agent.capability.executed",
+      "sourceId": "66905ea3-3775-44f6-899b-6c1b8a90dfc0",
+      "summary": "Producer scheduled automatic recovery attempt 1 of 5 for 20:40:46 UTC.",
+      "actor": "com.csweet.video-game-producer",
+      "outcome": "Completed"
+    },
+    {
+      "at": "2026-11-17T20:39:48.24557Z",
+      "kind": "provider attempt",
+      "sourceId": "baeab5ec-5d14-408b-80b0-64d8da0ec0e7",
+      "summary": "manager-incident",
+      "agent": "com.csweet.video-game-producer",
+      "version": "6.22.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:40:11.963974Z",
+      "inputTokens": 29510,
+      "outputTokens": 6887
+    },
+    {
+      "at": "2026-11-17T20:40:13.1932799Z",
+      "kind": "incident escalation",
+      "sourceId": "bf2675a9-9d85-42e3-a738-8262350a4ba2",
+      "summary": "Escalate this C-Sweet technical issue through the reporting manager to the CEO for a code correction. Preserve the approved scope and checkpoints. Retry the affected planning only after the correction is installed; no creative decision is requested.",
+      "sender": "Gabriel Reyes",
+      "recipient": "Marcus Vale"
+    },
+    {
+      "at": "2026-11-17T20:40:16.048872Z",
+      "kind": "provider attempt",
+      "sourceId": "f6a2e303-ec90-481e-8abc-b93124ccbdef",
+      "summary": "manager-incident",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:40:43.405102Z",
+      "inputTokens": 29885,
+      "outputTokens": 8102
+    },
+    {
+      "at": "2026-11-17T20:40:44.2093203Z",
+      "kind": "incident escalation",
+      "sourceId": "bf2675a9-9d85-42e3-a738-8262350a4ba2",
+      "summary": "Escalate this C-Sweet technical issue through the reporting manager to the CEO for a code correction. Preserve the approved scope and checkpoints. Retry the affected planning only after the correction is installed; no creative decision is requested.",
+      "sender": "Marcus Vale",
+      "recipient": "CEO"
+    },
+    {
+      "at": "2026-11-17T20:40:56.133653Z",
+      "kind": "message",
+      "sourceId": "52e510ee-3d48-4e9d-9d51-faa9a41a5bf7",
+      "summary": "Marcus informs the CEO of the technical issue and lack of a queued retry.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519"
+    },
+    {
+      "at": "2026-11-17T20:41:17.620755Z",
+      "kind": "provider attempt",
+      "sourceId": "ac4b374a-34fa-4fbf-b937-a6859642fdc7",
+      "summary": "agent-inference",
+      "agent": "com.csweet.video-game-producer",
+      "version": "6.22.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:41:33.874714Z",
+      "inputTokens": 17464,
+      "outputTokens": 3864
+    },
+    {
+      "at": "2026-11-17T20:41:34.933518Z",
+      "kind": "planning review",
+      "sourceId": "eb77d56b-678c-432e-af27-d6715c4e8125",
+      "summary": "Producer recorded wait.",
+      "receiptKey": "game-plan-assessment:5e5125b280c689f079107817b64bce7c8f06d550309ed8c71271e0a510fd31c9"
+    },
+    {
+      "at": "2026-11-17T20:41:35.972874Z",
+      "kind": "provider attempt",
+      "sourceId": "6b821766-782e-4b21-9d6b-4c9fa837242b",
+      "summary": "agent-inference",
+      "agent": "com.csweet.video-game-producer",
+      "version": "6.22.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:42:05.35216Z",
+      "inputTokens": 7436,
+      "outputTokens": 6926
+    },
+    {
+      "at": "2026-11-17T20:41:43.80533Z",
+      "kind": "message",
+      "sourceId": "3d3b2d4c-76c0-49e3-97ed-18bb55b119ea",
+      "summary": "Marcus asks Victor to request project build capacity.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "Victor Lin"
+      ],
+      "conversationId": "5f1120a5-47c0-4c35-8f83-96cee2630c51",
+      "turnId": "ccc47507-38fe-4950-8b55-25a2c357cd52",
+      "sessionId": "5f5578b3-998c-48ad-b0ed-46644020307d",
+      "turnOrdinal": 0,
+      "disposition": "Continue"
+    },
+    {
+      "at": "2026-11-17T20:41:44.492339Z",
+      "kind": "message",
+      "sourceId": "162a5b9f-1aa7-4f09-8196-85d9581b3325",
+      "summary": "Victor reports the capacity request is Preparing.",
+      "sender": "Victor Lin",
+      "recipients": [
+        "Marcus Vale"
+      ],
+      "conversationId": "5f1120a5-47c0-4c35-8f83-96cee2630c51",
+      "turnId": "f9c5d963-06ae-46e6-9ac9-a1ad9f5ffad3",
+      "sessionId": "5f5578b3-998c-48ad-b0ed-46644020307d",
+      "turnOrdinal": 1,
+      "disposition": "Completed"
+    },
+    {
+      "at": "2026-11-17T20:41:45.159487Z",
+      "kind": "message",
+      "sourceId": "4a14a4ec-a9fd-4dac-b8c3-851fdbcfbea4",
+      "summary": "Marcus acknowledges the capacity request pending separate fulfillment.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "Victor Lin"
+      ],
+      "conversationId": "5f1120a5-47c0-4c35-8f83-96cee2630c51",
+      "turnId": "5710a99c-6460-4d33-8240-5048add11e4b",
+      "sessionId": "5f5578b3-998c-48ad-b0ed-46644020307d",
+      "turnOrdinal": 2,
+      "disposition": "Completed"
+    },
+    {
+      "at": "2026-11-17T20:41:45.159598Z",
+      "kind": "message",
+      "sourceId": "184d4b37-bdba-4d00-ab81-176d88554395",
+      "summary": "Marcus acknowledges the capacity request pending separate fulfillment.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519",
+      "sameTurnAsMessageId": "4a14a4ec-a9fd-4dac-b8c3-851fdbcfbea4"
+    },
+    {
+      "at": "2026-11-17T20:41:49.552954Z",
+      "kind": "provider attempt",
+      "sourceId": "9839ff66-ae95-4ac2-815f-19f096c34757",
+      "summary": "resource-approval",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:42:08.2264Z",
+      "inputTokens": 2059,
+      "outputTokens": 779
+    },
+    {
+      "at": "2026-11-17T20:42:08.101709Z",
+      "kind": "agent.capability.executed",
+      "sourceId": "2932d9df-9c53-4195-9bdb-02d92c718a7d",
+      "summary": "Producer subsequently deferred on escalation until 20:57 UTC.",
+      "actor": "com.csweet.video-game-producer",
+      "outcome": "Completed"
+    },
+    {
+      "at": "2026-11-17T20:42:13.06746Z",
+      "kind": "provider attempt",
+      "sourceId": "776a6246-8da2-47c0-be6b-7833cd8faa26",
+      "summary": "creative-director-planning-decision",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:42:19.933904Z",
+      "inputTokens": 8636,
+      "outputTokens": 1752
+    },
+    {
+      "at": "2026-11-17T20:42:16.146507Z",
+      "kind": "workstream",
+      "sourceId": "95ee49ac-3fa7-429a-b59e-28ba82045454",
+      "summary": "Toolchain certification created."
+    },
+    {
+      "at": "2026-11-17T20:42:20.556208Z",
+      "kind": "project decision",
+      "sourceId": "fa0d38ad-bc85-43cf-8d33-f81e077ab458",
+      "summary": "Should the bounded Chromium renderer and creative-budget spike increment be paused, the planning-platform generation failure escalated for defect repair or an authorized workaround, and unaffected approved planning work continue?",
+      "selectedOption": "choice-0",
+      "status": "Decided",
+      "actor": "Marcus Vale"
+    },
+    {
+      "at": "2026-11-17T20:42:41.953921Z",
+      "kind": "provider attempt",
+      "sourceId": "31e77fa2-203c-49aa-ac69-62c47a5088e8",
+      "summary": "manager-incident",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:43:23.419555Z",
+      "inputTokens": 30421,
+      "outputTokens": 12246
+    },
+    {
+      "at": "2026-11-17T20:43:46.121151Z",
+      "kind": "resource",
+      "sourceId": "01a3b8667d074107a5dbd2fbb79a278b",
+      "summary": "Project build-toolchain request reached Ready."
+    },
+    {
+      "at": "2026-11-17T20:43:52.531789Z",
+      "kind": "message",
+      "sourceId": "a60e7f8c-00fb-41c3-a926-d448272745dc",
+      "summary": "Marcus asks Victor to check the eligible build recipe.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "Victor Lin"
+      ],
+      "conversationId": "5f1120a5-47c0-4c35-8f83-96cee2630c51",
+      "turnId": "013f75a8-2b65-445b-acc6-8f5d97989137",
+      "sessionId": "d484db4c-4c4c-4a50-9f52-5a5cda4b14d4",
+      "turnOrdinal": 0,
+      "disposition": "Continue"
+    },
+    {
+      "at": "2026-11-17T20:43:53.398915Z",
+      "kind": "provider attempt",
+      "sourceId": "1b5040ff-8a65-44fa-a02a-6b054f81d988",
+      "summary": "video-game-toolchain-feasibility",
+      "agent": "com.csweet.video-game-technical-director",
+      "version": "6.13.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:44:18.271709Z",
+      "inputTokens": 2966,
+      "outputTokens": 7138
+    },
+    {
+      "at": "2026-11-17T20:44:19.148531Z",
+      "kind": "provider attempt",
+      "sourceId": "7d9774fa-03d4-4745-b9e1-7a16a6ee7f00",
+      "summary": "video-game-toolchain-feasibility",
+      "agent": "com.csweet.video-game-technical-director",
+      "version": "6.13.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:44:35.827572Z",
+      "inputTokens": 3020,
+      "outputTokens": 5251
+    },
+    {
+      "at": "2026-11-17T20:44:36.088035Z",
+      "kind": "message",
+      "sourceId": "1fde61d8-9397-43d2-9cfb-afd95641120e",
+      "summary": "Victor reports the Phaser web recipe is feasible.",
+      "sender": "Victor Lin",
+      "recipients": [
+        "Marcus Vale"
+      ],
+      "conversationId": "5f1120a5-47c0-4c35-8f83-96cee2630c51",
+      "turnId": "a5f254e0-045c-4738-98e1-75dc8bb8e451",
+      "sessionId": "d484db4c-4c4c-4a50-9f52-5a5cda4b14d4",
+      "turnOrdinal": 1,
+      "disposition": "Completed"
+    },
+    {
+      "at": "2026-11-17T20:44:39.475148Z",
+      "kind": "message",
+      "sourceId": "1838c887-8fc9-4bde-af4f-fd0ff014cd9d",
+      "summary": "Marcus records the specialist finding pending final toolchain selection.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "Victor Lin"
+      ],
+      "conversationId": "5f1120a5-47c0-4c35-8f83-96cee2630c51",
+      "turnId": "a389fd92-fcba-46ae-87ab-2d7b3a4516e3",
+      "sessionId": "d484db4c-4c4c-4a50-9f52-5a5cda4b14d4",
+      "turnOrdinal": 2,
+      "disposition": "Completed"
+    },
+    {
+      "at": "2026-11-17T20:44:39.47522Z",
+      "kind": "message",
+      "sourceId": "5ad31f14-d691-4253-a701-e446742ddc36",
+      "summary": "Marcus records the specialist finding pending final toolchain selection.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519",
+      "sameTurnAsMessageId": "1838c887-8fc9-4bde-af4f-fd0ff014cd9d"
+    },
+    {
+      "at": "2026-11-17T20:44:43.743167Z",
+      "kind": "project decision",
+      "sourceId": "efb691c6-6a3f-4969-a8e9-9ad27a0f361e",
+      "summary": "Select a certified provider installation for exact recipe `phaser.web-2d.v1` and targets `web`.",
+      "selectedOption": "6d11016bffaa41d1bcb803804f32f892",
+      "status": "Decided",
+      "actor": "Marcus Vale"
+    },
+    {
+      "at": "2026-11-17T20:44:58.171746Z",
+      "kind": "provider attempt",
+      "sourceId": "85c860f9-823a-4807-b054-6ba968169b4e",
+      "summary": "manager-incident",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:46:01.428734Z",
+      "inputTokens": 30858,
+      "outputTokens": 19571
+    },
+    {
+      "at": "2026-11-17T20:57:26.113154Z",
+      "kind": "incident opened",
+      "sourceId": "00f7eaff-5b28-4278-b253-d7df47447456",
+      "summary": "Planning is waiting on a dependency that already cleared",
+      "affectedWorkItem": "7c3d2df8-55b9-42f3-b752-662da80fb00a"
+    },
+    {
+      "at": "2026-11-17T20:57:28.298655Z",
+      "kind": "provider attempt",
+      "sourceId": "ddd52983-719c-46f0-b9b6-2b41a40d4653",
+      "summary": "manager-incident",
+      "agent": "com.csweet.video-game-producer",
+      "version": "6.22.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T20:58:00.423886Z",
+      "inputTokens": 30167,
+      "outputTokens": 9672
+    },
+    {
+      "at": "2026-11-17T20:58:07.225641Z",
+      "kind": "message",
+      "sourceId": "976283b0-37f8-4570-b124-fae2802e4b16",
+      "summary": "Gabriel asks Victor to assess the recorded direction against frozen scope.",
+      "sender": "Gabriel Reyes",
+      "recipients": [
+        "Victor Lin"
+      ],
+      "conversationId": "dc0eff1e-91e0-4856-9c35-c7f1e4efd4c6",
+      "turnId": "964ea695-1225-4ea1-b463-d3c9a6a8e995",
+      "sessionId": "e8b87333-90fc-4924-8633-179fe21b9b0d",
+      "turnOrdinal": 0,
+      "disposition": "Continue"
+    },
+    {
+      "at": "2026-11-17T20:58:47.947853Z",
+      "kind": "provider attempt",
+      "sourceId": "df5f6beb-5efc-4757-a473-0d98681a5fdf",
+      "summary": "video-game-technical-planning",
+      "agent": "com.csweet.video-game-technical-director",
+      "version": "6.13.2",
+      "status": "Completed",
+      "completedAt": "2026-11-17T21:00:03.642172Z",
+      "inputTokens": 28568,
+      "outputTokens": 20146
+    },
+    {
+      "at": "2026-11-17T21:00:04.500503Z",
+      "kind": "message",
+      "sourceId": "10d3ac6f-3d55-48dd-9363-a047e64769dd",
+      "summary": "Victor returns the direction assessment and retains the existing graph.",
+      "sender": "Victor Lin",
+      "recipients": [
+        "Gabriel Reyes"
+      ],
+      "conversationId": "dc0eff1e-91e0-4856-9c35-c7f1e4efd4c6",
+      "turnId": "b3c7cf4f-f48e-4a0f-9299-e97729a758d1",
+      "sessionId": "e8b87333-90fc-4924-8633-179fe21b9b0d",
+      "turnOrdinal": 1,
+      "disposition": "Completed"
+    },
+    {
+      "at": "2026-11-17T21:00:04.919854Z",
+      "kind": "message",
+      "sourceId": "fee883f4-a333-4880-8233-72657c8f5088",
+      "summary": "Gabriel acknowledges receipt of the direction assessment.",
+      "sender": "Gabriel Reyes",
+      "recipients": [
+        "Victor Lin"
+      ],
+      "conversationId": "dc0eff1e-91e0-4856-9c35-c7f1e4efd4c6",
+      "turnId": "27eeac65-fda6-4386-a097-b3035906cd4d",
+      "sessionId": "e8b87333-90fc-4924-8633-179fe21b9b0d",
+      "turnOrdinal": 2,
+      "disposition": "Completed"
+    },
+    {
+      "at": "2026-11-17T21:00:08.168257Z",
+      "kind": "provider attempt",
+      "sourceId": "2679403f-0342-4e7e-8a9b-6a7b680fe58e",
+      "summary": "producer-roadmap-ownership",
+      "agent": "com.csweet.video-game-producer",
+      "version": "6.22.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T21:01:17.323403Z",
+      "inputTokens": 41197,
+      "outputTokens": 23580
+    },
+    {
+      "at": "2026-11-17T21:01:22.973919Z",
+      "kind": "provider attempt",
+      "sourceId": "9589f747-8b47-46f8-8bce-7e55d2faa3b1",
+      "summary": "agent-inference",
+      "agent": "com.csweet.video-game-producer",
+      "version": "6.22.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T21:01:39.701713Z",
+      "inputTokens": 20549,
+      "outputTokens": 4522
+    },
+    {
+      "at": "2026-11-17T21:01:40.157834Z",
+      "kind": "planning review",
+      "sourceId": "1b3906d8-1a86-4b48-8c30-e01d70b033f0",
+      "summary": "Producer recorded wait.",
+      "receiptKey": "game-plan-assessment:fa1473185fe5c1b4bbc4a71d88b59e8e5eed8cdf3a2bc0d2d2dec29c1414b130"
+    },
+    {
+      "at": "2026-11-17T21:03:14.682021Z",
+      "kind": "provider attempt",
+      "sourceId": "c7b8eaae-c7ad-42b1-b6c9-b61f6028c056",
+      "summary": "manager-incident",
+      "agent": "com.csweet.video-game-producer",
+      "version": "6.22.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T21:03:34.513313Z",
+      "inputTokens": 30188,
+      "outputTokens": 5969
+    },
+    {
+      "at": "2026-11-17T21:12:41.1038462Z",
+      "kind": "incident escalation",
+      "sourceId": "00f7eaff-5b28-4278-b253-d7df47447456",
+      "summary": "No substantive response within 15 minutes; forwarding the available report. Diagnosis or delivery may be unavailable.",
+      "sender": "Gabriel Reyes",
+      "recipient": "Marcus Vale"
+    },
+    {
+      "at": "2026-11-17T21:12:44.343211Z",
+      "kind": "provider attempt",
+      "sourceId": "05ee66d8-79f6-4e67-94bf-55b7e6eb71e2",
+      "summary": "manager-incident",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T21:13:04.986642Z",
+      "inputTokens": 30582,
+      "outputTokens": 6050
+    },
+    {
+      "at": "2026-11-17T21:18:14.304595Z",
+      "kind": "provider attempt",
+      "sourceId": "cb4758ba-03fc-4ece-b450-77f3f3393fa4",
+      "summary": "manager-incident",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T21:18:49.110474Z",
+      "inputTokens": 30606,
+      "outputTokens": 10533
+    },
+    {
+      "at": "2026-11-17T21:23:58.432136Z",
+      "kind": "provider attempt",
+      "sourceId": "c24ca009-017e-43e3-a43f-b37c845114a8",
+      "summary": "manager-incident",
+      "agent": "com.csweet.video-game-director",
+      "version": "0.14.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T21:24:26.885967Z",
+      "inputTokens": 30625,
+      "outputTokens": 8718
+    },
+    {
+      "at": "2026-11-17T21:27:56.119739Z",
+      "kind": "incident escalation",
+      "sourceId": "00f7eaff-5b28-4278-b253-d7df47447456",
+      "summary": "No substantive response within 15 minutes; forwarding the available report. Diagnosis or delivery may be unavailable.",
+      "sender": "Marcus Vale",
+      "recipient": "CEO"
+    },
+    {
+      "at": "2026-11-17T21:27:56.192879Z",
+      "kind": "message",
+      "sourceId": "78eb2a15-4e92-47bc-86b8-5ae05e542156",
+      "summary": "Marcus tells the CEO the renderer step remains blocked and no decision is requested.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519"
+    },
+    {
+      "at": "2026-11-17T21:31:26.150758Z",
+      "kind": "incident resolved",
+      "sourceId": "00f7eaff-5b28-4278-b253-d7df47447456",
+      "summary": "Planning is waiting on a dependency that already cleared"
+    },
+    {
+      "at": "2026-11-17T21:31:26.197668Z",
+      "kind": "message",
+      "sourceId": "90544fbd-37f7-412d-a527-f1eabd015227",
+      "summary": "Marcus tells the CEO the dependency incident cleared.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519"
+    },
+    {
+      "at": "2026-11-17T21:31:41.089313Z",
+      "kind": "incident opened",
+      "sourceId": "10bb9877-accb-4280-8032-e83f8d5739cb",
+      "summary": "Planning is waiting on a dependency that already cleared",
+      "affectedWorkItem": "7c3d2df8-55b9-42f3-b752-662da80fb00a"
+    },
+    {
+      "at": "2026-11-17T21:31:44.27805Z",
+      "kind": "provider attempt",
+      "sourceId": "d10776a9-8f21-4cb8-b96c-cae62ba41c8c",
+      "summary": "manager-incident",
+      "agent": "com.csweet.video-game-producer",
+      "version": "6.22.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T21:31:59.762609Z",
+      "inputTokens": 30167,
+      "outputTokens": 4357
+    },
+    {
+      "at": "2026-11-17T21:36:47.286783Z",
+      "kind": "agent.runtime.failed",
+      "sourceId": "f1520378-6a28-3fcf-d90d-454b47c201de",
+      "summary": "Runtime interrupted during shutdown and recovered.",
+      "actor": "C-Sweet platform",
+      "outcome": "Failed"
+    },
+    {
+      "at": "2026-11-17T21:37:26.651565Z",
+      "kind": "agent.work.attempt.stopped",
+      "sourceId": "56cee08d-04f7-49d5-9174-d29283baac02",
+      "summary": "Lease expired on a work attempt.",
+      "actor": "C-Sweet platform",
+      "outcome": "Failed"
+    },
+    {
+      "at": "2026-11-17T21:40:49.367665Z",
+      "kind": "communication.coordination.retry.requested",
+      "sourceId": "21bdeda3-d105-4f33-9c27-267835c1f49c",
+      "summary": "CEO requested retry of the blocked Story session from Communications.",
+      "actor": "CEO",
+      "outcome": "Completed"
+    },
+    {
+      "at": "2026-11-17T21:40:51.640973Z",
+      "kind": "provider attempt",
+      "sourceId": "b4549c91-0f0d-41c2-826c-7a2e957eecba",
+      "summary": "video-game-technical-planning",
+      "agent": "com.csweet.video-game-technical-director",
+      "version": "6.13.3",
+      "status": "Completed",
+      "completedAt": "2026-11-17T21:41:55.865707Z",
+      "inputTokens": 25832,
+      "outputTokens": 21322
+    },
+    {
+      "at": "2026-11-17T21:41:56.801207Z",
+      "kind": "provider attempt",
+      "sourceId": "f27b696f-d99f-4201-9824-84cd5b41566d",
+      "summary": "video-game-technical-planning",
+      "agent": "com.csweet.video-game-technical-director",
+      "version": "6.13.3",
+      "status": "Completed",
+      "completedAt": "2026-11-17T21:42:41.566011Z",
+      "inputTokens": 26074,
+      "outputTokens": 13875
+    },
+    {
+      "at": "2026-11-17T21:42:44.494798Z",
+      "kind": "message",
+      "sourceId": "1d0640a2-d57d-4e94-8ab2-aed4fb0dbac1",
+      "summary": "Victor returns one validated Story with a Chromium spike scene and a decision-record task.",
+      "sender": "Victor Lin",
+      "recipients": [
+        "Gabriel Reyes"
+      ],
+      "conversationId": "dc0eff1e-91e0-4856-9c35-c7f1e4efd4c6",
+      "turnId": "32c7b8a5-2317-4163-9d1d-fd23a8b006fc",
+      "sessionId": "29e5bcb7-4353-40ee-bd13-8a8f7b567ef3",
+      "turnOrdinal": 3,
+      "disposition": "Completed"
+    },
+    {
+      "at": "2026-11-17T21:42:45.488632Z",
+      "kind": "message",
+      "sourceId": "c6ca6c2f-c79a-486e-8b03-26ec33bd4fb9",
+      "summary": "Gabriel acknowledges receipt of the validated increment.",
+      "sender": "Gabriel Reyes",
+      "recipients": [
+        "Victor Lin"
+      ],
+      "conversationId": "dc0eff1e-91e0-4856-9c35-c7f1e4efd4c6",
+      "turnId": "b81f67b6-e918-4d1d-bb90-b48daeb5c7a3",
+      "sessionId": "29e5bcb7-4353-40ee-bd13-8a8f7b567ef3",
+      "turnOrdinal": 4,
+      "disposition": "Completed"
+    },
+    {
+      "at": "2026-11-17T21:42:51.281378Z",
+      "kind": "agent.capability.executed",
+      "sourceId": "093f6841-d67a-4bc0-9aec-82663bebfb88",
+      "summary": "Gabriel read the 21:01 wait assessment after receiving the recovered Story.",
+      "actor": "com.csweet.video-game-producer",
+      "outcome": "Completed"
+    },
+    {
+      "at": "2026-11-17T21:42:52.900415Z",
+      "kind": "agent.capability.executed",
+      "sourceId": "f3a0cb76-dc50-46e2-8f5d-731c4c8fd272",
+      "summary": "Gabriel deferred the planning commitment again under the earlier hold.",
+      "actor": "com.csweet.video-game-producer",
+      "outcome": "Completed"
+    },
+    {
+      "at": "2026-11-17T21:42:56.173961Z",
+      "kind": "incident resolved",
+      "sourceId": "bf2675a9-9d85-42e3-a738-8262350a4ba2",
+      "summary": "Planning coordination stopped"
+    },
+    {
+      "at": "2026-11-17T21:42:56.211216Z",
+      "kind": "message",
+      "sourceId": "eb6374b9-c65d-46b3-b070-fee130048fde",
+      "summary": "Marcus tells the CEO the affected collaboration completed.",
+      "sender": "Marcus Vale",
+      "recipients": [
+        "CEO"
+      ],
+      "conversationId": "c65296ba-6d94-40a6-ae25-42fc3fb1a519"
+    },
+    {
+      "at": "2026-11-17T21:46:56.134266Z",
+      "kind": "incident resolved",
+      "sourceId": "10bb9877-accb-4280-8032-e83f8d5739cb",
+      "summary": "Planning is waiting on a dependency that already cleared"
+    },
+    {
+      "at": "2026-11-17T21:47:11.09901Z",
+      "kind": "incident opened",
+      "sourceId": "42585abf-a3e2-4172-ad34-0762a26e8535",
+      "summary": "Planning is waiting on a dependency that already cleared",
+      "affectedWorkItem": "7c3d2df8-55b9-42f3-b752-662da80fb00a"
+    },
+    {
+      "at": "2026-11-17T21:47:14.015353Z",
+      "kind": "provider attempt",
+      "sourceId": "a712fed9-9efd-47b2-bf32-0fc8dff55f0a",
+      "summary": "manager-incident",
+      "agent": "com.csweet.video-game-producer",
+      "version": "6.22.1",
+      "status": "Completed",
+      "completedAt": "2026-11-17T21:47:34.604173Z",
+      "inputTokens": 30170,
+      "outputTokens": 5562
+    }
+  ],
+  "workItemCommentMirrors": [
+    {
+      "id": "c44db564-dfe7-4971-9799-3c2776ebe9a3",
+      "turnId": "4c4e02f7-bc48-4eef-8131-a5d6e6d8a4b2",
+      "workItemId": "0a10c103-df68-4996-8e3c-a32489b74893",
+      "at": "2026-11-17T20:16:48.712596Z"
+    },
+    {
+      "id": "944d9ed6-7b64-47f0-b9b8-5cfbaf1cd228",
+      "turnId": "e559cb2e-b337-4bae-87df-3f402e7333eb",
+      "workItemId": "0a10c103-df68-4996-8e3c-a32489b74893",
+      "at": "2026-11-17T20:17:44.973915Z"
+    },
+    {
+      "id": "0c6ca496-c552-40ef-80ad-6f9dafbdc89e",
+      "turnId": "cbc710e6-e587-4a2a-997a-e454099ac8d7",
+      "workItemId": "0a10c103-df68-4996-8e3c-a32489b74893",
+      "at": "2026-11-17T20:18:03.642426Z"
+    },
+    {
+      "id": "c5dccf4f-cf50-418f-aaf3-4b788d5e1740",
+      "turnId": "414ca1fb-0506-4dc4-80ee-f2257290002a",
+      "workItemId": "36232586-94fb-4292-a76d-4134ccd8221e",
+      "at": "2026-11-17T20:27:38.58937Z"
+    },
+    {
+      "id": "8bebbfa2-4c3e-4553-ad0a-d293fa0ceb31",
+      "turnId": "d2dc38bd-b8b2-46fc-a92f-4b6d9273edeb",
+      "workItemId": "36232586-94fb-4292-a76d-4134ccd8221e",
+      "at": "2026-11-17T20:31:29.239121Z"
+    },
+    {
+      "id": "fe06d42e-df37-4b88-b37b-d3dfd3900b26",
+      "turnId": "e7ba588f-cde5-4047-ad45-6994df7e42c0",
+      "workItemId": "36232586-94fb-4292-a76d-4134ccd8221e",
+      "at": "2026-11-17T20:31:29.520596Z"
+    },
+    {
+      "id": "d5aa5ad2-dbfc-4659-b124-7bb367962c40",
+      "turnId": "68336aee-ed2c-4ef6-b32d-131bd625635b",
+      "workItemId": "36232586-94fb-4292-a76d-4134ccd8221e",
+      "at": "2026-11-17T20:34:03.071563Z"
+    },
+    {
+      "id": "845eec9a-20d5-47a2-a544-d4be02df24be",
+      "turnId": "de4f408a-1ce7-439a-ab94-919eaee4d251",
+      "workItemId": "36232586-94fb-4292-a76d-4134ccd8221e",
+      "at": "2026-11-17T20:38:12.075283Z"
+    },
+    {
+      "id": "8cde1e6c-042a-4312-a455-4b81ff139635",
+      "turnId": "c54fed47-41ff-4f49-995f-5e4f03193919",
+      "workItemId": "36232586-94fb-4292-a76d-4134ccd8221e",
+      "at": "2026-11-17T20:38:12.427355Z"
+    },
+    {
+      "id": "35b1e43e-0aa7-48ee-a0f6-8cb9dc3e277a",
+      "turnId": "964ea695-1225-4ea1-b463-d3c9a6a8e995",
+      "workItemId": "36232586-94fb-4292-a76d-4134ccd8221e",
+      "at": "2026-11-17T20:58:07.225619Z"
+    },
+    {
+      "id": "bd13a1d4-058e-4fc6-ad3b-1d85e5aa60bd",
+      "turnId": "b3c7cf4f-f48e-4a0f-9299-e97729a758d1",
+      "workItemId": "36232586-94fb-4292-a76d-4134ccd8221e",
+      "at": "2026-11-17T21:00:04.500497Z"
+    },
+    {
+      "id": "e9042509-93ec-463d-a0da-6ddeb05137ba",
+      "turnId": "27eeac65-fda6-4386-a097-b3035906cd4d",
+      "workItemId": "36232586-94fb-4292-a76d-4134ccd8221e",
+      "at": "2026-11-17T21:00:04.919849Z"
+    },
+    {
+      "id": "e871b42a-446f-456e-ba5f-4e47b2467e99",
+      "turnId": "32c7b8a5-2317-4163-9d1d-fd23a8b006fc",
+      "workItemId": "36232586-94fb-4292-a76d-4134ccd8221e",
+      "at": "2026-11-17T21:42:44.494792Z"
+    },
+    {
+      "id": "ea403be7-4f56-45a0-bb8e-e69e92c3204a",
+      "turnId": "b81f67b6-e918-4d1d-bb90-b48daeb5c7a3",
+      "workItemId": "36232586-94fb-4292-a76d-4134ccd8221e",
+      "at": "2026-11-17T21:42:45.488627Z"
+    }
+  ],
+  "incidentDeliveryReceipts": [
+    {
+      "id": "0828baf9-7578-4ebf-8159-c57f97586885",
+      "incidentId": "bf2675a9-9d85-42e3-a738-8262350a4ba2",
+      "at": "2026-11-17T20:40:56.133653Z",
+      "sender": "Marcus Vale",
+      "recipient": "CEO"
+    },
+    {
+      "id": "bbea14af-00f7-4fa3-ba0a-9fb926eb67c5",
+      "incidentId": "bf2675a9-9d85-42e3-a738-8262350a4ba2",
+      "at": "2026-11-17T20:43:26.08993Z",
+      "sender": "Marcus Vale",
+      "recipient": "CEO"
+    },
+    {
+      "id": "51dcbe43-8abb-48eb-8a9e-7967c6ccdd3e",
+      "incidentId": "bf2675a9-9d85-42e3-a738-8262350a4ba2",
+      "at": "2026-11-17T20:43:26.08993Z",
+      "sender": "Marcus Vale",
+      "recipient": "CEO"
+    },
+    {
+      "id": "b39dd8f9-2873-4ee8-9656-3ea527c72f4d",
+      "incidentId": "bf2675a9-9d85-42e3-a738-8262350a4ba2",
+      "at": "2026-11-17T20:46:11.176128Z",
+      "sender": "Marcus Vale",
+      "recipient": "CEO"
+    },
+    {
+      "id": "5ddfebc0-0435-4943-b924-8cecd188c201",
+      "incidentId": "bf2675a9-9d85-42e3-a738-8262350a4ba2",
+      "at": "2026-11-17T20:46:11.176128Z",
+      "sender": "Marcus Vale",
+      "recipient": "CEO"
+    },
+    {
+      "id": "5a4edc76-62d8-4a8a-a5a8-628a00d89898",
+      "incidentId": "00f7eaff-5b28-4278-b253-d7df47447456",
+      "at": "2026-11-17T21:27:56.192879Z",
+      "sender": "Marcus Vale",
+      "recipient": "CEO"
+    },
+    {
+      "id": "102471d1-536c-406d-84f6-aa24d3dae1df",
+      "incidentId": "00f7eaff-5b28-4278-b253-d7df47447456",
+      "at": "2026-11-17T21:31:26.197668Z",
+      "sender": "Marcus Vale",
+      "recipient": "CEO"
+    },
+    {
+      "id": "4d91535d-0a85-4221-9458-e54f98d1ea67",
+      "incidentId": "bf2675a9-9d85-42e3-a738-8262350a4ba2",
+      "at": "2026-11-17T21:42:56.211216Z",
+      "sender": "Marcus Vale",
+      "recipient": "CEO"
+    }
+  ],
+  "auditCounts": [
+    {
+      "eventType": "agent.capability.executed",
+      "outcome": "Completed",
+      "count": 6302
+    },
+    {
+      "eventType": "agent.capability.executed",
+      "outcome": "Failed",
+      "count": 6
+    },
+    {
+      "eventType": "agent.capability.started",
+      "outcome": "Running",
+      "count": 6308
+    },
+    {
+      "eventType": "agent.event.pending",
+      "outcome": "Pending",
+      "count": 162
+    },
+    {
+      "eventType": "agent.event.published",
+      "outcome": "Published",
+      "count": 162
+    },
+    {
+      "eventType": "agent.runtime.cancelled",
+      "outcome": "Cancelled",
+      "count": 45
+    },
+    {
+      "eventType": "agent.runtime.completed",
+      "outcome": "Completed",
+      "count": 4
+    },
+    {
+      "eventType": "agent.runtime.failed",
+      "outcome": "Failed",
+      "count": 1
+    },
+    {
+      "eventType": "agent.runtime.queued",
+      "outcome": "Queued",
+      "count": 51
+    },
+    {
+      "eventType": "agent.runtime.running",
+      "outcome": "Running",
+      "count": 51
+    },
+    {
+      "eventType": "agent.runtime.starting",
+      "outcome": "Starting",
+      "count": 51
+    },
+    {
+      "eventType": "agent.runtime.stopping",
+      "outcome": "Stopping",
+      "count": 46
+    },
+    {
+      "eventType": "agent.runtime.waitingformcpsession",
+      "outcome": "WaitingForMcpSession",
+      "count": 51
+    },
+    {
+      "eventType": "agent.ticket.claimed",
+      "outcome": "Completed",
+      "count": 117
+    },
+    {
+      "eventType": "agent.ticket.coordination.bound",
+      "outcome": "Completed",
+      "count": 4
+    },
+    {
+      "eventType": "agent.ticket.execution.bound",
+      "outcome": "Completed",
+      "count": 117
+    },
+    {
+      "eventType": "agent.work.attempt.started",
+      "outcome": "Running",
+      "count": 357
+    },
+    {
+      "eventType": "agent.work.attempt.stopped",
+      "outcome": "Completed",
+      "count": 355
+    },
+    {
+      "eventType": "agent.work.attempt.stopped",
+      "outcome": "Failed",
+      "count": 2
+    },
+    {
+      "eventType": "agent.work.claimed",
+      "outcome": "Accepted",
+      "count": 357
+    },
+    {
+      "eventType": "agent.work.completed",
+      "outcome": "Completed",
+      "count": 710
+    },
+    {
+      "eventType": "agent.work.failed",
+      "outcome": "Failed",
+      "count": 1
+    },
+    {
+      "eventType": "agent.work.leased",
+      "outcome": "Leased",
+      "count": 357
+    },
+    {
+      "eventType": "agent.work.pending",
+      "outcome": "Pending",
+      "count": 357
+    },
+    {
+      "eventType": "agent.work.progress",
+      "outcome": "Running",
+      "count": 245
+    },
+    {
+      "eventType": "artifact.created",
+      "outcome": "Completed",
+      "count": 4
+    },
+    {
+      "eventType": "artifact.package.accepted",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "artifact.package.created",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "artifact.package.submitted",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "artifact.read",
+      "outcome": "Completed",
+      "count": 219
+    },
+    {
+      "eventType": "artifact.revision.accepted",
+      "outcome": "Completed",
+      "count": 3
+    },
+    {
+      "eventType": "artifact.revision.created",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "artifact.revision.structured-decided",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "artifact.revision.submitted",
+      "outcome": "Completed",
+      "count": 4
+    },
+    {
+      "eventType": "chat.trace.recorded",
+      "outcome": "Recorded",
+      "count": 177
+    },
+    {
+      "eventType": "chat.turn.completed",
+      "outcome": "Completed",
+      "count": 11
+    },
+    {
+      "eventType": "chat.turn.completedwithwarnings",
+      "outcome": "CompletedWithWarnings",
+      "count": 1
+    },
+    {
+      "eventType": "chat.turn.dispatching",
+      "outcome": "Dispatching",
+      "count": 12
+    },
+    {
+      "eventType": "chat.turn.finalizingmemory",
+      "outcome": "FinalizingMemory",
+      "count": 12
+    },
+    {
+      "eventType": "chat.turn.queued",
+      "outcome": "Queued",
+      "count": 12
+    },
+    {
+      "eventType": "chat.turn.recallingmemory",
+      "outcome": "RecallingMemory",
+      "count": 12
+    },
+    {
+      "eventType": "chat.turn.running",
+      "outcome": "Running",
+      "count": 12
+    },
+    {
+      "eventType": "chief.hiring.operation",
+      "outcome": "Completed",
+      "count": 9
+    },
+    {
+      "eventType": "communication.coordination.retry.requested",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "communication.message.sent",
+      "outcome": "Completed",
+      "count": 96
+    },
+    {
+      "eventType": "communication.message.sent",
+      "outcome": "Delivered",
+      "count": 12
+    },
+    {
+      "eventType": "communication.participant.joined",
+      "outcome": "Completed",
+      "count": 18
+    },
+    {
+      "eventType": "communication.user-input.requested",
+      "outcome": "Accepted",
+      "count": 9
+    },
+    {
+      "eventType": "communication.user-input.responded",
+      "outcome": "Delivered",
+      "count": 9
+    },
+    {
+      "eventType": "compute.admission.v1",
+      "outcome": "Accepted",
+      "count": 1
+    },
+    {
+      "eventType": "compute.dispatch.v1",
+      "outcome": "Authorized",
+      "count": 2
+    },
+    {
+      "eventType": "compute.grant.changed.v1",
+      "outcome": "Granted",
+      "count": 6
+    },
+    {
+      "eventType": "compute.local-test-links.granted.v1",
+      "outcome": "Granted",
+      "count": 1
+    },
+    {
+      "eventType": "compute.node.updated.v1",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "compute.placement.updated.v1",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "compute.provider-result.v1",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "compute.provider-result.v1",
+      "outcome": "Observed",
+      "count": 1
+    },
+    {
+      "eventType": "compute.provider-wake.subscribe.v1",
+      "outcome": "Read",
+      "count": 233
+    },
+    {
+      "eventType": "compute.provider-work.read.v1",
+      "outcome": "Read",
+      "count": 161
+    },
+    {
+      "eventType": "compute.template.updated.v1",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "compute.workspace.preparation-requested.v1",
+      "outcome": "Accepted",
+      "count": 1
+    },
+    {
+      "eventType": "hiring.marketplace.previewed",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "hiring.workflow.approved",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "item.created",
+      "outcome": "Completed",
+      "count": 11
+    },
+    {
+      "eventType": "item.planning.revised",
+      "outcome": "Completed",
+      "count": 22
+    },
+    {
+      "eventType": "leadership_assignment.auto_created",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "leadership_assignment.created",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "management.resource-change.approved",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "management.resource-change.work-board-create-granted",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "mcp.session.established",
+      "outcome": "Established",
+      "count": 55
+    },
+    {
+      "eventType": "mcp.session.renewed",
+      "outcome": "Completed",
+      "count": 18
+    },
+    {
+      "eventType": "memory.capture.excluded.v1",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "model.call.completed",
+      "outcome": "Cancelled",
+      "count": 2
+    },
+    {
+      "eventType": "model.call.completed",
+      "outcome": "Completed",
+      "count": 131
+    },
+    {
+      "eventType": "model.call.started",
+      "outcome": "Generating",
+      "count": 61
+    },
+    {
+      "eventType": "model.call.started",
+      "outcome": "Queued",
+      "count": 61
+    },
+    {
+      "eventType": "model.call.started",
+      "outcome": "Running",
+      "count": 72
+    },
+    {
+      "eventType": "model.response.chunk",
+      "outcome": "Running",
+      "count": 18307
+    },
+    {
+      "eventType": "organization_user.created",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "policy.revision.created",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "policy.revision.published",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "project-health.diagnostics.read",
+      "outcome": "Completed",
+      "count": 17
+    },
+    {
+      "eventType": "project-health.incident.changed",
+      "outcome": "Completed",
+      "count": 24
+    },
+    {
+      "eventType": "project-health.incident.manager-recovery",
+      "outcome": "Completed",
+      "count": 12
+    },
+    {
+      "eventType": "security.employee-diagnostics.read",
+      "outcome": "Completed",
+      "count": 11
+    },
+    {
+      "eventType": "work.board.columns.configure",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "work.board.create",
+      "outcome": "Completed",
+      "count": 2
+    },
+    {
+      "eventType": "work.board.read",
+      "outcome": "Completed",
+      "count": 133
+    },
+    {
+      "eventType": "work.execution.paused",
+      "outcome": "AttemptEnded",
+      "count": 318
+    },
+    {
+      "eventType": "work.execution.paused",
+      "outcome": "FocusChangedOrPaused",
+      "count": 216
+    },
+    {
+      "eventType": "work.execution.paused",
+      "outcome": "LeaseLost",
+      "count": 1
+    },
+    {
+      "eventType": "work.execution.started",
+      "outcome": "Running",
+      "count": 535
+    },
+    {
+      "eventType": "work.flow-metrics.read.v1",
+      "outcome": "Completed",
+      "count": 27
+    },
+    {
+      "eventType": "work.item.backlog",
+      "outcome": "Backlog",
+      "count": 6
+    },
+    {
+      "eventType": "work.item.completed",
+      "outcome": "Completed",
+      "count": 84
+    },
+    {
+      "eventType": "work.item.create",
+      "outcome": "Completed",
+      "count": 11
+    },
+    {
+      "eventType": "work.item.hiring.source-settled",
+      "outcome": "Completed",
+      "count": 4
+    },
+    {
+      "eventType": "work.item.hiring.successor-activated",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "work.item.planning.revise.v1",
+      "outcome": "Completed",
+      "count": 22
+    },
+    {
+      "eventType": "work.item.read",
+      "outcome": "Completed",
+      "count": 196
+    },
+    {
+      "eventType": "work.item.ready",
+      "outcome": "Ready",
+      "count": 143
+    },
+    {
+      "eventType": "work.item.running",
+      "outcome": "Running",
+      "count": 64
+    },
+    {
+      "eventType": "work.lifecycle.recorded",
+      "outcome": "Active",
+      "count": 1
+    },
+    {
+      "eventType": "work.lifecycle.recorded",
+      "outcome": "Approved",
+      "count": 1
+    },
+    {
+      "eventType": "work.lifecycle.recorded",
+      "outcome": "Backlog",
+      "count": 6
+    },
+    {
+      "eventType": "work.lifecycle.recorded",
+      "outcome": "Completed",
+      "count": 84
+    },
+    {
+      "eventType": "work.lifecycle.recorded",
+      "outcome": "Ready",
+      "count": 143
+    },
+    {
+      "eventType": "work.lifecycle.recorded",
+      "outcome": "Running",
+      "count": 123
+    },
+    {
+      "eventType": "work.orchestration.profile.configure.v1",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "work.sprint.create",
+      "outcome": "Completed",
+      "count": 1
+    },
+    {
+      "eventType": "work.sprint.read",
+      "outcome": "Completed",
+      "count": 139
+    }
+  ],
+  "returnedIncrement": {
+    "turnId": "32c7b8a5-2317-4163-9d1d-fd23a8b006fc",
+    "sessionId": "29e5bcb7-4353-40ee-bd13-8a8f7b567ef3",
+    "items": [
+      {
+        "ProposalKey": "roadmap-epic-1.story-1",
+        "ParentProposalKey": "roadmap-epic-1",
+        "WorkItemTypeKey": "video-game.feature.v1",
+        "Title": "Chromium Renderer and Creative Budget Feasibility Spike Decision Record",
+        "AccountableRoleKey": "game-technical-director",
+        "DependencyProposalKeys": []
+      },
+      {
+        "ProposalKey": "roadmap-epic-1.story-1.chromium-2d-spike-scene-observation",
+        "ParentProposalKey": "roadmap-epic-1.story-1",
+        "WorkItemTypeKey": "video-game.task.v1",
+        "Title": "Minimal Chromium 2D Breakout-class spike scene and Chromium run observation",
+        "AccountableRoleKey": "game-engineer",
+        "DependencyProposalKeys": []
+      },
+      {
+        "ProposalKey": "roadmap-epic-1.story-1.chromium-2d-renderer-decision-record",
+        "ParentProposalKey": "roadmap-epic-1.story-1",
+        "WorkItemTypeKey": "video-game.task.v1",
+        "Title": "Chromium renderer and creative-budget feasibility spike decision record",
+        "AccountableRoleKey": "game-engineer",
+        "DependencyProposalKeys": [
+          "roadmap-epic-1.story-1.chromium-2d-spike-scene-observation"
+        ]
+      }
+    ]
+  },
+  "boardAtCutoff": {
+    "boardId": "03cbd492-51b0-4bb7-922a-f4f48c6117ed",
+    "sprintId": "6542afe0-cdfd-4108-bcfa-6aeee6b6677d",
+    "sprintStatus": "Planned",
+    "capacityPoints": null,
+    "startedAt": null,
+    "sprintItems": 0,
+    "boardKinds": {
+      "Epic": 11
+    },
+    "sprintExecutionCount": 0
+  },
+  "observationAfterCutoff": {
+    "at": "2026-11-17T22:10:16.055981Z",
+    "messages": 96,
+    "coordinationTurns": 38,
+    "incidents": 5,
+    "projectEpics": 11,
+    "projectStories": 0,
+    "projectTasks": 0,
+    "sprintItems": 0,
+    "sprintStatus": "Planned",
+    "sprintStartedAt": null,
+    "producerNextReviewAt": "2026-11-17T22:13:18.156891Z",
+    "directorNextReviewAt": "2026-11-17T22:17:14.186926Z"
+  }
+}

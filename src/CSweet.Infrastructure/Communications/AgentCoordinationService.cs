@@ -522,6 +522,27 @@ public sealed class AgentCoordinationService(
         return session is null ? null : await MapAsync(session, cancellationToken);
     }
 
+    public async Task<BoardContributionPage> DiscoverBoardContributionsAsync(Guid organizationId, Guid actorOrganizationUserId,
+        BoardContributionQuery query, CancellationToken cancellationToken = default)
+    {
+        const int pageSize = 16;
+        var authorized = await db.WorkBoards.AsNoTracking().AnyAsync(b => b.OrganizationId == organizationId &&
+            b.Id == query.BoardId && b.WorkstreamId == query.WorkstreamId && b.TeamId == query.TeamId && b.ArchivedAt == null &&
+            db.TeamMemberships.Any(m => m.OrganizationId == organizationId && m.TeamId == query.TeamId &&
+                m.OrganizationUserId == actorOrganizationUserId && m.EndedAt == null) &&
+            db.CoreOrganizationUsers.Any(u => u.OrganizationId == organizationId && u.Id == actorOrganizationUserId && u.IsActive),
+            cancellationToken);
+        if (!authorized) throw new UnauthorizedAccessException("Board contribution discovery requires current board team membership.");
+        var sessions = db.AgentCoordinationSessions.AsNoTracking().Where(s => s.OrganizationId == organizationId &&
+            s.SourceKind == "Board" && s.SourceBoardId == query.BoardId && s.WorkstreamId == query.WorkstreamId &&
+            s.TeamId == query.TeamId && s.InitiatorOrganizationUserId == actorOrganizationUserId &&
+            s.TargetOrganizationUserId == query.TargetOrganizationUserId && s.Turns.Any(t => t.Ordinal == 0 &&
+                t.SpeakerOrganizationUserId == actorOrganizationUserId && t.ArtifactType == query.RequestType && t.ArtifactKey == query.RequestKey));
+        if (query.AfterSessionId is Guid after) sessions = sessions.Where(s => s.Id.CompareTo(after) > 0);
+        var ids = await sessions.OrderBy(s => s.Id).Select(s => s.Id).Take(pageSize + 1).ToListAsync(cancellationToken);
+        return new(ids.Take(pageSize).ToArray(), ids.Count > pageSize ? ids[pageSize - 1] : null);
+    }
+
     public async Task<IReadOnlyList<AgentCoordinationSession>> ListAsync(
         Guid organizationId, Guid actorOrganizationUserId, Guid? chatId, bool activeOnly,
         CancellationToken cancellationToken = default)

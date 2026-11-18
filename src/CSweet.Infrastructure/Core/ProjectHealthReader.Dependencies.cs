@@ -64,7 +64,16 @@ public sealed partial class ProjectHealthReader
                 var decision = await db.WorkstreamDecisions.AsNoTracking().SingleOrDefaultAsync(x => x.Id == decisionId &&
                     x.OrganizationId == project.OrganizationId && x.WorkstreamId == project.Id, token);
                 if (decision is { Status: "Decided" })
-                { clearedAt = decision.UpdatedAt; detail = "The exact recorded project decision is decided, but its dependent work remains waiting."; }
+                {
+                    var data = JsonSerializer.Deserialize<JsonElement>(decision.TypeDataJson ?? "null");
+                    var admission = CSweet.Agent.SDK.ContributionAdmission.Read(data);
+                    if (admission is not null && !admission.Allows(decision.Status, decision.SelectedOptionId,
+                        decision.DecidedByOrganizationUserId, decision.Rationale)) continue;
+                    // Legacy requirement choices record the answer, but do not encode whether the underlying hold was released.
+                    if (data.ValueKind == JsonValueKind.Object && data.TryGetProperty("contract", out var contract) &&
+                        contract.ValueKind == JsonValueKind.String && contract.GetString() == CSweet.Agent.SDK.RequirementDecisions.Contract) continue;
+                    clearedAt = decision.UpdatedAt; detail = "The exact recorded project decision is decided, but its dependent work remains waiting.";
+                }
             }
             else if (!string.IsNullOrWhiteSpace(context.SourceFingerprint) &&
                 ticket.WaitingReason.Contains("planning proposals", StringComparison.OrdinalIgnoreCase))
