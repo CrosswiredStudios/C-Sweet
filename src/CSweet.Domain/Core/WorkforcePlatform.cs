@@ -194,6 +194,7 @@ public sealed class WorkforcePlan
     public Guid RequestingInstallationId { get; set; }
     public DateTimeOffset? ManualSelectionRequestedAt { get; set; }
     public Guid? ManualSelectionRequestedByOrganizationUserId { get; set; }
+    public string? HiringAssessmentJson { get; set; }
     public string? SelectedCatalogAgentJson { get; set; }
     public string? SelectionRationale { get; set; }
     public Guid? RecommendedCandidateId { get; set; }

@@ -113,11 +113,13 @@ copies only when the package repository and manifest identity match the first-pa
 Unknown prices from other sources continue to require owner review. Package price does
 not include inference-provider or compute charges.
 
-`SelectCandidateAsync` uses approved role requirements, canonical role-family eligibility,
-availability, specialization ranking, and publisher preference. It persists the selected
-`AvailableAgent` and concise rationale on `WorkforcePlan`. Choosing candidates manually
-clears a prior selection. Human-required roles and unavailable candidates retain an actionable
-explanation rather than inventing a package.
+C-Sweet enumerates the available catalog sources for the approved role through `GetHiringCandidatesAsync`. Marketplace discovery pages through published listings. Ordinary browsing retains its page limit. Manual-only packages, unavailable candidates, human-required slots and first-party-only restrictions keep their existing controls.
+
+When multiple eligible agents can fill a role, `ChiefOfStaffAgent.CompareCandidatesAsync` compares their profiles with the approved project goal, role purpose, constraints and capabilities. The model returns a candidate index and comparative rationale. The platform binds the index's reference against current evidence and stores the accepted choice on `WorkforcePlan`. A sole qualifying candidate can proceed directly. Owner-managed selection continues through Marketplace.
+
+Evelyn can ask the original plan author one question when she identifies a distinct eligible alternative and a plausible answer that would favor it. The question is model-authored. `HiringService.AssessCandidatesAsync` persists it before dispatch, binds the direct-message turn to the Chief and the requester, and reads the completed reply. A targeted `HiringCandidateReviewWake` and the Chief’s regular attention review both resume from current state. A failed author turn lets Evelyn decide from the evidence available. Submission rechecks the saved choice, the current policy, the plan delegation and the per-seat workflow identity.
+
+`HiringCandidateJourneyTests` runs clear, ambiguous and replayed deliveries through AgentTestHost. Set `CSWEET_HIRING_TEST_ENDPOINT` and `CSWEET_HIRING_TEST_MODEL` to include the local-provider check with the candidate order reversed for both projects. `HiringServiceTests.CandidateReview` covers stale decisions, reply identity and duplicate submission. Deploy the Marketplace paging endpoint and the C-Sweet host migration before installing Chief 2.18.0.
 
 `HiringService.CandidateFit.cs` distinguishes a package's provided services from permissions
 it requests to call other services. Staffing requirements can include both. Discovery uses

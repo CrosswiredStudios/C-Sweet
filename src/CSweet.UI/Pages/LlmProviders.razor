@@ -191,6 +191,12 @@
                     <dt>@L["LlmProviders.30dOutput"]</dt>
                     <dd>@FormatTokens(SelectedProviderUsage?.Usage.OutputTokens ?? 0)</dd>
                 </div>
+                @if (SelectedProviderUsage?.Usage is { } usage)
+                {
+                    <div><dt>@L["LlmProviders.PeakInput"]</dt><dd>@(usage.PeakInputTokens?.ToString("N0") ?? "—")</dd></div>
+                    <div><dt>@L["LlmProviders.ContextAdjustments"]</dt><dd>@usage.ContextAdjustments.ToString("N0")</dd></div>
+                    <div><dt>@L["LlmProviders.ContextFailures"]</dt><dd>@usage.ContextFailures.ToString("N0")</dd></div>
+                }
                 <div>
                     <dt>@L["LlmProviders.30dModelCalls"]</dt>
                     <dd>@((SelectedProviderUsage?.Usage.RequestCount ?? 0).ToString("N0"))</dd>

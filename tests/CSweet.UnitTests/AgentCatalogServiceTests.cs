@@ -559,6 +559,18 @@ public sealed class AgentCatalogServiceTests
         Assert.Equal(AgentAvailabilityState.InstalledEnabled, agent.Availability);
     }
 
+    [Fact]
+    public async Task Hiring_discovery_includes_eligible_profiles_beyond_the_browse_limit()
+    {
+        var profiles = Enumerable.Range(0, 125).Select(n => Agent($"catalog:{n}", AgentCatalogSource.FirstPartyCatalog)
+            with { AgentId = $"org.employee.{n}", RepositoryUrl = $"https://github.com/example/employee-{n}" }).ToArray();
+        var catalog = new AgentCatalogService([new StubProvider(AgentCatalogSource.FirstPartyCatalog, profiles)],
+            NullLogger<AgentCatalogService>.Instance);
+        var query = new AvailableAgentSearchQuery(Limit: 100);
+        Assert.Equal(100, (await catalog.GetAvailableAgentsAsync(Guid.NewGuid(), query)).Agents.Count);
+        Assert.Equal(125, (await catalog.GetHiringCandidatesAsync(Guid.NewGuid(), query, default)).Agents.Count);
+    }
+
     private static AvailableAgent Agent(string reference, AgentCatalogSource source) => new(
         reference,
         "com.csweet.product-manager",

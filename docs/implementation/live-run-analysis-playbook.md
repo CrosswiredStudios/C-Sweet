@@ -99,3 +99,9 @@ Answer these before proposing a fix:
 - Recurring contract or recovery behavior belongs in this repository under
   `docs/implementation/`, next to the feature it describes.
 - Mark anything not verified as not verified, with the reason.
+
+## Development context and checkpoint recovery
+
+For a stopped developer, join the stage execution attempt to its agent work item before attributing a provider error. Compare the largest single provider-reported input with the sum of inputs across calls. The inference audit records instruction, message, tool-schema and memory character counts separately. Open the provider in LLM Providers to compare its largest input in one call, automatic output-budget adjustments and terminal context failures over 30 days. An output ceiling is a reservation and the reported output count is actual generation. A successful provider ceiling adjustment records `context_requested_output_tokens` and `context_applied_output_tokens` in additional usage. An exhausted context failure reaches ticket feedback as `llm.context_length`.
+
+For repeated shell timeouts, check the operation digest and the retained checkpoint on the current stage. `AgentWorkInbox` binds a validated script label to the digest where one is available. The Producer consumes the stage-stopped wake and sends the existing worker the checkpoint and failed operation. `FreshTeamSprintJourneyTests.Prism_export_timeout_returns_the_failed_command_and_checkpoint_to_the_assigned_engineer` covers both automatic and manager-directed recovery through the broker, including redelivery after restart. The developer suites exercise the Chromium capture, approved-document paging and final checks that rewrite tracked evidence.

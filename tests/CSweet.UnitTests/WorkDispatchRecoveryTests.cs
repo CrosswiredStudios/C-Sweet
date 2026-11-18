@@ -370,7 +370,8 @@ public sealed partial class WorkDispatchRecoveryTests
         public int Wakes { get; private set; }
         public async Task<bool> EnsureRuntimeQueuedAsync(Guid id, string reason, bool interactive = false, CancellationToken cancellationToken = default)
         {
-            Assert.Single(await db.WorkExecutionAttempts.AsNoTracking().ToListAsync(cancellationToken));
+            Assert.Single(await db.WorkExecutionAttempts.AsNoTracking().Where(a => a.Status == WorkExecutionAttemptStatus.Pending ||
+                a.Status == WorkExecutionAttemptStatus.Running).ToListAsync(cancellationToken));
             Assert.NotEmpty(await db.ScopedActionGrants.AsNoTracking().ToListAsync(cancellationToken));
             Wakes++; return true;
         }

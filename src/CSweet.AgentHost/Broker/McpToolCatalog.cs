@@ -742,7 +742,8 @@ public sealed class McpToolCatalog(
         ChiefLeadershipCapabilities.Control => Schema("""{"type":"object","required":["ownerTurnId","paused","expectedFocusRevision","idempotencyKey"],"properties":{"ownerTurnId":{"type":"string","format":"uuid"},"paused":{"type":"boolean"},"expectedFocusRevision":{"type":"integer","minimum":0},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}"""),
         HiringAutonomyCapabilities.Read => EmptyInput,
         HiringAutonomyCapabilities.CaptureDecision => Schema("""{"type":"object","required":["decisionId","expectedRevision"],"properties":{"decisionId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer"},"answerTurnId":{"type":"string","format":"uuid"}},"additionalProperties":false}"""),
-        HiringAutonomyCapabilities.SelectCandidate or HiringAutonomyCapabilities.Submit => Schema("""{"type":"object","required":["recommendationId"],"properties":{"recommendationId":{"type":"string","format":"uuid"}},"additionalProperties":false}"""),
+        HiringAutonomyCapabilities.SelectCandidate => ContractToolSchema.Create(typeof(SelectHiringCandidateRequest), nullableFieldsOptional: true),
+        HiringAutonomyCapabilities.Submit => Schema("""{"type":"object","required":["recommendationId"],"properties":{"recommendationId":{"type":"string","format":"uuid"}},"additionalProperties":false}"""),
         HiringCapabilities.ListRecommendations => EmptyInput,
         CommunicationCapabilities.ChatRead => Schema("""
             {"type":"object","properties":{"chatId":{"type":["string","null"],"format":"uuid"}},"additionalProperties":false}

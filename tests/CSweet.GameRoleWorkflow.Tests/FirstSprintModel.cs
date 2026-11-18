@@ -7,6 +7,8 @@ namespace CSweet.GameRoleWorkflow.Tests;
 // setup criterion, lockfile, ticket identity, sprint or assignee.
 internal sealed class FirstSprintModel(bool dependencies)
 {
+    public bool ReplaysBreakout { get; init; }
+    public int RecipeCorrections { get; private set; }
     public string Pitch { get; init; } = dependencies
         ? "Make a browser game where the player deflects moving obstacles using a simulated spring."
         : "Make a tiny browser puzzle where a player moves a tile one square at a time.";
@@ -32,7 +34,7 @@ internal sealed class FirstSprintModel(bool dependencies)
     public object Answer(AgentCoordinationParticipant actor, JsonElement request)
     {
         var messages = request.GetProperty("messages").EnumerateArray().Select(m => m.GetProperty("text").GetString()!).ToArray();
-        if (actor.Role == "game-engineer")
+        if (actor.Role is "game-engineer" or "software-developer")
         {
             Estimates++;
             Assert.Contains(messages, text => text.Contains(Setup));
@@ -50,8 +52,28 @@ internal sealed class FirstSprintModel(bool dependencies)
                 "Unscripted Producer judgment: " + messages[0][..Math.Min(320, messages[0].Length)] + " " + string.Join(", ", data.EnumerateObject().Select(p => p.Name)));
             if (data.GetProperty("provisional").ValueKind == JsonValueKind.Array)
             {
-                Admissions++;
                 Assert.Contains(Setup, data.GetProperty("provisional").GetRawText());
+                if (ReplaysBreakout)
+                {
+                    var facts = data.GetProperty("evidence").EnumerateArray().ToArray();
+                    var provider = Array.FindIndex(facts, f => f.GetProperty("Detail").GetString()!.Contains("2D web packaging recipe"));
+                    Assert.InRange(provider, 0, facts.Length - 1);
+                    if (RecipeCorrections == 0)
+                    {
+                        RecipeCorrections++;
+                        var recorded = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(
+                            AppContext.BaseDirectory, "Fixtures", "prism-break-recipe-review.json")))!;
+                        // Rebind the live evidence positions to this board's container and provider selection.
+                        var container = Array.FindIndex(facts, f => f.GetProperty("Kind").GetString() == "container");
+                        recorded["actions"]![0]!["evidenceIndexes"] = new System.Text.Json.Nodes.JsonArray(container, provider);
+                        return recorded;
+                    }
+                    Assert.Equal("build-environment", facts[provider].GetProperty("Kind").GetString());
+                    Assert.Contains(Rationale, data.GetProperty("technicalConstraints").GetRawText());
+                    Assert.Contains(messages, text => text.Contains("provider selection", StringComparison.OrdinalIgnoreCase)
+                        && text.Contains("correction", StringComparison.OrdinalIgnoreCase));
+                }
+                Admissions++;
             }
             if (candidates.GetArrayLength() == 0)
                 return new { disposition = "conclude", nextGoal = "Deliver the only planned Story", nextCandidate = (int?)null,
@@ -77,7 +99,7 @@ internal sealed class FirstSprintModel(bool dependencies)
             3 => new { epics = new[] { new { title = "Playable interaction", outcome = Outcome, acceptanceCriteria = new[] { Outcome },
                 sourceIndexes = new[] { 0 }, prerequisiteIndexes = Array.Empty<int>() } }, feasibilityFindings = none, technicalConstraints = none, openFeasibilityDecisions = none },
             4 => new { stories = new[] { new { title = "Playable opening scene", outcome = Outcome, acceptanceCriteria = none, epicCriterionIndexes = new[] { 0 }, prerequisiteIndexes = Array.Empty<int>() } } },
-            5 => new { setupTaskIndex = 0, tasks = new[] { new { title = "Implement the opening scene", description = Brief, workItemTypeKey = "video-game.task.v1",
+            5 => new { setupTaskIndex = 0, tasks = new[] { new { title = "Implement the opening scene", description = Brief, workItemTypeKey = ReplaysBreakout ? "video-game.research-spike.v1" : "video-game.task.v1",
                 accountableRoleKey = "game-engineer", requiredSpecializationKeys = none, preferredSpecializationKeys = none, storyCriterionIndexes = new[] { 0 },
                 additionalCriteria = none, browserVerification = "none", interactionCriteria = Array.Empty<int>(), earlierTaskIndexes = Array.Empty<int>(), priorTaskIndexes = Array.Empty<int>() } } },
             6 => new { items = new[] { new { proposalKey = "roadmap-epic-1.story-1.task-1", description = Brief } } },

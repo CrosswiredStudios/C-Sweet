@@ -117,7 +117,7 @@ public sealed class WorkforcePlatformCapabilityHandler(
                 HiringAutonomyCapabilities.CaptureDecision => Success(request.RequestId,
                     await hiringAutonomy!.CaptureDecisionAsync(organizationId, installationId, Read<CaptureHiringPolicyDecisionRequest>(request), token)),
                 HiringAutonomyCapabilities.SelectCandidate => Success(request.RequestId,
-                    await hiringAutonomy!.SelectCandidateAsync(organizationId, installationId, Read<SelectHiringCandidateRequest>(request).RecommendationId, token)),
+                    await hiringAutonomy!.ReviewCandidateAsync(organizationId, installationId, Read<SelectHiringCandidateRequest>(request), token)),
                 HiringAutonomyCapabilities.Submit => Success(request.RequestId,
                     await hiringAutonomy!.SubmitDelegatedAsync(organizationId, installationId, Read<SubmitDelegatedHireRequest>(request).RecommendationId, token)),
                 HiringCapabilities.ListRecommendations => Success(request.RequestId,

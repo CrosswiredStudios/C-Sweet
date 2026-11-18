@@ -260,7 +260,11 @@ public sealed class ChatTurnService(CSweetDbContext db, IOptions<MediaAssetStora
             await CancelPendingDecisionsAsync(turnId, cancellationToken);
         if (turn.Status is ChatTurnStatus.Failed or ChatTurnStatus.Cancelled)
             await CancelPendingActionsAsync(turnId, cancellationToken);
-        if (turn.Status is ChatTurnStatus.Failed or ChatTurnStatus.Cancelled) turn.CompletedAt = turn.UpdatedAt;
+        if (turn.Status is ChatTurnStatus.Failed or ChatTurnStatus.Cancelled)
+        {
+            turn.CompletedAt = turn.UpdatedAt;
+            await HiringService.WakeAfterHiringAnswerAsync(db, turn, cancellationToken);
+        }
         await db.SaveChangesAsync(cancellationToken);
     }
 
@@ -339,6 +343,7 @@ public sealed class ChatTurnService(CSweetDbContext db, IOptions<MediaAssetStora
                 cancellationToken);
         }
         await AttachSubmittedArtifactsAsync(turn, assistantMessageId, cancellationToken);
+        await HiringService.WakeAfterHiringAnswerAsync(db, turn, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
     }
 

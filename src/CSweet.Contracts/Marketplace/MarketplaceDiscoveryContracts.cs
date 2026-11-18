@@ -50,4 +50,7 @@ public sealed record MarketplaceDiscoveryQuery(
     string? PricingModel = null,
     decimal? MaximumPrice = null,
     string? Sort = null,
-    int Take = 24);
+    int Take = 24)
+{
+    public bool Exhaustive { get; init; }
+}

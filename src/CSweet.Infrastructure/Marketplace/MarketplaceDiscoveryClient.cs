@@ -87,7 +87,20 @@ public sealed class MarketplaceDiscoveryClient(
                     query,
                     firstPartyAgents);
 
-            var remoteItems = remote.Items.Select(Map).ToArray();
+            var listings = remote.Items.ToList();
+            if (query.Exhaustive)
+            {
+                var seen = listings.Select(x => x.Id).ToHashSet();
+                while (listings.Count < remote.Total)
+                {
+                    var page = await http.GetFromJsonAsync<RemoteDiscoveryResponse>(
+                        BuildPath(query) + $"&skip={listings.Count}", cancellationToken);
+                    if (page is null || page.Items.Count == 0 || page.Items.Any(x => !seen.Add(x.Id)))
+                        throw new InvalidDataException("Marketplace discovery returned an incomplete or repeated candidate page.");
+                    listings.AddRange(page.Items);
+                }
+            }
+            var remoteItems = listings.Select(Map).ToArray();
             var matchingFirstParty = FilterFirstParty(firstPartyAgents, query);
             var repositories = matchingFirstParty
                 .Select(x => x.RepositoryUrl)

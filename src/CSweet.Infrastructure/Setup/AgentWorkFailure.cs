@@ -3,6 +3,25 @@ namespace CSweet.Infrastructure.Setup;
 /// <summary>Interprets the SDK's structured failure envelope without exposing exception text.</summary>
 public static class AgentWorkFailure
 {
+    public const string ContextLengthMessage = "The LLM provider could not fit the request and its response budget in the model's context window. Reduce the input or the agent's maximum output tokens, or configure a model with a larger context window before retrying.";
+
+    internal static string? ReadRecoveryCommand(System.Text.Json.JsonElement progress, string digest)
+    {
+        return progress.ValueKind == System.Text.Json.JsonValueKind.Object &&
+            progress.TryGetProperty("scriptCommand", out var field) && field.ValueKind == System.Text.Json.JsonValueKind.String
+            ? CheckedCommand(field.GetString(), digest) : null;
+    }
+
+    private static string? CheckedCommand(string? command, string? digest)
+    {
+        if (command is not { Length: > 0 and <= 180 } ||
+            !System.Text.RegularExpressions.Regex.IsMatch(command,
+                @"\A(?:node|python3?|bash) (?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\.(?:mjs|cjs|js|py|sh)(?: (?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\.(?:json|html|md))?\z"))
+            return null;
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(command));
+        return Convert.ToHexString(hash).Equals(digest, StringComparison.OrdinalIgnoreCase) ? command : null;
+    }
+
     public static bool IsWorkspaceCommandTimeout(string? error) =>
         error?.StartsWith("agent-failure:v1;", StringComparison.Ordinal) == true &&
         (error.Split(';').Contains("code=workspace.command.timeout", StringComparer.Ordinal) ||
@@ -63,6 +82,7 @@ public static class AgentWorkFailure
                 "Resolve that failure, then move this task back to To Do to retry.";
         var capability = FailureField(error, "capability");
         var code = FailureField(error, "code");
+        if (code == "llm.context_length") return ContextLengthMessage;
         if (code == "development.progress")
             return "The development controller paused after repeated work without new evidence. Source and the execution plan are retained. " +
                 "Bounded recovery resumes in a fresh model session; a slow model response alone is not a stall. " +
@@ -73,6 +93,12 @@ public static class AgentWorkFailure
                 "Missing runtime evidence is not a completed acceptance check or a business decision.";
         if (code == "runtime.resources.exhausted")
             return "The workload reached its approved memory or replacement limit. The last saved source is retained. Automatic coding retries stopped; review capacity, the checkpoint and guest evidence before authorizing recovery.";
+        if (code == "runtime.repeated_operation" && FailureField(error, "cause") == "workspace.command.timeout")
+        {
+            var command = FailureField(error, "command");
+            var checkedCommand = CheckedCommand(command, FailureField(error, "operation"));
+            return $"The workspace command{(checkedCommand is null ? "" : " `" + checkedCommand + "`")} timed out after the same operation had already stopped an earlier attempt. Inspect the saved source and repair the command before running it again.";
+        }
         if (code == "runtime.repeated_operation")
             return "The same operation was interrupted repeatedly. Source and attempt evidence are retained. Automatic coding retries stopped for infrastructure diagnosis; a missing heartbeat alone does not establish a memory failure.";
         var exceptionType = SafeExceptionType(FailureField(error, "exceptionType"));

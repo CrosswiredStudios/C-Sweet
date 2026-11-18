@@ -17,6 +17,7 @@ public sealed class ProviderOutputLimitChatClientTests
     private const string LegacyVllmRejection = "'max_tokens' or 'max_completion_tokens' is too large: 128000. This model's maximum context length is 131072 tokens and your request has 32000 input tokens (128000 > 131072 - 32000).";
 
     [Theory]
+    [InlineData(true, true, "engine reported request exceeds the context window: prompt (137474 tokens) + max tokens (128000) exceeds the context (262144); requests are never truncated. Send a smaller max_tokens (at most 124662 here)", 124662)]
     [InlineData(false, true, ObservedRejection, 125004)]
     [InlineData(true, true, ObservedRejection, 125004)]
     [InlineData(true, false, ObservedRejection, 125004)]
@@ -50,6 +51,10 @@ public sealed class ProviderOutputLimitChatClientTests
         Assert.Equal(2, requests.Count);
         Assert.Equal(128000, OutputLimit(requests[0]));
         Assert.Equal(allowed, OutputLimit(requests[1]));
+        Assert.Equal(128000, response.Usage!.AdditionalCounts!["context_requested_output_tokens"]);
+        Assert.Equal(allowed, response.Usage.AdditionalCounts["context_applied_output_tokens"]);
+        Assert.Equal(32000, response.Usage.InputTokenCount);
+        Assert.Equal(15000, response.Usage.OutputTokenCount);
         Assert.Equal(128000, options.MaxOutputTokens);
         Assert.Equal(original, JsonSerializer.Serialize(history));
         foreach (var property in new[] { "messages", "tools", "response_format", "temperature", "model", "stream" })

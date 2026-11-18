@@ -252,6 +252,8 @@ public static class AgentTicketFeedback
 
     public static string FailureSentence(string error) => error switch
     {
+        var x when DiagnosticField(x, "code") is "llm.context_length" or "runtime.repeated_operation" =>
+            CSweet.Infrastructure.Setup.AgentWorkFailure.DescribeBlocker(x),
         var x when DiagnosticField(x, "code") == "platform.capability.validation_failed" =>
             $"The platform rejected the input to {DiagnosticField(x, "capability") ?? "the operation"}. The responsible owner needs to reconcile the submitted evidence with the current input contract; repeating the same request will not repair it.",
         var x when DiagnosticField(x, "code") == "platform.capability.conflict" =>

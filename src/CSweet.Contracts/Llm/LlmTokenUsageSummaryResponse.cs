@@ -19,6 +19,9 @@ public sealed record LlmTokenUsageWindowResponse(
     long TotalTokens)
 {
     public int UsageReportedCallCount { get; init; }
+    public long? PeakInputTokens { get; init; }
+    public int ContextAdjustments { get; init; }
+    public int ContextFailures { get; init; }
     public long CachedInputTokens { get; init; }
     public long ReasoningTokens { get; init; }
 }

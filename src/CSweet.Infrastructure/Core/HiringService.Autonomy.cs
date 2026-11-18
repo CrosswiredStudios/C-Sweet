@@ -291,9 +291,14 @@ public sealed partial class HiringService
             ?? throw new ArgumentException("The recommendation is unavailable, withdrawn, or fulfilled.");
     }
 
-    public async Task<HiringCandidateSelectionResponse> SelectCandidateAsync(Guid organizationId, Guid installationId,
+    public Task<HiringCandidateSelectionResponse> SelectCandidateAsync(Guid organizationId, Guid installationId,
         Guid recommendationId, CancellationToken token = default)
+        => ReviewCandidateAsync(organizationId, installationId, new(recommendationId), token);
+
+    public async Task<HiringCandidateSelectionResponse> ReviewCandidateAsync(Guid organizationId, Guid installationId,
+        SelectHiringCandidateRequest request, CancellationToken token = default)
     {
+        var recommendationId = request.RecommendationId;
         await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
             ? await db.Database.BeginTransactionAsync(token) : null;
         await LockHiringOrganizationAsync(organizationId, token);
@@ -302,18 +307,23 @@ public sealed partial class HiringService
         var pending = await PendingHiringDependencyAsync(organizationId, installationId, recommendationId, token);
         if (pending is not null)
             result = new(recommendationId, HiringSelectionMode.Automatic, null, pending.Message ?? "Waiting for a dependency.", pending.Message);
-        else try { result = await SelectCandidateCoreAsync(organizationId, installationId, recommendationId, token); }
+        else try { result = await SelectCandidateCoreAsync(organizationId, installationId, recommendationId, token, request.Decision); }
         catch (CSweet.Application.Setup.AgentImportPreviewException error) when (error.IsDependencyFailure)
         {
             await RecordHiringFailureAsync(organizationId, installationId, recommendationId, error, token);
             result = new(recommendationId, HiringSelectionMode.Automatic, null, error.Message, error.Message);
+        }
+        if (request.Decision is { } submitted && result.Brief is { } latest && submitted.Evidence != latest.Evidence)
+        {
+            await QueueReviewAsync(db, organizationId, installationId, recommendationId, latest.Evidence, token);
+            await db.SaveChangesAsync(token);
         }
         if (transaction is not null) await transaction.CommitAsync(token);
         return result;
     }
 
     private async Task<HiringCandidateSelectionResponse> SelectCandidateCoreAsync(Guid organizationId, Guid installationId,
-        Guid recommendationId, CancellationToken token)
+        Guid recommendationId, CancellationToken token, HiringCandidateDecision? decision = null)
     {
         var plan = await RequireRecommendationAsync(organizationId, installationId, recommendationId, token);
         if (db.Database.IsRelational()) await db.Entry(plan).ReloadAsync(token);
@@ -338,7 +348,7 @@ public sealed partial class HiringService
             return new(plan.Id, mode, null, plan.SelectionRationale, "Choose human coverage for this role.");
         }
         var candidates = await (agentCatalog ?? throw new InvalidOperationException("Agent catalog unavailable."))
-            .GetAvailableAgentsAsync(organizationId, new AvailableAgentSearchQuery(
+            .GetHiringCandidatesAsync(organizationId, new AvailableAgentSearchQuery(
                 Role: context?.RoleCategoryKey is null ? plan.Title : null, Limit: 100,
                 RoleCategoryKey: context?.RoleCategoryKey, PreferredSpecializationKeys: context?.PreferredSpecializationKeys), token);
         var eligible = candidates.Agents.Where(x => x.Availability is AgentAvailabilityState.AvailableToInstall or AgentAvailabilityState.InstalledEnabled);
@@ -346,17 +356,34 @@ public sealed partial class HiringService
         // Only the platform's embedded catalog establishes first-party provenance.
         if (policy.Settings.Publishers == HiringPublisherPreference.FirstPartyOnly)
             eligible = eligible.Where(IsFirstParty);
+        var pool = eligible.ToArray();
+        var bound = mode == HiringSelectionMode.Automatic && pool.Length > 1 ? await BoundPolicyAsync(plan, token) : null;
+        var slotKey = $"delegated-hire:{plan.Id:N}:{plan.FulfilledHeadcount}";
+        var reservedWorkflow = bound?.Mode == HiringSelectionMode.Automatic ? await db.StaffingActionProposals
+            .Where(x => x.OrganizationId == organizationId && x.WorkforcePlanId == plan.Id && x.IdempotencyKey == slotKey)
+            .Select(x => x.Id).SingleOrDefaultAsync(token) : Guid.Empty;
         var requiredCapabilities = ReadStrings(approvedRole?.RequiredCapabilitiesJson);
-        AvailableAgent? selected = null;
+        var verified = new List<AvailableAgent>();
         string? assessmentFailure = null;
-        foreach (var candidate in eligible.OrderByDescending(x => policy.Settings.Publishers == HiringPublisherPreference.PreferFirstParty && IsFirstParty(x))
-                     .ThenByDescending(x => x.Score).ThenBy(x => x.AgentReference, StringComparer.Ordinal))
+        foreach (var candidate in pool)
         {
             try
             {
-                if (!await AssessHiringCapabilitiesAsync(plan, candidate, requiredCapabilities, token)) continue;
-                selected = candidate;
-                break;
+                // For a competitive automatic hire, evaluate the same package and spend constraints used at submission.
+                if (bound?.Mode == HiringSelectionMode.Automatic)
+                {
+                    var profile = CreateCatalogCandidate(organizationId, candidate);
+                    var snapshot = await BuildWorkflowSnapshotAsync(profile, plan.Title, null, [], token, objective: plan.Objective);
+                    if (!SatisfiesHiringCapabilities(requiredCapabilities, profile, snapshot)) continue;
+                    await RequireCandidateWithinDelegationAsync(organizationId, reservedWorkflow, candidate, snapshot,
+                        [bound, policy.Settings], token);
+                }
+                else if (!await AssessHiringCapabilitiesAsync(plan, candidate, requiredCapabilities, token)) continue;
+                verified.Add(candidate);
+            }
+            catch (UnauthorizedAccessException error)
+            {
+                assessmentFailure ??= error.Message;
             }
             catch (CSweet.Application.Setup.AgentImportPreviewException error) when (error.IsDependencyFailure) { throw; }
             catch (Exception error) when (error is InvalidOperationException or ArgumentException or
@@ -365,13 +392,8 @@ public sealed partial class HiringService
                 assessmentFailure ??= $"Could not verify {candidate.Name}'s package requirements: {error.Message} Retry candidate assessment when the package is available.";
             }
         }
-        var rationale = selected is null ? assessmentFailure ?? NoSuitableAgentRationale :
-            $"{selected.Name} matches the approved {plan.Title} role. Publisher: {selected.Publisher}. " +
-            (IsFirstParty(selected) ? "From the platform first-party catalog." : "Third-party package; review its permissions before hiring.");
-        plan.SelectedCatalogAgentJson = selected is null ? null : JsonSerializer.Serialize(selected, JsonOptions);
-        plan.SelectionRationale = rationale;
-        await db.SaveChangesAsync(token);
-        return new(plan.Id, mode, selected, rationale, selected is null ? rationale : null);
+        return await AssessCandidatesAsync(plan, approvedRole, policy.Settings, mode, verified, assessmentFailure,
+            decision, token);
     }
 
     private static bool IsFirstParty(AvailableAgent agent) => agent.Source == AgentCatalogSource.FirstPartyCatalog ||
@@ -411,8 +433,10 @@ public sealed partial class HiringService
         {
             if (policy.Settings.Mode == HiringSelectionMode.Automatic)
                 _ = await SubmitDelegatedAsync(organizationId, installationId, recommendation, token);
-            else _ = await SelectCandidateAsync(organizationId, installationId, recommendation, token);
+            else if ((await SelectCandidateAsync(organizationId, installationId, recommendation, token)).Brief is { } brief)
+                await QueueReviewAsync(db, organizationId, installationId, recommendation, brief.Evidence, token);
         }
+        await db.SaveChangesAsync(token);
     }
 
     private async Task<HiringPolicySettings> BoundPolicyAsync(WorkforcePlan plan, CancellationToken token, bool persist = true)
@@ -509,13 +533,22 @@ public sealed partial class HiringService
         if (!current.SetupComplete || current.Settings.Mode != HiringSelectionMode.Automatic || bound.Mode != HiringSelectionMode.Automatic)
             return new(plan.Id, null, "NeedsReview", "This plan has no automatic hiring delegation.");
         var selection = await SelectCandidateCoreAsync(organizationId, installationId, recommendationId, token);
-        if (selection.Candidate is not { } candidate) return new(plan.Id, null, "NeedsReview", selection.Rationale);
+        if (selection.Candidate is not { } candidate)
+        {
+            if (selection.Brief is { } brief)
+                await QueueReviewAsync(db, organizationId, installationId, plan.Id, brief.Evidence, token);
+            return new(plan.Id, null, selection.Brief is null ? "NeedsReview" : "AwaitingSelection", selection.Rationale);
+        }
         var owner = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(x => x.Id == current.OwnerId &&
             x.OrganizationId == organizationId && x.IsActive && x.PermissionLevel == OrganizationPermissionLevel.Owner && x.ApplicationUserId.HasValue, token);
         var preview = await PreviewMarketplaceHireAsync(organizationId, owner.ApplicationUserId!.Value,
             new PreviewMarketplaceHireRequest(candidate.AgentReference, plan.Title, candidate.Name, current.OwnerId,
                 $"delegated-hire:{plan.Id:N}:{plan.FulfilledHeadcount}") { RecommendationId = plan.Id, TeamId = plan.TeamId }, token);
         var workflow = await db.StaffingActionProposals.SingleAsync(x => x.Id == preview.WorkflowId, token);
+        var retainedCandidateId = ParseCandidateReference(workflow.CandidateId);
+        var retained = await db.WorkforceCandidates.AsNoTracking().SingleAsync(x => x.Id == retainedCandidateId, token);
+        if (ReadMetadata(retained.ExplanationJson).CatalogReference != candidate.AgentReference)
+            return new(plan.Id, workflow.Id, "NeedsReview", "The existing hire preview names a different candidate. Review the current selection before resuming this slot.");
         var reviewedSnapshot = JsonSerializer.Deserialize<WorkflowSnapshot>(workflow.PayloadJson, JsonOptions)!;
         workflow.PayloadJson = JsonSerializer.Serialize(reviewedSnapshot with { AuditWorkItemId = auditCardId }, JsonOptions);
         workflow.DelegatedInstallationId = installationId;
@@ -562,19 +595,37 @@ public sealed partial class HiringService
         // provenance only for the same package repository and manifest identity.
         if (agent.Source == AgentCatalogSource.Installed)
         {
-            var listings = await agentCatalog.GetAvailableAgentsAsync(workflow.OrganizationId,
+            var listings = await agentCatalog.GetHiringCandidatesAsync(workflow.OrganizationId,
                 new AvailableAgentSearchQuery(Limit: 100, RoleCategoryKey: (await GetCandidateSearchContextAsync(workflow.OrganizationId, plan.Id, token))?.RoleCategoryKey), token);
             agent = listings.Agents.FirstOrDefault(x => x.AgentReference == agent.AgentReference) ?? agent;
         }
         if (agent.Source != AgentCatalogSource.Installed &&
             (agent.Price != snapshot.Price || !string.Equals(agent.Currency, snapshot.Currency, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("The selected package cost changed; owner review is required.");
+        await RequireCandidateWithinDelegationAsync(workflow.OrganizationId, workflow.Id, agent, snapshot,
+            [bound, current.Settings], token);
+        var embedded = snapshot.EmbeddedAgent;
+        if (configure && embedded is not null)
+        {
+            snapshot = await ConfigureDelegatedHireAsync(snapshot, installationId,
+                bound.AutomaticLevel == AutomaticHiringLevel.BroadDelegation &&
+                current.Settings.AutomaticLevel == AutomaticHiringLevel.BroadDelegation, token);
+            workflow.PayloadJson = JsonSerializer.Serialize(snapshot, JsonOptions);
+            await db.SaveChangesAsync(token);
+            embedded = snapshot.EmbeddedAgent;
+        }
+        if (embedded is not null) await ValidateDelegatedConfigurationAsync(embedded, token);
+    }
+
+    private async Task RequireCandidateWithinDelegationAsync(Guid organizationId, Guid existingWorkflowId,
+        AvailableAgent agent, WorkflowSnapshot snapshot, IReadOnlyList<HiringPolicySettings> policies, CancellationToken token)
+    {
         var embedded = snapshot.EmbeddedAgent;
         AgentInstallation? approvedInstallation = null;
         if (embedded is null && agent.Source == AgentCatalogSource.Installed && agent.InstallationId is Guid installedId)
         {
             approvedInstallation = await db.AgentInstallations.AsNoTracking().Include(x => x.Grant)
-                .SingleOrDefaultAsync(x => x.Id == installedId && x.BusinessId == workflow.OrganizationId.ToString("D") &&
+                .SingleOrDefaultAsync(x => x.Id == installedId && x.BusinessId == organizationId.ToString("D") &&
                     x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active, token);
             if (approvedInstallation?.Grant is null || approvedInstallation.SetupState != PluginSetupState.Ready ||
                 !SameGrantSet(snapshot.ApprovedGrants, ReadStrings(approvedInstallation.Grant.RequiredCapabilitiesJson)))
@@ -583,7 +634,7 @@ public sealed partial class HiringService
         if (embedded is null && approvedInstallation is null) throw new InvalidOperationException("Missing approved package snapshot.");
         var requestedCapabilities = embedded?.RequestedCapabilities ?? ReadStrings(approvedInstallation?.Grant?.RequiredCapabilitiesJson);
         var networkAccess = embedded?.NetworkAccess ?? ReadStrings(approvedInstallation?.Grant?.NetworkAccessJson);
-        foreach (var policy in new[] { bound, current.Settings })
+        foreach (var policy in policies)
         {
             if (policy.Publishers == HiringPublisherPreference.FirstPartyOnly && !IsFirstParty(agent))
                 throw new UnauthorizedAccessException("This policy permits first-party packages only.");
@@ -598,8 +649,8 @@ public sealed partial class HiringService
                 if (requestedCapabilities.Except(policy.AllowedCapabilities ?? [], StringComparer.Ordinal).Any() ||
                     networkAccess.Except(policy.AllowedNetworkAccess ?? [], StringComparer.Ordinal).Any())
                     throw new UnauthorizedAccessException("The package requests permissions outside the delegated limits.");
-                var spent = await db.StaffingActionProposals.AsNoTracking().Where(x => x.OrganizationId == workflow.OrganizationId &&
-                    x.Id != workflow.Id && (x.Status == ProposalStatus.Approved || x.Status == ProposalStatus.Pending && x.DelegatedInstallationId != null))
+                var spent = await db.StaffingActionProposals.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
+                    x.Id != existingWorkflowId && (x.Status == ProposalStatus.Approved || x.Status == ProposalStatus.Pending && x.DelegatedInstallationId != null))
                     .Select(x => x.PayloadJson).ToListAsync(token);
                 var total = spent.Select(x => JsonSerializer.Deserialize<WorkflowSnapshot>(x, JsonOptions)!)
                     .Where(x => string.Equals(x.Currency, policy.Currency, StringComparison.OrdinalIgnoreCase)).Sum(x => x.Price ?? 0);
@@ -607,15 +658,6 @@ public sealed partial class HiringService
             }
             if (snapshot.Price is null) throw new UnauthorizedAccessException("Candidate cost is unknown; owner review is required.");
         }
-        if (configure && embedded is not null)
-        {
-            snapshot = await ConfigureDelegatedHireAsync(snapshot, installationId,
-                bound.AutomaticLevel == AutomaticHiringLevel.BroadDelegation &&
-                current.Settings.AutomaticLevel == AutomaticHiringLevel.BroadDelegation, token);
-            workflow.PayloadJson = JsonSerializer.Serialize(snapshot, JsonOptions);
-            await db.SaveChangesAsync(token);
-            embedded = snapshot.EmbeddedAgent;
-        }
-        if (embedded is not null) await ValidateDelegatedConfigurationAsync(embedded, token);
     }
+
 }

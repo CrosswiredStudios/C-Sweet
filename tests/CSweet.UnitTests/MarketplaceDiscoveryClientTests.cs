@@ -140,6 +140,23 @@ public sealed class MarketplaceDiscoveryClientTests
         Assert.Equal(0, handler.RequestCount);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Hiring_discovery_follows_remote_pages_and_detects_a_repeated_page(bool repeat)
+    {
+        object Page(Guid id) => new { items = new[] { new { id, name = "Candidate", listingPath = "/candidate",
+            repositoryUrl = "https://example.test/" + id } }, total = 2, categories = Array.Empty<string>(), pricingModels = Array.Empty<string>() };
+        var first = Page(Guid.NewGuid());
+        var handler = new StubHandler(first, repeat ? first : Page(Guid.NewGuid()));
+        var client = Client(handler, enabled: true);
+        var query = new MarketplaceDiscoveryQuery(Take: 1) { Exhaustive = true };
+        if (repeat) await Assert.ThrowsAsync<InvalidDataException>(() => client.SearchAsync(query));
+        else Assert.Equal(2, (await client.SearchAsync(query)).Items.Count);
+        Assert.Equal(2, handler.RequestCount);
+        Assert.Contains("skip=1", handler.LastRequestUri!.Query);
+    }
+
     private static MarketplaceDiscoveryClient Client(
         StubHandler handler,
         bool enabled,
@@ -158,7 +175,7 @@ public sealed class MarketplaceDiscoveryClientTests
         }));
     }
 
-    private sealed class StubHandler(object body) : HttpMessageHandler
+    private sealed class StubHandler(object body, object? nextPage = null) : HttpMessageHandler
     {
         public int RequestCount { get; private set; }
         public Uri? LastRequestUri { get; private set; }
@@ -171,7 +188,7 @@ public sealed class MarketplaceDiscoveryClientTests
             LastRequestUri = request.RequestUri;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = JsonContent.Create(body)
+                Content = JsonContent.Create(RequestCount == 1 ? body : nextPage ?? body)
             });
         }
     }

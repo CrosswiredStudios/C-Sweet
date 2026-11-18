@@ -833,7 +833,35 @@ public sealed partial class AgentWorkInbox(
                 x.AgentWorkItem!.AgentInstallationId == work.AgentInstallationId && x.AgentWorkItem.SourceType == work.SourceType &&
                 x.AgentWorkItem.SourceId == work.SourceId, token))
             {
+                var timedOut = AgentWorkFailure.IsWorkspaceCommandTimeout(error);
                 error = "agent-failure:v1;code=runtime.repeated_operation;retryable=false";
+                if (timedOut && work.SourceType == "WorkStageExecution")
+                {
+                    var checkpoint = await db.SourceControlWorkspaces.AsNoTracking()
+                        .Where(w => w.OrganizationId == ticket.OrganizationId && w.WorkItemId == ticket.Id &&
+                            w.AgentInstallationId == work.AgentInstallationId && w.AssignmentRevision == ticket.AssignmentRevision &&
+                            w.CheckpointAt <= now && w.CheckpointDigest != null)
+                        .OrderByDescending(w => w.CheckpointAt).Select(w => w.CheckpointDigest).FirstOrDefaultAsync(token);
+                    error += ";cause=workspace.command.timeout;operation=" + operation;
+                    if (checkpoint?.Length is 40 or 64 && checkpoint.All(Uri.IsHexDigit))
+                    {
+                        error += ";checkpoint=" + checkpoint;
+                        var progress = await db.AgentWorkProgress.AsNoTracking().Where(p => p.AgentWorkAttemptId == current.Id)
+                            .OrderByDescending(p => p.Sequence).Take(64).Select(p => p.ProtectedValue).ToListAsync(token);
+                        foreach (var entry in progress)
+                        {
+                            try
+                            {
+                                using var record = JsonDocument.Parse(_protector.Unprotect(entry));
+                                if (AgentWorkFailure.ReadRecoveryCommand(record.RootElement, operation) is not { } command) continue;
+                                error += ";command=" + command;
+                                break;
+                            }
+                            catch (System.Security.Cryptography.CryptographicException) { /* Optional expired telemetry. */ }
+                            catch (JsonException) { /* Older progress formats may not contain a command. */ }
+                        }
+                    }
+                }
                 work.LastError = error; work.ResourceRecoveryState = "DiagnosisRequired";
                 if (work.Status == AgentWorkStatus.Pending) work.Status = AgentWorkStatus.DeadLetter;
             }

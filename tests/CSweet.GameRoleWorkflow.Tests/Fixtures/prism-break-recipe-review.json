@@ -1,0 +1,25 @@
+{
+  "actions": [
+    {
+      "kind": "refine",
+      "rationale": "Candidate 0 remains the dependency-eligible first increment concept, but its current brief preselects a framework-free runtime that conflicts with the accepted Technical Director ownership and the current phaser.web-2d.v1 direction. Victor Lin should revise the brief into a bounded feasibility/selection reconciliation and clean-checkout setup slice before implementation planning proceeds.",
+      "capability": null,
+      "evidenceIndexes": [
+        1,
+        10,
+        12,
+        13
+      ]
+    }
+  ],
+  "nextGoal": "Revise roadmap-epic-1.story-1 as a bounded Technical Director stack-feasibility/selection and clean-checkout setup-readiness increment aligned with the current Chromium web-stack evidence, before any implementation increment is estimated or executed.",
+  "keepDraft": false,
+  "draftAhead": false,
+  "disposition": "select",
+  "feelSummary": "Research-only planning increment; there is no build reference or playable slice to try yet. Prerequisite progress: Victor Lin has planning coverage and the Technical Foundation container is ready, and game-engineer staffing is approved for the later setup slice, but the current story text still encodes framework-free Canvas 2D/no-library/no-lockfile constraints. Victor Lin has flagged this stack-basis conflict, and a current direction evidence item records a selected certified provider recipe phaser.web-2d.v1 after Technical Director feasibility evidence. Remaining hypothesis: the phaser direction supersedes the framework-free brief wording; if confirmed, the increment must allow appropriate package manager, lockfile, and build tooling under Technical Director review.",
+  "revisitWhen": "Victor Lin publishes a revised candidate/story that either adopts the recorded phaser.web-2d.v1 direction with a package-lock and clean-checkout policy, or records stack selection as pending Technical Director; the revised brief must define the smallest setup slice rather than a fixed framework-free runtime.",
+  "nextCandidate": 0,
+  "verifiedSources": [],
+  "draftRevisionReason": "Affected items: candidate 0 Description, roadmap-epic-1.story-1 acceptance criteria, task-1 artifact wording, and task-2 setup constraints that mandate framework-free HTML5 Canvas 2D, no libraries, no build step, no package manager, and no lockfile. Conflicting evidence: evidence index 10 records a selected certified provider recipe phaser.web-2d.v1 after Technical Director feasibility evidence, and evidence indexes 12 and 13 identify a stack-basis conflict with the accepted brief's engine/runtime ownership and feasibility-spike sequencing. Required correction: Victor Lin should revise candidate 0/story-1 so it records either the accepted phaser.web-2d.v1 Chromium runtime or an explicitly pending Technical Director stack decision; if phaser is accepted, allow package manager, lockfile, and build tooling as required by that stack under Technical Director review. Acceptance must be expressed against Chromium desktop web capabilities, qualitative smoothness, accessibility, reactive audio integration, quick restart, and clean-checkout setup readiness—not against a fixed framework-free/no-lockfile basis.",
+  "additionalDraftCandidates": []
+}

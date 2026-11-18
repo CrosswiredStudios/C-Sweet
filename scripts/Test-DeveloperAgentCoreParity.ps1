@@ -20,7 +20,7 @@ function Normalize-Core([string] $text) {
 function Get-CoreFiles([string] $root, [string] $project) {
     $source = Join-Path $root "src/$project"
     if (!(Test-Path -LiteralPath $source)) { throw "Missing agent source: $source" }
-    $files = @{}
+    $files = @{ 'browser-record.mjs' = Join-Path $source 'browser-record.mjs' }
     foreach ($file in Get-ChildItem -LiteralPath $source -Recurse -Filter '*.cs') {
         $relative = [IO.Path]::GetRelativePath($source, $file.FullName).Replace('\', '/')
         if ($relative -match '^(bin|obj)/') { continue }
@@ -29,7 +29,7 @@ function Get-CoreFiles([string] $root, [string] $project) {
         $files[(Normalize-Core $relative)] = $file.FullName
     }
     foreach ($test in @('HarnessExecutionTests.cs', 'WorkspaceProgressTests.cs', 'WorkspaceShellTests.cs',
-        'WorkspaceResourceSizingTests.cs', 'BrowserDeliveryRecipeTests.cs', 'BrowserSmokeCheckTests.cs', 'PlanningExecutionTests.cs', 'PlanCompletionRecoveryTests.cs', 'ComputeDeploymentRecoveryTests.cs', 'GeneratedCommitMessageTests.cs', 'ReviewFeedbackTests.cs', 'NoChangeReworkTests.cs', 'DevelopmentEfficiencyTests.cs', 'DevelopmentWorkflowTests.cs', 'PlannedVerificationTests.cs', 'AssignedCodingRuntimeTests.cs')) {
+        'WorkspaceResourceSizingTests.cs', 'BrowserDeliveryRecipeTests.cs', 'BrowserSmokeCheckTests.cs', 'PlanningExecutionTests.cs', 'PlanCompletionRecoveryTests.cs', 'ComputeDeploymentRecoveryTests.cs', 'GeneratedCommitMessageTests.cs', 'ReviewFeedbackTests.cs', 'NoChangeReworkTests.cs', 'DevelopmentEfficiencyTests.cs', 'DependencyPlanTests.cs', 'DevelopmentWorkflowTests.cs', 'PlannedVerificationTests.cs', 'AssignedCodingRuntimeTests.cs')) {
         $files["tests/$test"] = Join-Path $root "tests/$project.Tests/$test"
     }
     return $files

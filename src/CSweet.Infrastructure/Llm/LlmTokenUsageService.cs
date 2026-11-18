@@ -87,9 +87,26 @@ public sealed class LlmTokenUsageService : ILlmTokenUsageService
         {
             UsageReportedCallCount = items.Count(log =>
                 InferenceMeasurements.HasInput(log) || InferenceMeasurements.HasOutput(log)),
+            PeakInputTokens = items.Where(InferenceMeasurements.HasInput).Select(log => (long?)InferenceMeasurements.Input(log)).Max(),
+            ContextAdjustments = items.Count(log => HasContextAdjustment(log.UsageAdditionalCountsJson)),
+            ContextFailures = items.Count(log => log.FailureMessage == Setup.AgentWorkFailure.ContextLengthMessage),
             CachedInputTokens = items.Sum(log => (long)(log.TokenCachedInputCount ?? 0)),
             ReasoningTokens = items.Sum(log => (long)(log.TokenReasoningCount ?? 0))
         };
+    }
+
+    private static bool HasContextAdjustment(string? counts)
+    {
+        const string field = "context_applied_output_tokens";
+        if (counts?.Contains(field, StringComparison.Ordinal) != true) return false;
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(counts);
+            return document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                document.RootElement.TryGetProperty(field, out var applied) &&
+                applied.ValueKind == System.Text.Json.JsonValueKind.Number && applied.TryGetInt64(out var ceiling) && ceiling > 0;
+        }
+        catch (System.Text.Json.JsonException) { return false; }
     }
 
     private static IReadOnlyList<LlmChatTurnUsageResponse> BuildRecentChatTurns(

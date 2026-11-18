@@ -33,7 +33,9 @@ internal sealed partial class ProviderOutputLimitChatClient(IChatClient inner, I
         {
             LogAdjustment(options!, retry);
             cancellationToken.ThrowIfCancellationRequested();
-            return await InnerClient.GetResponseAsync(history, retry, cancellationToken);
+            var response = await InnerClient.GetResponseAsync(history, retry, cancellationToken);
+            RecordAdjustment(response.Usage ??= new(), options!, retry);
+            return response;
         }
     }
 
@@ -47,6 +49,7 @@ internal sealed partial class ProviderOutputLimitChatClient(IChatClient inner, I
         {
             cancellationToken.ThrowIfCancellationRequested();
             var started = false;
+            var receivedUsage = false;
             Exception? failure = null;
             // Dispose a rejected stream before starting the next HTTP request.
             await using (var updates = InnerClient.GetStreamingResponseAsync(history, currentOptions, cancellationToken)
@@ -59,11 +62,26 @@ internal sealed partial class ProviderOutputLimitChatClient(IChatClient inner, I
                     catch (Exception error) { failure = error; break; }
                     if (!moved) break;
                     started = true; // Even metadata, reasoning or usage means generation may have started.
+                    if (attempt > 0)
+                        foreach (var usage in updates.Current.Contents.OfType<UsageContent>())
+                        {
+                            RecordAdjustment(usage.Details, options!, currentOptions!);
+                            receivedUsage = true;
+                        }
                     yield return updates.Current;
                 }
             }
             cancellationToken.ThrowIfCancellationRequested();
-            if (failure is null) yield break;
+            if (failure is null)
+            {
+                if (attempt > 0 && !receivedUsage)
+                {
+                    var usage = new UsageDetails();
+                    RecordAdjustment(usage, options!, currentOptions!);
+                    yield return new ChatResponseUpdate(null, [new UsageContent(usage)]);
+                }
+                yield break;
+            }
             if (attempt == 0 && !started && !cancellationToken.IsCancellationRequested &&
                 failure is ClientResultException rejection && TryGetRetryOptions(rejection, options, out var retry))
             {
@@ -73,6 +91,13 @@ internal sealed partial class ProviderOutputLimitChatClient(IChatClient inner, I
             }
             ExceptionDispatchInfo.Capture(failure).Throw();
         }
+    }
+
+    private static void RecordAdjustment(UsageDetails usage, ChatOptions original, ChatOptions retry)
+    {
+        usage.AdditionalCounts ??= new();
+        usage.AdditionalCounts["context_requested_output_tokens"] = original.MaxOutputTokens!.Value;
+        usage.AdditionalCounts["context_applied_output_tokens"] = retry.MaxOutputTokens!.Value;
     }
 
     private void LogAdjustment(ChatOptions original, ChatOptions retry) => logger?.LogInformation(
@@ -120,7 +145,7 @@ internal sealed partial class ProviderOutputLimitChatClient(IChatClient inner, I
     private static bool ReadCount(Match match, string group, out int value) =>
         int.TryParse(match.Groups[group].Value, NumberStyles.None, CultureInfo.InvariantCulture, out value);
 
-    [GeneratedRegex(@"^request exceeds the context window: prompt \((?<input>[0-9]+) tokens\) \+ max tokens \((?<output>[0-9]+)\) exceeds the context \((?<context>[0-9]+)\); requests are never truncated\. Send a smaller max_tokens \(at most (?<allowed>[0-9]+) here\)", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^(?:engine reported )?request exceeds the context window: prompt \((?<input>[0-9]+) tokens\) \+ max tokens \((?<output>[0-9]+)\) exceeds the context \((?<context>[0-9]+)\); requests are never truncated\. Send a smaller max_tokens \(at most (?<allowed>[0-9]+) here\)", RegexOptions.CultureInvariant)]
     private static partial Regex SuggestedLimit();
 
     [GeneratedRegex(@"^This model's maximum context length is (?<context>[0-9]+) tokens\. However, you requested (?<output>[0-9]+) output tokens and your prompt contains (?<input>[0-9]+) input tokens", RegexOptions.CultureInvariant)]

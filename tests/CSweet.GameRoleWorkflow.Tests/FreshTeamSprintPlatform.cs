@@ -24,20 +24,22 @@ namespace CSweet.GameRoleWorkflow.Tests;
 
 // An approved game project with a staffed, empty board. Board writes, readiness, dispatch and
 // the worker lease use the production services. The trusted Git remote is the existing test double.
-internal sealed class FreshTeamSprintPlatform : IAsyncDisposable
+internal sealed class FreshTeamSprintPlatform(bool useSoftwareDeveloper = false) : IAsyncDisposable
 {
     private readonly HierarchicalDeliveryServiceTests.Fixture studio = new(false,
         new DbContextOptionsBuilder<CSweetDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString())
             .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning)).Options);
     private readonly Dictionary<Guid, AgentCoordinationParticipant> people = [];
+    private readonly McpAgentSessionServiceTests.MutableTimeProvider clock = new(DateTimeOffset.UtcNow);
+    private McpAgentSession session = null!;
     private readonly EphemeralDataProtectionProvider protection = new();
     private WorkManagementCapabilityHandler work = null!;
     private ArtifactCapabilityHandler artifacts = null!;
     public Guid PitchId { get; } = Guid.NewGuid();
     public Guid RevisionId { get; } = Guid.NewGuid();
     public Guid PackageId { get; } = Guid.NewGuid();
-    private WorkOrchestrator Dispatcher(AgentWorkInbox inbox) => new(studio.Db, inbox, null!,
-        new WorkDispatchRecoveryTests.Runtime(studio.Db), [], TimeProvider.System, new DispatchLogger(), studio.Client);
+    private WorkOrchestrator Dispatcher(AgentWorkInbox inbox) => new(studio.Db, inbox, new AgentAttentionInvalidationService(Db, clock),
+        new WorkDispatchRecoveryTests.Runtime(studio.Db), [], clock, new DispatchLogger(), studio.Client);
 
     private sealed class DispatchLogger : ILogger<WorkOrchestrator>
     {
@@ -57,7 +59,7 @@ internal sealed class FreshTeamSprintPlatform : IAsyncDisposable
     public Guid Repository => studio.Repositories.Single();
     public AgentCoordinationParticipant Gabriel => people[studio.Manager.Id];
     public AgentCoordinationParticipant Victor => people[studio.Technical.Id];
-    public AgentCoordinationParticipant Adrian => people[studio.Author.Id];
+    public AgentCoordinationParticipant Engineer => people[studio.Author.Id];
     public AgentTeamContext Roster { get; private set; } = null!;
     public string ProfileDigest { get; private set; } = null!;
     public static string Digest(string value) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
@@ -67,7 +69,7 @@ internal sealed class FreshTeamSprintPlatform : IAsyncDisposable
         C.WorkItemActions.FinalizeDelivery, C.WorkItemActions.Estimate, C.WorkItemActions.Move, C.WorkItemActions.ReadComments,
         C.WorkSprintActions.Read, C.WorkSprintActions.Create, C.WorkSprintActions.ManageCapacity, C.WorkSprintActions.ManageScope,
         C.WorkOrchestrationActions.ConfigureProfile, C.WorkOrchestrationActions.Preflight, C.WorkOrchestrationActions.Start,
-        C.WorkOrchestrationActions.Read];
+        C.WorkOrchestrationActions.Read, C.WorkOrchestrationActions.Retry];
 
     public async Task OpenAsync(string pitch)
     {
@@ -96,7 +98,7 @@ internal sealed class FreshTeamSprintPlatform : IAsyncDisposable
         var team = await Db.OrganizationTeams.SingleAsync();
         var members = new List<AgentTeammate>();
         foreach (var (person, name, role) in new[] { (studio.Manager, "Gabriel", "game-producer"),
-            (studio.Technical, "Victor", "game-technical-director"), (studio.Author, "Adrian", "game-engineer"), (studio.Qa, "Quinn", "game-quality-assurance") })
+            (studio.Technical, "Victor", "game-technical-director"), (studio.Author, useSoftwareDeveloper ? "Daniel Kim" : "Adrian", useSoftwareDeveloper ? "software-developer" : "game-engineer"), (studio.Qa, "Quinn", "game-quality-assurance") })
         {
             var installation = Guid.NewGuid();
             person.DisplayName = name; person.AgentInstallationId = installation; person.EmployeeType = EmployeeType.Agent;
@@ -114,7 +116,7 @@ internal sealed class FreshTeamSprintPlatform : IAsyncDisposable
             people[person.Id] = new(person.Id, installation, name, role);
             members.Add(new(person.Id.ToString(), name, "Agent", null, null, "Peer", "Online") { AgentInstallationId = installation,
                 IsAvailable = true, RuntimeEligibility = "Eligible", DeclaredRoleKeys = policy.GetProperty("declaredRoleKeys").Deserialize<string[]>()!,
-                SpecializationKeys = policy.GetProperty("specializationKeys").Deserialize<string[]>()!, EffectiveCapabilities = capabilities });
+                SpecializationKeys = policy.TryGetProperty("specializationKeys", out var strengths) ? strengths.Deserialize<string[]>()! : [], EffectiveCapabilities = capabilities });
             foreach (var action in person == studio.Manager ? BoardActions : [C.WorkItemActions.Read, C.WorkBoardActions.Read, C.WorkSprintActions.Read])
                 Grant(installation, action, GrantScopeKind.Team, Team);
             Grant(installation, CSweet.Contracts.Core.ArtifactActions.Read, GrantScopeKind.Artifact, PitchId);
@@ -168,14 +170,27 @@ internal sealed class FreshTeamSprintPlatform : IAsyncDisposable
     public async Task<ClaimedAgentWork?> ClaimAsync()
     {
         // A new process represents reconnect. The inbox and orchestrator keep their state in the database.
-        var process = new AgentRuntimeInstance { Id = Guid.NewGuid(), TickId = Guid.NewGuid(), AgentInstallationId = Adrian.AgentInstallationId,
+        var process = new AgentRuntimeInstance { Id = Guid.NewGuid(), TickId = Guid.NewGuid(), AgentInstallationId = Engineer.AgentInstallationId,
             QueuedAt = DateTimeOffset.UtcNow, RuntimeDeadlineAt = DateTimeOffset.UtcNow.AddMinutes(10) };
         Db.AgentRuntimeInstances.Add(process);
         await Db.SaveChangesAsync();
-        var inbox = new AgentWorkInbox(Db, protection, TimeProvider.System);
+        var inbox = new AgentWorkInbox(Db, protection, clock);
         await Dispatcher(inbox).PulseAsync();
-        return await inbox.ClaimAsync(new McpAgentSession { Id = Guid.NewGuid(), OrganizationId = Organization.ToString(),
-            AgentInstallationId = Adrian.AgentInstallationId, RuntimeInstanceId = process.Id, TickId = process.TickId }, default);
+        session = new McpAgentSession { Id = Guid.NewGuid(), OrganizationId = Organization.ToString(),
+            AgentInstallationId = Engineer.AgentInstallationId, RuntimeInstanceId = process.Id, TickId = process.TickId };
+        return await inbox.ClaimAsync(session, default);
+    }
+
+    public async Task ReportTimeoutAsync(ClaimedAgentWork lease, string command)
+    {
+        var inbox = new AgentWorkInbox(Db, protection, clock);
+        var digest = Digest(command).ToUpperInvariant();
+        await inbox.AppendProgressAsync(session, lease.WorkId, lease.Attempt, lease.LeaseToken, 1,
+            JsonSerializer.SerializeToElement(new { kind = "workspace-tool", phase = "started", commandDigest = digest, scriptCommand = command }), default);
+        await inbox.CompleteAsync(session, lease.WorkId, lease.Attempt, lease.LeaseToken,
+            new(false, null, "workspace command exceeded its deadline", "workspace.command.timeout", true), default);
+        await Dispatcher(inbox).PulseAsync();
+        clock.Advance(TimeSpan.FromMinutes(2));
     }
 
     public ValueTask DisposeAsync() => studio.DisposeAsync();

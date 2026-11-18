@@ -267,9 +267,13 @@ public partial class LlmProviderTests
         chatLog.InvocationSequence = 1;
         chatLog.TokenCachedInputCount = 25;
         chatLog.PromptMemoryCharacters = 400;
+        chatLog.UsageAdditionalCountsJson = "{\"context_applied_output_tokens\":124662,\"context_requested_output_tokens\":128000}";
+        var contextFailure = CreateAgentRunLog(firstProvider.Id, "agent-a", now.AddDays(-3), 30, 20);
+        contextFailure.Status = "Failed";
+        contextFailure.FailureMessage = CSweet.Infrastructure.Setup.AgentWorkFailure.ContextLengthMessage;
         dbContext.AgentRunLogs.AddRange(
             chatLog,
-            CreateAgentRunLog(firstProvider.Id, "agent-a", now.AddDays(-3), 30, 20),
+            contextFailure,
             CreateAgentRunLog(secondProvider.Id, "agent-b", now.AddDays(-10), 10, 5),
             CreateAgentRunLog(firstProvider.Id, "agent-c", now.AddDays(-31), 999, 999));
         await dbContext.SaveChangesAsync();
@@ -284,6 +288,10 @@ public partial class LlmProviderTests
         Assert.Equal(3, summary.Last30Days.RequestCount);
         Assert.Equal(215, summary.Last30Days.TotalTokens);
         Assert.Equal(25, summary.Last30Days.CachedInputTokens);
+        Assert.Equal(100L, summary.Last30Days.PeakInputTokens);
+        Assert.Equal(1, summary.Last30Days.ContextAdjustments);
+        Assert.Equal(1, summary.Last30Days.ContextFailures);
+        Assert.Equal(0, summary.Last24Hours.ContextFailures);
         var turn = Assert.Single(summary.RecentChatTurns);
         Assert.Equal(chatTurnId, turn.ChatTurnId);
         Assert.Equal(1, turn.ModelCallCount);

@@ -8248,6 +8248,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasDefaultValue(1);
 
+                    b.Property<string>("HiringAssessmentJson")
+                        .HasColumnType("text");
+
                     b.Property<string>("IdempotencyKey")
                         .IsRequired()
                         .HasMaxLength(160)

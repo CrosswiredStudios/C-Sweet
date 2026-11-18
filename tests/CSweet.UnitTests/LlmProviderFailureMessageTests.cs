@@ -3,6 +3,20 @@ namespace CSweet.UnitTests;
 public sealed class LlmProviderFailureMessageTests
 {
     [Fact]
+    public void Context_window_rejection_reaches_the_ticket_without_provider_body()
+    {
+        var error = new HttpRequestException("Provider rejected request",
+            new Exception("engine reported request exceeds the context window: private-value"));
+        var code = LlmProviderFailureMessage.CodeFrom(error);
+        Assert.Equal("llm.context_length", code);
+        Assert.False(LlmProviderFailureMessage.IsTransient(error));
+        var ticket = CSweet.Infrastructure.WorkManagement.AgentTicketFeedback.FailureSentence($"agent-failure:v1;code={code};retryable=false");
+        Assert.Equal(LlmProviderFailureMessage.From(error), ticket);
+        Assert.Contains("maximum output tokens", ticket);
+        Assert.DoesNotContain("private-value", ticket);
+    }
+
+    [Fact]
     public void InterruptedProviderStreamIsRetryableWithoutExposingTransportDetails()
     {
         var error = new IOException("private endpoint", new System.Net.Sockets.SocketException(10054));

@@ -40,10 +40,16 @@ public sealed class AgentCatalogService(
             (string.Equals(x.AgentId, agent.AgentId, StringComparison.Ordinal) ||
              string.Equals(agent.AgentReference, $"first-party:{x.Id:N}", StringComparison.Ordinal))) ?? false);
 
-    public async Task<AvailableAgentSearchResult> GetAvailableAgentsAsync(
+    public Task<AvailableAgentSearchResult> GetAvailableAgentsAsync(
         Guid? organizationId,
         AvailableAgentSearchQuery query,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => SearchAsync(organizationId, query, false, cancellationToken);
+
+    public Task<AvailableAgentSearchResult> GetHiringCandidatesAsync(Guid organizationId, AvailableAgentSearchQuery query,
+        CancellationToken cancellationToken) => SearchAsync(organizationId, query, true, cancellationToken);
+
+    private async Task<AvailableAgentSearchResult> SearchAsync(Guid? organizationId, AvailableAgentSearchQuery query,
+        bool exhaustive, CancellationToken cancellationToken)
     {
         var normalized = query with
         {
@@ -58,11 +64,13 @@ public sealed class AgentCatalogService(
             try
             {
                 // Resolve legacy role labels after collecting metadata, before applying family eligibility.
-                var result = await provider.SearchAsync(organizationId, normalized with { Role = null }, cancellationToken);
+                var discovery = normalized with { Role = null };
+                var result = exhaustive ? await provider.SearchForHiringAsync(organizationId!.Value, discovery, cancellationToken)
+                    : await provider.SearchAsync(organizationId, discovery, cancellationToken);
                 agents.AddRange(result.Agents);
                 health.Add(result.Health);
             }
-            catch (Exception exception) when (exception is not OperationCanceledException)
+            catch (Exception exception) when (exception is not OperationCanceledException && !(exhaustive && exception is InvalidDataException))
             {
                 logger.LogWarning(exception, "Agent catalog source {Source} failed.", provider.Source);
                 health.Add(new AgentCatalogSourceHealth(provider.Source, false, "The source is unavailable."));
@@ -109,7 +117,7 @@ public sealed class AgentCatalogService(
         };
 
         return new AvailableAgentSearchResult(
-            filtered.Take(normalized.Limit).ToArray(),
+            exhaustive ? filtered.ToArray() : filtered.Take(normalized.Limit).ToArray(),
             health.GroupBy(x => x.Source).Select(x => x.First()).OrderBy(x => SourcePriority(x.Source)).ToArray());
     }
 
@@ -469,10 +477,16 @@ public sealed class MarketplaceAgentCatalogProvider(IMarketplaceDiscoveryService
 {
     public AgentCatalogSource Source => AgentCatalogSource.Marketplace;
 
-    public async Task<AgentCatalogProviderResult> SearchAsync(
+    public Task<AgentCatalogProviderResult> SearchAsync(
         Guid? organizationId,
         AvailableAgentSearchQuery query,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => SearchListingsAsync(query, false, cancellationToken);
+
+    public Task<AgentCatalogProviderResult> SearchForHiringAsync(Guid organizationId, AvailableAgentSearchQuery query,
+        CancellationToken cancellationToken) => SearchListingsAsync(query, true, cancellationToken);
+
+    private async Task<AgentCatalogProviderResult> SearchListingsAsync(AvailableAgentSearchQuery query, bool exhaustive,
+        CancellationToken cancellationToken)
     {
         var result = await marketplace.SearchAsync(new MarketplaceDiscoveryQuery(
             query.SearchString,
@@ -481,7 +495,7 @@ public sealed class MarketplaceAgentCatalogProvider(IMarketplaceDiscoveryService
             null,
             query.MaximumPrice,
             query.Sort,
-            Math.Clamp(query.Limit * 3, 1, 100)), cancellationToken);
+            exhaustive ? 100 : Math.Clamp(query.Limit * 3, 1, 100)) { Exhaustive = exhaustive }, cancellationToken);
         return new(
             result.Items.Where(x => !x.IsFirstParty).Select(Map).ToArray(),
             new(Source, result.IsOnline, result.UnavailableReason));
@@ -493,7 +507,7 @@ public sealed class MarketplaceAgentCatalogProvider(IMarketplaceDiscoveryService
         CancellationToken cancellationToken = default)
     {
         if (!TryGuid(agentReference, "marketplace", out var id)) return null;
-        var result = await marketplace.SearchAsync(new MarketplaceDiscoveryQuery(Take: 100), cancellationToken);
+        var result = await marketplace.SearchAsync(new MarketplaceDiscoveryQuery(Take: 100) { Exhaustive = true }, cancellationToken);
         return result.Items.Where(x => !x.IsFirstParty && x.Id == id).Select(Map).FirstOrDefault();
     }
 

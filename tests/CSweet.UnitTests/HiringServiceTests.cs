@@ -1343,21 +1343,22 @@ public sealed partial class HiringServiceTests
         }
     }
 
-    private sealed class RecordingAgentCatalog(CSweet.Agent.SDK.AvailableAgent agent, bool empty = false)
+    private sealed class RecordingAgentCatalog(CSweet.Agent.SDK.AvailableAgent agent, bool empty = false,
+        IReadOnlyList<CSweet.Agent.SDK.AvailableAgent>? candidates = null)
         : CSweet.Application.Agents.IAgentCatalogService
     {
         public Task<CSweet.Agent.SDK.AvailableAgentSearchResult> GetAvailableAgentsAsync(
             Guid? organizationId,
             CSweet.Agent.SDK.AvailableAgentSearchQuery query,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult(new CSweet.Agent.SDK.AvailableAgentSearchResult(empty ? [] : [agent], []));
+            Task.FromResult(new CSweet.Agent.SDK.AvailableAgentSearchResult(empty ? [] : candidates ?? [agent], []));
 
         public Task<CSweet.Agent.SDK.AvailableAgent?> ResolveAsync(
             Guid? organizationId,
             string agentReference,
             CancellationToken cancellationToken = default) =>
             Task.FromResult<CSweet.Agent.SDK.AvailableAgent?>(
-                string.Equals(agent.AgentReference, agentReference, StringComparison.Ordinal) ? agent : null);
+                (candidates ?? [agent]).SingleOrDefault(x => x.AgentReference == agentReference));
     }
 
     private sealed class RecordingInstallationService(Guid organizationId) : IAgentInstallationService

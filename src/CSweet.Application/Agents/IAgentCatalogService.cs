@@ -12,6 +12,9 @@ public interface IAgentCatalogService
         AvailableAgentSearchQuery query,
         CancellationToken cancellationToken = default);
 
+    Task<AvailableAgentSearchResult> GetHiringCandidatesAsync(Guid organizationId, AvailableAgentSearchQuery query,
+        CancellationToken cancellationToken) => GetAvailableAgentsAsync(organizationId, query, cancellationToken);
+
     Task<AvailableAgent?> ResolveAsync(
         Guid? organizationId,
         string agentReference,
@@ -26,6 +29,9 @@ public interface IAgentCatalogProvider
         Guid? organizationId,
         AvailableAgentSearchQuery query,
         CancellationToken cancellationToken = default);
+
+    Task<AgentCatalogProviderResult> SearchForHiringAsync(Guid organizationId, AvailableAgentSearchQuery query,
+        CancellationToken cancellationToken) => SearchAsync(organizationId, query, cancellationToken);
 
     Task<AvailableAgent?> ResolveAsync(
         Guid? organizationId,

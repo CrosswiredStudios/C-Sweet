@@ -1,3 +1,4 @@
+extern alias Developer;
 extern alias Engineer;
 extern alias Producer;
 extern alias Technical;
@@ -9,6 +10,7 @@ using CSweet.Domain.WorkManagement;
 using CSweet.WorkManagement.Contracts;
 using Microsoft.EntityFrameworkCore;
 using GameProducer = Producer::CSweet.Agent.Producer.VideoGame;
+using SoftwareDeveloper = Developer::CSweet.Agents.SoftwareDeveloper.SoftwareDeveloperAgent;
 using GameEngineer = Engineer::CSweet.Agent.Engineer.VideoGame.GameEngineerAgent;
 using GameTechnicalDirector = Technical::CSweet.Agent.TechnicalDirector.VideoGame.SpecialistAgent;
 
@@ -19,9 +21,73 @@ public sealed class FreshTeamSprintJourneyTests
     [Theory, Trait("Category", "AgentHarness")]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Fresh_team_starts_Sprint_1_and_engineer_claims_stack_setup_once_after_restart(bool dependencies)
+    public Task Fresh_team_starts_Sprint_1_and_engineer_claims_stack_setup_once_after_restart(bool dependencies) =>
+        VerifyFirstClaimAsync(new FirstSprintModel(dependencies));
+
+    [Fact, Trait("Category", "AgentHarness")]
+    public Task Breakout_setup_spike_and_provider_recipe_reach_the_first_engineer_claim() =>
+        VerifyFirstClaimAsync(new FirstSprintModel(false) { ReplaysBreakout = true });
+
+    [Theory, Trait("Category", "AgentHarness")]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Prism_export_timeout_returns_the_failed_command_and_checkpoint_to_the_assigned_engineer(bool automatic)
     {
-        var model = new FirstSprintModel(dependencies);
+        const string command = "node scripts/export-setup-record.mjs setup.json";
+        const string checkpoint = "e36ffb1ba0a4bbbc634083761688844e7ac61afb";
+        var model = new FirstSprintModel(false);
+        await using var platform = new FreshTeamSprintPlatform(useSoftwareDeveloper: true);
+        await platform.OpenAsync(model.Pitch);
+        var team = new PlanningTeam(platform, model);
+        await team.StartHostsAsync();
+        await team.PlanAsync();
+        var first = Assert.IsType<CSweet.Infrastructure.Setup.ClaimedAgentWork>(await platform.ClaimAsync());
+        var assignment = first.Payload.Deserialize<WorkExecutionAssignment>(JsonSerializerOptions.Web)!;
+        platform.Db.SourceControlWorkspaces.Add(new() { Id = Guid.NewGuid(), OrganizationId = platform.Organization,
+            WorkItemId = assignment.TaskItemId, AssignmentRevision = assignment.AssignmentRevision, TeamId = platform.Team,
+            RepositoryId = platform.Repository, AgentInstallationId = platform.Engineer.AgentInstallationId,
+            CheckpointAt = DateTimeOffset.UnixEpoch, CheckpointDigest = checkpoint,
+            Status = CSweet.Domain.Setup.SourceControlWorkspaceStatus.Ready });
+        await platform.Db.SaveChangesAsync();
+        await platform.ReportTimeoutAsync(first, command);
+        var second = Assert.IsType<CSweet.Infrastructure.Setup.ClaimedAgentWork>(await platform.ClaimAsync());
+        await platform.ReportTimeoutAsync(second, command);
+        var stage = await platform.Db.WorkStageExecutions.SingleAsync(s => s.Id == assignment.StageExecutionId);
+        Assert.Equal(WorkStageExecutionStatus.Blocked, stage.Status);
+        Assert.Contains("cause=workspace.command.timeout", stage.LastError);
+        Assert.Contains(command, stage.LastError);
+        var manager = Guid.NewGuid();
+        var direction = new CommunicationMessageReceivedEvent(Guid.NewGuid(), Guid.NewGuid().ToString(), manager.ToString(),
+            $"Retry ticket {assignment.Identifier}: Daniel, repair the exporter and submit the result for review.", new Dictionary<string, string> {
+                [CommunicationMessageContextKeys.SenderEmployeeType] = "Human",
+                [CommunicationMessageContextKeys.SenderOrganizationUserId] = manager.ToString(),
+                ["senderIsReportingAncestor"] = "true" }, Guid.NewGuid(), 1, Guid.NewGuid());
+        var schedule = await platform.Db.AgentSchedules.AsNoTracking().SingleAsync(s => s.AgentInstallationId == platform.Gabriel.AgentInstallationId);
+        Assert.Equal("work.stage-stopped", schedule.PendingAttentionTriggerCategory);
+        Assert.Equal(stage.Id, schedule.PendingAttentionCorrelationId);
+        var now = schedule.NextAttentionReviewAt!.Value;
+        var wake = new AgentAttentionReviewDueEvent(Guid.NewGuid(), now, now.AddMinutes(5), schedule.PendingAttentionReason!)
+            { TriggerCategory = schedule.PendingAttentionTriggerCategory, CorrelationId = schedule.PendingAttentionCorrelationId };
+        if (automatic) await team.DeliverStoppedAsync(wake);
+        else await team.DeliverDirectionAsync(direction);
+        var repaired = Assert.IsType<CSweet.Infrastructure.Setup.ClaimedAgentWork>(await platform.ClaimAsync());
+        var next = repaired.Payload.Deserialize<WorkExecutionAssignment>(JsonSerializerOptions.Web)!;
+        Assert.Equal("Daniel Kim", platform.Engineer.DisplayName);
+        Assert.Equal(platform.Engineer.AgentInstallationId, (await platform.Db.AgentWorkItems.SingleAsync(w => w.Id == repaired.WorkId)).AgentInstallationId);
+        Assert.Equal(assignment.ItemId, next.ItemId);
+        Assert.Equal(assignment.StageExecutionId, next.StageExecutionId);
+        var evidence = Assert.Single(next.Evidence!, e => e.Kind == "manager-direction");
+        Assert.Contains(command, evidence.Value);
+        Assert.Contains(checkpoint, evidence.Value);
+        await team.StartHostsAsync();
+        if (automatic) await team.DeliverStoppedAsync(wake);
+        else await team.DeliverDirectionAsync(direction);
+        Assert.Null(await platform.ClaimAsync());
+        Assert.Single(await platform.Db.WorkOrchestrationEvents.Where(e => e.EventType == "stage.retry.requested").ToListAsync());
+    }
+
+    private static async Task VerifyFirstClaimAsync(FirstSprintModel model)
+    {
         await using var platform = new FreshTeamSprintPlatform();
         await platform.OpenAsync(model.Pitch);
         Assert.Empty(await platform.Db.WorkSprints.ToListAsync());
@@ -33,7 +99,7 @@ public sealed class FreshTeamSprintJourneyTests
         Assert.Equal(1, sprint.Sequence);
         Assert.Equal(WorkSprintStatus.Active, sprint.Status);
         var setup = Assert.Single(await platform.Db.CoreWorkTasks.Where(t => t.SprintId == sprint.Id && t.IsExecutable).ToListAsync());
-        Assert.Equal(platform.Adrian.OrganizationUserId, setup.AccountableOrganizationUserId);
+        Assert.Equal(platform.Engineer.OrganizationUserId, setup.AccountableOrganizationUserId);
         Assert.Equal(team.StoryAnswer.SessionId, setup.ProposalCoordinationSessionId);
         var planning = JsonSerializer.Deserialize<WorkItemPlanningSpecification>(setup.PlanningSpecificationJson!, JsonSerializerOptions.Web)!;
         var decision = Assert.Single(planning.Constraints!, c => c.Contains(model.Rationale, StringComparison.Ordinal));
@@ -73,6 +139,7 @@ public sealed class FreshTeamSprintJourneyTests
         Assert.Equal(1, model.StackChoices);
         Assert.Equal(1, model.Admissions);
         Assert.Equal(1, model.Estimates);
+        if (model.ReplaysBreakout) Assert.Equal(1, model.RecipeCorrections);
     }
 
     // Retain each installation's platform state and coordination receipts across fresh SDK dispatchers.
@@ -116,7 +183,7 @@ public sealed class FreshTeamSprintJourneyTests
             var fingerprint = FreshTeamSprintPlatform.Digest(platform.Project.ToString() + digest);
             var handoff = new GameProducer.ProducerAcceptedHandoff(platform.Project, platform.PitchId, platform.RevisionId, digest,
                 digest, Guid.NewGuid(), platform.PackageId, 1, now);
-            foreach (var actor in new[] { platform.Gabriel, platform.Victor, platform.Adrian })
+            foreach (var actor in new[] { platform.Gabriel, platform.Victor, platform.Engineer })
             {
                 var runtime = platforms[actor.OrganizationUserId] = new();
                 var state = new OperatingStateFixture(runtime);
@@ -131,7 +198,11 @@ public sealed class FreshTeamSprintJourneyTests
                     Task.FromResult(new WorkstreamDetail(platform.Project, "First playable", model.Pitch, [model.Outcome], "concept", "Approved",
                         platform.Gabriel.OrganizationUserId, null, null, null, "video-game-production.v2", 8, null, platform.ProfileDigest, 1)));
                 runtime.RegisterCapability<TeamRosterV2Request, TeamRosterV2Response>(PlatformCapabilities.TeamRosterReadV2, (_, _) => Task.FromResult(new TeamRosterV2Response(platform.Roster, platform.Project)));
-                runtime.RegisterCapability<ReadDecisionRequest, IReadOnlyList<DecisionRecord>>(PlatformCapabilities.DecisionRead, (_, _) => Task.FromResult<IReadOnlyList<DecisionRecord>>([]));
+                var providerDecision = new DecisionRecord(Guid.NewGuid(), platform.Project, "video-game.toolchain-selection.v1",
+                    "Select a certified provider for the 2D web packaging recipe.", "routine-certified-toolchain-selection",
+                    [], "provider", "provider", DecisionStatuses.Decided, "Available for the web target.", [], null, null, null, 2, now, now);
+                runtime.RegisterCapability<ReadDecisionRequest, IReadOnlyList<DecisionRecord>>(PlatformCapabilities.DecisionRead, (_, _) =>
+                    Task.FromResult<IReadOnlyList<DecisionRecord>>(model.ReplaysBreakout ? [providerDecision] : []));
                 runtime.RegisterCapability<ResourceChangeReadRequest, ResourceChangeReadResponse>(PlatformCapabilities.ResourceChangeRead, (_, _) => Task.FromResult(new ResourceChangeReadResponse([])));
                 runtime.RegisterCapability<ResourceRead, IReadOnlyList<ResourceRequestState>>(ResourceCapabilities.Read, (_, _) => Task.FromResult<IReadOnlyList<ResourceRequestState>>([]));
                 runtime.RegisterCapability<ReadWorkIssuesRequest, WorkIssueDirectory>(WorkIssueCapabilities.Read, (_, _) => Task.FromResult(new WorkIssueDirectory([], [])));
@@ -155,7 +226,7 @@ public sealed class FreshTeamSprintJourneyTests
         public async Task StartHostsAsync()
         {
             foreach (var (actor, agent) in new (AgentCoordinationParticipant, ICSweetAgent)[] {
-                (platform.Gabriel, new GameProducer.SpecialistAgent()), (platform.Victor, new GameTechnicalDirector()), (platform.Adrian, new GameEngineer()) })
+                (platform.Gabriel, new GameProducer.SpecialistAgent()), (platform.Victor, new GameTechnicalDirector()), (platform.Engineer, platform.Engineer.Role == "software-developer" ? new SoftwareDeveloper() : new GameEngineer()) })
             {
                 var identity = new AgentIdentity(actor.OrganizationUserId.ToString(), actor.DisplayName, null, actor.Role, null, [], null, null, null) { TeamContext = platform.Roster };
                 var host = hosts[actor.OrganizationUserId] = new(agent, platforms[actor.OrganizationUserId], identity, platform.Organization.ToString(), actor.AgentInstallationId.ToString());
@@ -163,6 +234,27 @@ public sealed class FreshTeamSprintJourneyTests
                 var configured = await host.ApplyConfigurationAsync(new(actor.AgentInstallationId, "1.0", settings, settings.Keys.ToArray(), 1, "fixture"));
                 Assert.True(configured.Succeeded, configured.Error);
             }
+        }
+
+        public async Task DeliverStoppedAsync(AgentAttentionReviewDueEvent wake)
+        {
+            platforms[platform.Gabriel.OrganizationUserId].RegisterCapability<ReadManagementIncidents, ManagementIncidentPage>(
+                ProjectHealthCapabilities.Incidents, (_, _) => Task.FromResult(new ManagementIncidentPage([], null)));
+            var result = await hosts[platform.Gabriel.OrganizationUserId].DeliverEventAsync(AgentAttentionEvents.ReviewDue, wake, wake.ReviewId);
+            Assert.True(result.Succeeded, result.Error);
+        }
+
+        public async Task DeliverDirectionAsync(CommunicationMessageReceivedEvent direction)
+        {
+            // A published installation has the delegation tools. Any accidental detour into
+            // generic employee selection fails this journey before the leased retry.
+            var runtime = platforms[platform.Gabriel.OrganizationUserId];
+            runtime.RegisterCapability<JsonElement, JsonElement>(DelegationCapabilities.Create,
+                (_, _) => throw new InvalidOperationException("A board retry must not create a delegation."));
+            runtime.RegisterCapability<ReadDelegationRequest, IReadOnlyList<DelegationSnapshot>>(DelegationCapabilities.Read,
+                (_, _) => Task.FromResult<IReadOnlyList<DelegationSnapshot>>([]));
+            var result = await hosts[platform.Gabriel.OrganizationUserId].DeliverEventAsync(CommunicationEvents.MessageReceived, direction, direction.TurnId);
+            Assert.True(result.Succeeded, result.Error);
         }
 
         public async Task PlanAsync()
@@ -214,7 +306,7 @@ public sealed class FreshTeamSprintJourneyTests
         private AgentCoordinationSession StartSession(StartBoardCoordinationRequest r)
         {
             if (sessions.TryGetValue(r.IdempotencyKey, out var existing)) return existing;
-            var target = new[] { platform.Victor, platform.Adrian }.Single(p => p.OrganizationUserId == r.TargetOrganizationUserId);
+            var target = new[] { platform.Victor, platform.Engineer }.Single(p => p.OrganizationUserId == r.TargetOrganizationUserId);
             Assert.Equal(platform.Board, r.BoardId);
             var now = DateTimeOffset.UtcNow;
             return sessions[r.IdempotencyKey] = new(Guid.NewGuid(), Guid.NewGuid(), Guid.Empty, Guid.Empty, Guid.Empty, platform.Gabriel,
