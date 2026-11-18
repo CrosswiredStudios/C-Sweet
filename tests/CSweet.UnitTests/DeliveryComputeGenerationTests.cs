@@ -341,7 +341,7 @@ public sealed class DeliveryComputeGenerationTests
         } f.Host.SnapshotArchive=buffer.ToArray(); }
         var ready=await ReachReadiness(f);
         var missing=condition.StartsWith("missing",StringComparison.Ordinal);
-        var error=provision?WorkDeliveryService.FailedProvisionCursor:truncated?WorkDeliveryService.TruncatedComputeValidation:managed?WorkDeliveryService.InterruptedManagedRestore:missing?WorkDeliveryService.LegacyMissingDependencyFailure:condition.StartsWith("archive",StringComparison.Ordinal)?WorkDeliveryService.LegacySourceArchiveFailure:WorkDeliveryService.LegacyComputeCursorFailure;
+        var error=provision?WorkDeliveryService.FailedProvisionCursor:truncated?WorkDeliveryService.TruncatedComputeValidation:managed?WorkDeliveryService.InterruptedManagedRestore:missing?"Compute validation failed or its result is unknown: FAIL: could not read/parse node_modules/example-engine/package.json: /app/node_modules/example-engine/package.json (ENOENT: no such file or directory, open '/app/node_modules/example-engine/package.json')":condition.StartsWith("archive",StringComparison.Ordinal)?WorkDeliveryService.LegacySourceArchiveFailure:WorkDeliveryService.LegacyComputeCursorFailure;
         var rejection=f.Review(ready);rejection=rejection with {Result=rejection.Result with {Approved=false,Summary=error,
             Criteria=[new("Requirement works",false,error)],Findings=[error]}};
         await f.Service.CompleteReviewAsync(f.Org,f.Technical.Id,rejection);

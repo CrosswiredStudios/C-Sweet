@@ -11,7 +11,9 @@ public sealed partial class WorkDeliveryService
 {
     internal const string LegacyComputeCursorFailure = "The test environment generation changed; inspect retained operations before rerunning.";
     internal const string LegacySourceArchiveFailure = "The immutable source archive changed.";
-    internal const string LegacyMissingDependencyFailure = "Compute validation failed or its result is unknown: FAIL: could not read/parse node_modules/phaser/package.json: /app/node_modules/phaser/package.json (ENOENT: no such file or directory, open '/app/node_modules/phaser/package.json')";
+    private static bool IsMissingPackageManifest(string? reason) => reason is { Length: < 1500 } &&
+        System.Text.RegularExpressions.Regex.IsMatch(reason,
+            @"\ACompute validation failed or its result is unknown: FAIL: could not read/parse node_modules/(?<package>(?:@[a-z0-9_.-]+/)?[a-z0-9_-][a-z0-9_.-]*)/package\.json: /app/node_modules/\k<package>/package\.json \(ENOENT: no such file or directory, open '/app/node_modules/\k<package>/package\.json'\)\z");
     internal const string InterruptedManagedRestore = "Compute validation failed or its result is unknown: outcome-unknown";
     internal const string TruncatedComputeValidation = "Compute validation omitted exact-source and HTTP health evidence.";
     internal const string FailedProvisionCursor = "The test environment generation changed without a matching retained operation; inspect current operations before rerunning.";
@@ -182,11 +184,11 @@ public sealed partial class WorkDeliveryService
     internal async Task<bool> IsLegacyMissingDependencyFailureAsync(WorkDeliveryPlan plan, WorkDeliveryExecution execution, CancellationToken ct)
     {
         if (execution.ScopeRevision != plan.ScopeRevision || execution.CurrentStageKey != "build-readiness" || execution.Status != "Blocked" ||
-            execution.BlockedReason?.TrimEnd() != LegacyMissingDependencyFailure || !IsComputeTest(plan, execution) ||
+            !IsMissingPackageManifest(execution.BlockedReason?.TrimEnd()) || !IsComputeTest(plan, execution) ||
             Candidate(execution) is not { Repositories.Count: 1 } candidate) return false;
         var findings = plan.Findings.Where(f => f.Status == "Open").ToArray();
         if (findings.Length == 0 || findings.Any(f => f.ExecutionId != execution.Id || f.CandidateDigest != candidate.Digest ||
-            f.Summary.TrimEnd() != LegacyMissingDependencyFailure)) return false;
+            f.Summary.TrimEnd() != execution.BlockedReason!.TrimEnd())) return false;
         var current = CurrentDeliveryStage(execution);
         if (current.LastOutcomeCode != "changes_requested" || current.AgentInstallationId is not { } installation) return false;
         var prior = execution.Stages.Where(s => s.StageKey == "build-readiness" && s.Traversal < current.Traversal && s.AgentInstallationId == installation &&
@@ -205,7 +207,7 @@ public sealed partial class WorkDeliveryService
             !int.TryParse(operation.IdempotencyKey[operationPrefix.Length..], out var step) || step < 0 || result.StandardError is null) return false;
         if (workload.NodeDependencies is not null || workload.Command is not { } command || command.RequestId != result.RequestId || command.Arguments.Count != 2 ||
             command.Arguments[0] != "-c" || command.Executable != "/bin/sh" || command.WorkingDirectory != "/var/lib/csweet-compute/work" ||
-            "Compute validation failed or its result is unknown: " + System.Text.Encoding.UTF8.GetString(result.StandardError).TrimEnd() != LegacyMissingDependencyFailure) return false;
+            "Compute validation failed or its result is unknown: " + System.Text.Encoding.UTF8.GetString(result.StandardError).TrimEnd() != execution.BlockedReason!.TrimEnd()) return false;
         var match = System.Text.RegularExpressions.Regex.Match(command.Arguments[1], "'([a-f0-9]{64})' \\| sha256sum -c -");
         if (!match.Success) return false;
         var repository = candidate.Repositories.Single();

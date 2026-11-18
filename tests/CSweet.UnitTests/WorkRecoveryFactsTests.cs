@@ -13,6 +13,44 @@ namespace CSweet.UnitTests;
 
 public sealed partial class PersonalTodoServiceTests
 {
+    [Fact]
+    public async Task Reporting_manager_sees_an_installed_package_change_for_the_current_unclassified_failure()
+    {
+        await using var db = CreateDb();
+        var setup = Seed(db);
+        var package = new AgentPackageVersion { Id = Guid.NewGuid(), Version = "6.23.5", ImportedAt = DateTimeOffset.UtcNow.AddHours(-3) };
+        var installation = new AgentInstallation { Id = setup.Agent.AgentInstallationId!.Value,
+            BusinessId = setup.Organization.Id.ToString(), PackageVersionId = package.Id };
+        db.AgentPackageVersions.Add(package);
+        db.AgentInstallations.Add(installation);
+        await db.SaveChangesAsync();
+        var native = new PersonalTodoService(db, TimeProvider.System);
+        var manager = new PersonalTodoActor(setup.FirstManager.Id, null);
+        var todo = await native.AddAsync(setup.Organization.Id, manager, Add("Review returned Story", "returned-story", setup.Agent.Id));
+        var task = await db.CoreWorkTasks.SingleAsync(t => t.Id == todo.Id);
+        var failedAt = DateTimeOffset.UtcNow.AddHours(-1);
+        for (int i = 0; i < 2; i++)
+        {
+            await AgentTicketFeedback.RecordFailureAsync(db, task, installation.Id, $"story-{i}", "Unable to reconcile returned attempts", false, failedAt.AddSeconds(i), default);
+            await db.SaveChangesAsync();
+        }
+        var auth = new ScopedActionAuthorizationService(db);
+        var recovery = new WorkRecoveryService(db, native, auth, new WorkIssueService(db, auth, TimeProvider.System));
+        var before = await recovery.ReadAsync(setup.Organization.Id, manager, new(task.Id), default);
+        Assert.DoesNotContain(package.Version, before.Explanation);
+        package.ImportedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync();
+        var changed = await recovery.ReadAsync(setup.Organization.Id, manager, new(task.Id), default);
+        Assert.Contains(package.Version, changed.Explanation);
+        Assert.Equal("Unknown", changed.Eligibility);
+        Assert.NotEqual(before.Basis, changed.Basis);
+        var selfResume = await native.RequeueAsync(setup.Organization.Id, new(setup.Agent.Id, installation.Id), new(task.Id, task.Revision, "owner-observed-draft"));
+        Assert.Equal(Wire.PersonalTodoStatuses.Blocked, selfResume.Status);
+        task.BlockReason = "Awaiting owner direction"; task.Revision++;
+        await db.SaveChangesAsync();
+        Assert.DoesNotContain(package.Version, (await recovery.ReadAsync(setup.Organization.Id, manager, new(task.Id), default)).Explanation);
+    }
+
     [Theory]
     [InlineData("work.issues.read.v1", "Permitted")]
     [InlineData("work.issues.reconcile.v1", "AlternativeAvailable")]

@@ -37,7 +37,8 @@ public sealed class WorkRecoveryService(CSweetDbContext db, IPersonalTodoService
                 .OrderByDescending(w => w.CreatedAt).Select(w => w.LastError).FirstOrDefaultAsync(ct);
             code = AgentTicketFeedback.DiagnosticField(legacy ?? "", "code");
             capability = AgentTicketFeedback.DiagnosticField(legacy ?? "", "capability");
-            currentFailureStop = stableLineage && legacy is not null && item.BlockReason == AgentTicketFeedback.RepeatedIssuePrefix + AgentTicketFeedback.FailureSentence(legacy);
+            currentFailureStop = stableLineage && (currentFailureStop ||
+                legacy is not null && item.BlockReason == AgentTicketFeedback.RepeatedIssuePrefix + AgentTicketFeedback.FailureSentence(legacy));
         }
         Guid? boardId = item.WorkContext?.BoardId;
         if (boardId is null && item.WorkContext?.WorkstreamId is Guid project)
@@ -66,6 +67,19 @@ public sealed class WorkRecoveryService(CSweetDbContext db, IPersonalTodoService
                 eligibility = check.Allowed is null ? "Unknown" : active is not null && check.Allowed == true && supported.Contains(continuation ?? capability)
                     ? continuation is null ? "Permitted" : "AlternativeAvailable" : "Denied";
                 explanation = eligibility == "Denied" ? "The current installation lacks authority or a supported continuation for the recorded operation. Resolve that owner's current access or intent before retrying." : check.Explanation;
+            }
+        }
+        if (eligibility == "Unknown" && failure is not null && currentFailureStop && item.Status == Wire.PersonalTodoStatuses.Blocked &&
+            ownerBinding is { IsEnabled: true, RevisionStatus: CSweet.Domain.Setup.PluginRevisionStatus.Active, SetupState: CSweet.Domain.Setup.PluginSetupState.Ready })
+        {
+            var replacement = await db.AgentPackageVersions.AsNoTracking()
+                .Where(v => v.Id == ownerBinding.PackageVersionId && v.ImportedAt > failure.OccurredAt)
+                .Select(v => new { v.Id, v.Version, v.ImportedAt }).SingleOrDefaultAsync(ct);
+            if (replacement is not null)
+            {
+                operationBasis = MutationContent.Digest(new { prior = operationBasis, replacement.Id, replacement.ImportedAt });
+                explanation += $" The owner's installed package {replacement.Version} was imported at {replacement.ImportedAt:O}, after this task's recorded failure at {failure.OccurredAt:O}. " +
+                    "The reporting manager can assess a diagnostic retry against the changed implementation. The outcome on this version is unverified.";
             }
         }
         var basis = MutationContent.Digest(new { policy = "work-recovery.v1", item.Id, owner = owner.Id, owner.AgentInstallationId, ownerBinding,

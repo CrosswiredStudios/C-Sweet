@@ -366,7 +366,7 @@ public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<I
 
     private async Task WithdrawObsoleteSetupDecisionsAsync(Guid organization, ResourceRequestState resource, CancellationToken token)
     {
-        if (resource.ResourceType != ResourceCapabilities.BuildToolchain || resource.ProfileKey is not ("phaser.web-2d.v1" or "babylon.web-3d.v1")) return;
+        if (resource.ResourceType != ResourceCapabilities.BuildToolchain) return;
         var decisions = await db.WorkstreamDecisions.Where(x => x.OrganizationId == organization && x.WorkstreamId == resource.WorkstreamId &&
             x.TypeKey == "video-game.toolchain-selection.v1" && x.AuthorityRuleKey == "unsupported-or-uncertified-toolchain" &&
             x.Status == "Pending").ToListAsync(token);

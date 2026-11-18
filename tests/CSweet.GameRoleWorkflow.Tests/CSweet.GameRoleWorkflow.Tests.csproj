@@ -5,6 +5,8 @@
     <CSweetGameDirectorRepositoryRoot Condition="'$(CSweetGameDirectorRepositoryRoot)' == ''">$(CSweetSourceRepositoriesRoot)/CSweet.Agent.Director.VideoGame</CSweetGameDirectorRepositoryRoot>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="CSweet.Agent.Testing" Condition="'$(UseLocalCSweetAgentSdk)' != 'true'" />
+    <ProjectReference Include="$(CSweetAgentSdkRepositoryRoot)/src/CSweet.Agent.Testing/CSweet.Agent.Testing.csproj" Condition="'$(UseLocalCSweetAgentSdk)' == 'true'" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />

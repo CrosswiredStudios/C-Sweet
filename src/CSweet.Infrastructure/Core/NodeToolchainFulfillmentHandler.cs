@@ -21,7 +21,19 @@ public sealed class NodeToolchainFulfillmentHandler(CSweetDbContext db, IGitHubA
     public const string ProviderId = "com.csweet.toolchain.node-typescript";
     public string Key => "node-typescript.v1";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    public bool Supports(string type, string profile) => type == ResourceCapabilities.BuildToolchain && profile is "phaser.web-2d.v1" or "babylon.web-3d.v1";
+    public bool Supports(string type, string profile) => type == ResourceCapabilities.BuildToolchain &&
+        (profile == Key || db.ToolchainAdapterDefinitions.AsNoTracking()
+            .Where(x => x.ProviderPackageId == ProviderId && x.Key == Key)
+            .Select(x => x.DefinitionJson).AsEnumerable().Any(json => EnvironmentProfiles(json, profile).Length > 0));
+
+    private string[] EnvironmentProfiles(string definition, string profile)
+    {
+        using var json = JsonDocument.Parse(definition);
+        return json.RootElement.GetProperty("recipes").EnumerateArray()
+            .Where(r => profile == Key || r.GetProperty("key").GetString() == profile)
+            .SelectMany(r => r.GetProperty("requiredEnvironmentProfileKeys").EnumerateArray())
+            .Select(x => x.GetString()!).Distinct(StringComparer.Ordinal).ToArray();
+    }
 
     public async Task<ResourcePlan> PrepareAsync(Guid organization, ResourceRequest request, CancellationToken token)
     {
@@ -50,9 +62,8 @@ public sealed class NodeToolchainFulfillmentHandler(CSweetDbContext db, IGitHubA
         }
         var definition = await db.ToolchainAdapterDefinitions.SingleAsync(x => x.ProviderPackageId == ProviderId &&
             x.ProviderPackageVersion == package.Version && x.Key == Key, token);
-        using var json = JsonDocument.Parse(definition.DefinitionJson);
-        var recipe = json.RootElement.GetProperty("recipes").EnumerateArray().Single(x => x.GetProperty("key").GetString() == request.ProfileKey);
-        var profiles = recipe.GetProperty("requiredEnvironmentProfileKeys").EnumerateArray().Select(x => x.GetString()!).ToArray();
+        var profiles = EnvironmentProfiles(definition.DefinitionJson, request.ProfileKey);
+        if (profiles.Length == 0) throw new InvalidOperationException("The published provider does not advertise the requested profile.");
         var now = clock.GetUtcNow();
         var digests = await db.ExecutionNodeProviders.AsNoTracking().Where(x => x.IsAvailable && x.SupportsToolchainBuildWorkloads &&
             x.ExecutionNode != null && x.ExecutionNode.Status == ExecutionNodeStatus.Ready && x.ExecutionNode.LastHeartbeatAt >= now.AddMinutes(-2))
@@ -80,7 +91,7 @@ public sealed class NodeToolchainFulfillmentHandler(CSweetDbContext db, IGitHubA
         var plan = state.Plan ?? throw new InvalidOperationException("Prepare an exact resource plan before validation.");
         var package = await db.AgentPackageVersions.AsNoTracking().SingleAsync(x => x.Id == plan.PackageVersionId, token);
         var definition = await db.ToolchainAdapterDefinitions.AsNoTracking().SingleAsync(x => x.Id == plan.DefinitionId, token);
-        if (!Supports(state.ResourceType, state.ProfileKey) || package.AgentId != ProviderId || package.PublisherId != "com.csweet" ||
+        if (state.ResourceType != ResourceCapabilities.BuildToolchain || package.AgentId != ProviderId || package.PublisherId != "com.csweet" ||
             package.PluginKind != PluginKind.Service || package.Status != AgentPackageVersionStatus.Built ||
             package.Version != plan.PackageVersion || package.ManifestDigest != plan.ManifestDigest || package.PackageDigest != plan.PackageDigest ||
             definition.DefinitionDigest != plan.DefinitionDigest || definition.ProviderPackageVersion != package.Version ||
