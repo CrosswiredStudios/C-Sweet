@@ -176,7 +176,11 @@ public sealed record WorkBoardDetailResponse(
     /// employee's own agenda. Empty unless the reader is a human manager or owner.
     /// </summary>
     public IReadOnlyList<WorkBoardLinkedCommitmentResponse> LinkedCommitments { get; init; } = [];
+    public IReadOnlyList<WorkBoardPlanningContribution> PlanningContributions { get; init; } = [];
 }
+
+public sealed record WorkBoardPlanningContribution(string StoryKey, string Title, string Status,
+    Guid ResponsibleEmployeeId, string ResponsibleEmployee, DateTimeOffset UpdatedAt);
 
 /// <summary>
 /// A personal commitment bound to a team board, shown on that board for oversight. The card itself is read-only

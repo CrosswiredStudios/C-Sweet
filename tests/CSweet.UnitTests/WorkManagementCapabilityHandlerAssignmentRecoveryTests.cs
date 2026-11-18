@@ -14,6 +14,66 @@ namespace CSweet.UnitTests;
 public sealed partial class WorkManagementCapabilityHandlerTests
 {
     [Theory]
+    [InlineData("request-more-evidence", false, false, true)]
+    [InlineData("continue-current-plan", false, false, false)]
+    [InlineData("continue-current-plan", true, false, true)]
+    [InlineData("continue-current-plan", false, true, true)]
+    public async Task Recovery_decision_applies_to_its_Story_and_exact_returned_revision(string choice, bool revisedTask, bool superseded, bool held)
+    {
+        await using var db = CreateDb();
+        var setup = SeedInstallation(db);
+        var owner = db.CoreOrganizationUsers.Local.Single().Id;
+        var board = new WorkBoard { Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId,
+            WorkstreamId = Guid.NewGuid(), ManagerOrganizationUserId = owner };
+        var policy = new WorkOrchestrationPolicy { Id = Guid.NewGuid(), BoardId = board.Id, OrganizationId = setup.OrganizationId };
+        var revision = new WorkOrchestrationPolicyRevision { Id = Guid.NewGuid(), PolicyId = policy.Id, BoardId = board.Id, OrganizationId = setup.OrganizationId };
+        policy.PublishedRevisionId = revision.Id;
+        policy.Revisions.Add(revision);
+        board.OrchestrationPolicies.Add(policy);
+        var sprint = new WorkSprint { Id = Guid.NewGuid(), BoardId = board.Id, OrganizationId = setup.OrganizationId };
+        var session = Guid.NewGuid();
+        var digest = new string('a', 64);
+        WorkTask AddStoryAndChild(string key)
+        {
+            var story = new WorkTask { Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, BoardId = board.Id,
+                IsExecutable = false, ProposalItemKey = key };
+            var item = new WorkTask { Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, BoardId = board.Id,
+                SprintId = sprint.Id, ParentWorkTaskId = story.Id, ProposalCoordinationSessionId = session, ProposalArtifactDigest = digest };
+            db.AddRange(story, item);
+            return item;
+        }
+        var target = AddStoryAndChild("scene");
+        AddStoryAndChild("level-two");
+        if (revisedTask) target.ProposalArtifactDigest = new string('b', 64);
+        var prior = new WorkstreamDecisionRecord { Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, WorkstreamId = board.WorkstreamId.Value,
+            Status = Wire.DecisionStatuses.Decided, DecidedByOrganizationUserId = owner, Revision = 2 };
+        var basis = new CSweet.Agent.SDK.ContributionAdmission(board.Id, "scene", session, digest, prior.Id, prior.Revision, owner, "Pause", ["Run the scene"]);
+        if (superseded)
+        {
+            prior.SupersededByDecisionId = Guid.NewGuid();
+            prior.Revision++;
+            prior.Status = Wire.DecisionStatuses.Superseded;
+        }
+        db.AddRange(board, sprint, prior, new WorkstreamDecisionRecord { Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId,
+            WorkstreamId = prior.WorkstreamId, TypeDataJson = JsonSerializer.Serialize(basis, JsonSerializerOptions.Web),
+            Status = Wire.DecisionStatuses.Decided, SelectedOptionId = choice, DecidedByOrganizationUserId = owner, Rationale = "Reviewed evidence." });
+        await db.SaveChangesAsync();
+        var result = await new WorkOrchestrationService(db, TimeProvider.System).PreflightAsync(setup.OrganizationId, board.Id, sprint.Id, setup.InstallationId);
+        Assert.Equal(held ? new Guid?[] { target.Id } : [], result.Errors.Where(e => e.Code == "item.planning_hold").Select(e => e.ItemId).ToArray());
+    }
+
+    [Fact]
+    public void Admission_must_name_the_Story_from_the_original_request()
+    {
+        const string legacy = """{"progressivePlanning":{"phase":"Story","storyKey":"scene"}}""";
+        const string current = """{"boardIncrement":{"key":"scene","title":"First playable"}}""";
+        Assert.True(WorkstreamGovernanceCapabilityHandler.RequestNamesStory(current, "custom", "scene"));
+        Assert.True(WorkstreamGovernanceCapabilityHandler.RequestNamesStory(legacy, "video-game.production.planning-cycle.v1", "scene"));
+        Assert.False(WorkstreamGovernanceCapabilityHandler.RequestNamesStory(current, "custom", "another"));
+        Assert.False(WorkstreamGovernanceCapabilityHandler.RequestNamesStory(legacy, "unrelated", "scene"));
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Queue_initial_stage_does_not_hide_missing_or_self_review_staffing_in_preflight(bool selfReview)

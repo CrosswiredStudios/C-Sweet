@@ -101,6 +101,18 @@ public sealed class AgentHireDialogRenderingTests
         Assert.True(Get<bool>(fixture.Review, "HasMissingRequiredConfiguration"));
     }
 
+    [Fact]
+    public async Task Hiring_shows_the_choice_of_operating_profile_even_with_a_valid_default()
+    {
+        await using var fixture = await ProfileFixture.CreateAsync([
+            new() { Key = "businessOperatingProfile", Label = "Business operating profile", Type = "select", Required = true,
+                DefaultValue = JsonSerializer.SerializeToElement("general"), Options = [new("general", "General"), new("game-studio", "Game Studio")] }
+        ]);
+        var html = await fixture.HtmlAsync();
+        Assert.Matches("<details[^>]*class=\"profile-details\"[^>]* open", html);
+        Assert.Contains("Business operating profile", html);
+    }
+
     [Theory]
     [InlineData(0, "project.plan", "project.read")]
     [InlineData(1, "project.read", "project.plan")]

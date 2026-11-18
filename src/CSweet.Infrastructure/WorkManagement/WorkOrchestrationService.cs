@@ -567,6 +567,34 @@ public sealed partial class WorkOrchestrationService(
             .Where(x => x.SprintId == sprintId && x.IsExecutable)
             .ToListAsync(cancellationToken);
         if (items.Count == 0) errors.Add(new("sprint.empty", "The sprint has no executable work items."));
+        if (board.WorkstreamId is Guid project && items.Any(i => i.ParentWorkTaskId.HasValue))
+        {
+            var decisions = await PlanningContributionDecisions.ForBoard(db, organizationId, project, boardId).ToListAsync(cancellationToken);
+            var admissions = decisions.Select(d => (Decision: d, Basis: CSweet.Agent.SDK.ContributionAdmission.Read(
+                JsonSerializer.Deserialize<JsonElement>(d.TypeDataJson!)))).Where(a => a.Basis?.BoardId == boardId).ToList();
+            if (admissions.Count > 0)
+            {
+                var parentIds = items.Select(i => i.ParentWorkTaskId).Distinct().ToArray();
+                var parents = await db.CoreWorkTasks.AsNoTracking().Where(p => p.BoardId == boardId &&
+                    p.OrganizationId == organizationId && parentIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, p => p.ProposalItemKey, cancellationToken);
+                var priorIds = admissions.Select(a => a.Basis!.PriorDecisionId).Distinct().ToArray();
+                var directions = await db.WorkstreamDecisions.AsNoTracking().Where(d => d.OrganizationId == organizationId &&
+                    d.WorkstreamId == project && priorIds.Contains(d.Id)).ToDictionaryAsync(d => d.Id, cancellationToken);
+                foreach (var group in admissions.GroupBy(a => (a.Basis!.PriorDecisionId, a.Basis.StoryKey)))
+                {
+                    var (decision, basis) = group.OrderByDescending(a => a.Basis!.PriorRevision)
+                        .ThenByDescending(a => a.Decision.CreatedAt).ThenByDescending(a => a.Decision.Id).First();
+                    var admission = basis!;
+                    var released = PlanningContributionDecisions.HasCurrentDirection(admission, directions.GetValueOrDefault(admission.PriorDecisionId)) &&
+                        admission.Allows(decision.Status, decision.SelectedOptionId, decision.DecidedByOrganizationUserId, decision.Rationale);
+                    foreach (var item in items.Where(i => i.ParentWorkTaskId is Guid parent && parents.GetValueOrDefault(parent) == admission.StoryKey))
+                    {
+                        if (released && item.ProposalCoordinationSessionId == admission.SessionId && item.ProposalArtifactDigest == admission.ArtifactDigest) continue;
+                        errors.Add(new("item.planning_hold", $"Planning decision {decision.Id:D} requires current approval from {admission.PriorAuthorityId:D} for {admission.StoryKey}.", item.Id));
+                    }
+                }
+            }
+        }
         var sprintIds = items.Select(x => x.Id).ToHashSet();
         var dependencies = await db.WorkItemDependencies.AsNoTracking()
             .Where(x => sprintIds.Contains(x.WorkItemId)).ToListAsync(cancellationToken);
@@ -620,7 +648,8 @@ public sealed partial class WorkOrchestrationService(
             {
                 var stage = policy.Stages.SingleOrDefault(x => x.Key == assignment.StageKey);
                 if (stage is null) continue;
-                if (stage.Type == WorkOrchestrationStageType.AgentExecution)
+                if (stage.Type == WorkOrchestrationStageType.AgentExecution ||
+                    stage.Type == WorkOrchestrationStageType.MemberExecution && assignment.PrincipalKind == WorkOrchestrationPrincipalKind.AgentInstallation)
                 {
                     var installation = assignment.AgentInstallationId.HasValue
                         ? await db.AgentInstallations.AsNoTracking().Include(x => x.PackageVersion).SingleOrDefaultAsync(x =>
@@ -645,17 +674,7 @@ public sealed partial class WorkOrchestrationService(
                     errors.Add(new("assignment.human", "Manual stage lacks an active human assignment.", item.Id, stage.Key, assignment.Id));
                 if (stage.Type == WorkOrchestrationStageType.MemberExecution)
                 {
-                    if (assignment.PrincipalKind == WorkOrchestrationPrincipalKind.AgentInstallation)
-                    {
-                        var installation = assignment.AgentInstallationId.HasValue
-                            ? await db.AgentInstallations.AsNoTracking().Include(x => x.PackageVersion).SingleOrDefaultAsync(x =>
-                                x.Id == assignment.AgentInstallationId && x.IsEnabled &&
-                                x.RevisionStatus == PluginRevisionStatus.Active && x.BusinessId == organizationId.ToString(), cancellationToken)
-                            : null;
-                        if (installation is null || !ProvidesExecutionCapability(installation.PackageVersion?.ManifestJson))
-                            errors.Add(new("assignment.agent", "Assigned installation is inactive or does not provide work.execution.run.", item.Id, stage.Key, assignment.Id));
-                    }
-                    else if (assignment.PrincipalKind == WorkOrchestrationPrincipalKind.Human)
+                    if (assignment.PrincipalKind == WorkOrchestrationPrincipalKind.Human)
                     {
                         if (!assignment.OrganizationUserId.HasValue ||
                             !await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
@@ -663,7 +682,7 @@ public sealed partial class WorkOrchestrationService(
                                 x.IsActive && x.EmployeeType == EmployeeType.Human, cancellationToken))
                             errors.Add(new("assignment.human", "Member stage lacks an active human assignment.", item.Id, stage.Key, assignment.Id));
                     }
-                    else
+                    else if (assignment.PrincipalKind != WorkOrchestrationPrincipalKind.AgentInstallation)
                     {
                         errors.Add(new("assignment.member", "Member stage requires a human or agent assignment.", item.Id, stage.Key, assignment.Id));
                     }
