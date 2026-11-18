@@ -42,6 +42,12 @@
 - Persist state changes and their notification outbox records atomically. Treat events as wake hints, not authoritative snapshots or execution grants.
 - Agents may be offline, miss notifications, or receive duplicates/out-of-order delivery. Provide authorized current-state reads and bounded discovery for wake/reconnect recovery; make resulting effects idempotent.
 
+## Agent-flow regression tests
+
+- Every change that fixes an agent flow must add or extend a deterministic `AgentTestHost` regression in the same change. This includes prompt, contract, routing, scheduling and Headquarters fixes that affect an agent handoff. Start at the public callback that previously stalled and assert the next durable outcome.
+- For a handoff, pass the sending agent's actual output to the receiving agent. For execution pickup, verify the assigned worker's lease. For restart or redelivery bugs, create a fresh host over retained platform state, replay the original delivery, and assert the number and identity of accepted effects.
+- Tag the scenario `Category=AgentHarness`, run the affected test, and report its name, executed case count and observed outcome. Put single-agent regressions in the agent repository and cross-agent journeys in the corresponding workflow suite. See the [agent testing guide](docs/implementation/agent-testing-framework.md).
+
 ## Model output contracts
 
 - Never ask a model for a value code can compute or copy. Authority, identity, keys, dates, budgets and role lists are owned by code; the model returns only the fields that need judgment, and code merges them into the template.

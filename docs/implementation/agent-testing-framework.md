@@ -1,8 +1,14 @@
 # Standalone agent testing framework
 
-The SDK currently ships `AgentTestRuntime`. This plan covers the proposed shared dispatcher, public `CSweet.Agent.Testing` package, template changes, and CI check.
+The SDK provides `AgentTestRuntime` and the standalone `AgentTestHost` dispatcher. This plan tracks the testing package, authoring templates and CI adoption.
 
 An author working in a single agent checkout should be able to start at the callback that failed, make an edit, and rerun the scenario with `dotnet test`. A new agent author should be able to develop a flow the same way before installing the agent in C-Sweet. Both workflows use the real agent and assert its observable result.
+
+## Regression coverage for flow fixes
+
+Every agent-flow fix ships with an accompanying `AgentTestHost` regression. The rule applies to the contributor or AI copilot working on the fix, including when the code change belongs to Headquarters. Reproduce the failing delivery through the SDK dispatcher, script only inputs outside the behavior under test, then drive the receiving agent or platform service until its observable effect is recorded. Keep an ordinary scheduled wake distinguishable from an operator retry. For a restart, keep the platform state, replace the agent instance and redeliver the original event ID.
+
+`FreshTeamSprintJourneyTests` in `tests/CSweet.GameRoleWorkflow.Tests` exercises this boundary for game planning. It starts with a staffed team and an accepted pitch on an empty board. The two cases use scripted technical judgments for different game mechanics and follow the selected stack into the published setup ticket, the active sprint and the assigned engineer's inbox lease. Run both with `dotnet test tests/CSweet.GameRoleWorkflow.Tests -c Release --filter FullyQualifiedName~FreshTeamSprintJourneyTests`. Use the same sibling checkout paths as `scripts/Test-GameStudioWorkflow.ps1`.
 
 ## Implementation status
 

@@ -40,4 +40,6 @@ try {
     [xml]$roles = Get-Content -Raw -LiteralPath (Join-Path $resultsDir 'roles.trx')
     $cases = @($roles.TestRun.Results.UnitTestResult)
     if (!$cases.Count -or @($cases | Where-Object outcome -ne 'Passed').Count) { throw 'The game-role journeys must run and pass.' }
+    $firstClaims = @($cases | Where-Object testName -like '*Fresh_team_starts_Sprint_1_and_engineer_claims_stack_setup_once_after_restart*')
+    if ($firstClaims.Count -ne 2) { throw 'Both fresh-team stack and lockfile cases must execute.' }
 } finally {$env:CSWEET_REQUIRE_LIFECYCLE_DATABASE=$previousRequired}
