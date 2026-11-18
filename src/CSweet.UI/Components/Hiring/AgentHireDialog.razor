@@ -136,7 +136,7 @@
                     </section>
                     @if (OtherFields.Any())
                     {
-                        <details class="profile-details" open="@OtherFields.Any(f => f.Required && !HasConfigurationValue(f))">
+                        <details class="profile-details" open="@OtherFields.Any(f => f.Required && (!HasConfigurationValue(f) || f.Options is { Count: > 1 }))">
                             <summary>@L["AgentHireDialog.AgentSettings"] <span>@OtherFields.Count() @(OtherFields.Count() == 1 ? "setting" : "settings")</span></summary>
                             @ConfigurationEditor(OtherFields)
                         </details>
