@@ -4,6 +4,26 @@ The SDK provides `AgentTestRuntime` and the standalone `AgentTestHost` dispatche
 
 An author working in a single agent checkout should be able to start at the callback that failed, make an edit, and rerun the scenario with `dotnet test`. A new agent author should be able to develop a flow the same way before installing the agent in C-Sweet. Both workflows use the real agent and assert its observable result.
 
+## Run Victor's stack decision against a specific model
+
+This checkpoint starts with an accepted pitch, a staffed team, an empty board and a pending Producer planning wake. It runs in memory with the real Technical Director and Producer. It needs the workflow suite and its source-repository dependencies. No C-Sweet instance or database service is needed.
+
+From a C-Sweet checkout, run the following PowerShell command with your OpenAI-compatible API base URL and the model ID served there.
+
+```powershell
+./scripts/Test-VictorStackCheckpoint.ps1 -BaseUrl 'http://localhost:8000/v1' -Model 'your-model-id'
+```
+
+If you keep the Director repository elsewhere, add `-GameDirectorRepositoryRoot <path>` or set `CSWEET_GAME_DIRECTOR_REPOSITORY`. Use `-SourceRepositoriesRoot` for a different parent directory for the other agents. For an authenticated endpoint, pass `-ApiKeyVariable MY_MODEL_KEY` with the key already set in that environment variable. The fixture uses a 4,096-token output budget by default. Use `-MaxOutputTokens` to match the installation under investigation.
+
+The [starting fixture](../../tests/CSweet.GameRoleWorkflow.Tests/Checkpoints/victor-stack.json) contains the accepted pitch and its observable outcome. Copy it, edit those two fields and pass `-Checkpoint <file>`. Use `-NoBuild` when changing the fixture, model or endpoint. Omit it after editing agent or harness code. Each invocation creates fresh platform state so a previously accepted stack decision cannot satisfy the next trial.
+
+Only Victor's `project_technical_choice` request goes to the selected endpoint. The test uses the app's `PlatformLlmCapabilityHandler` and provider factory, so the structured schema, fixture employee identity, workspace instructions and installation output budget go through the production code. Other model judgments are scripted. The output shows the generated choice, inference time, and the assigned setup ticket that Gabriel published. The assertion checks the accepted stack and setup against that ticket. It allows different engines to pass. One invocation reports one trial. The ordinary `Category=AgentHarness` run exercises the handoff offline.
+
+Each trial allows one generation. If Victor requests a correction, the test fails and includes the first reply in its output. The test result and reply are also saved in `artifacts/TestResults/victor-stack-*.trx` in the checkout that ran it.
+
+This pilot covers the accepted-pitch checkpoint in the game workflow suite. Capturing an arbitrary running company and selecting other live steps are separate roadmap items.
+
 ## Regression coverage for flow fixes
 
 Every agent-flow fix ships with an accompanying `AgentTestHost` regression. The rule applies to the contributor or AI copilot working on the fix, including when the code change belongs to Headquarters. Reproduce the failing delivery through the SDK dispatcher, script only inputs outside the behavior under test, then drive the receiving agent or platform service until its observable effect is recorded. Keep an ordinary scheduled wake distinguishable from an operator retry. For a restart, keep the platform state, replace the agent instance and redeliver the original event ID.

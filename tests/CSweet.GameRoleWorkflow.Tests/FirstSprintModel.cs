@@ -7,20 +7,20 @@ namespace CSweet.GameRoleWorkflow.Tests;
 // setup criterion, lockfile, ticket identity, sprint or assignee.
 internal sealed class FirstSprintModel(bool dependencies)
 {
-    public string Pitch => dependencies
+    public string Pitch { get; init; } = dependencies
         ? "Make a browser game where the player deflects moving obstacles using a simulated spring."
         : "Make a tiny browser puzzle where a player moves a tile one square at a time.";
-    public string Outcome => dependencies ? "The spring deflects the obstacle." : "The selected tile moves one square.";
+    public string Outcome { get; init; } = dependencies ? "The spring deflects the obstacle." : "The selected tile moves one square.";
     public string Engine => dependencies ? "Matter.js" : "DOM";
     public string Language => dependencies ? "TypeScript" : "JavaScript";
-    public string Setup => dependencies ? "Install dependencies and launch the spring scene." : "Open the puzzle page directly.";
+    public string Setup { get; set; } = dependencies ? "Install dependencies and launch the spring scene." : "Open the puzzle page directly.";
     public string Rationale => dependencies ? "A physics solver supports the spring response." : "Native DOM input covers a single tile with minimal setup.";
     public string[] Libraries => dependencies ? ["matter-js"] : [];
     public string? Lockfile => dependencies ? "package-lock.json" : null;
     public int StackChoices { get; private set; }
     public int Admissions { get; private set; }
     public int Estimates { get; private set; }
-    private int technicalPage;
+    private int technicalPage = 1;
     private const string Brief = """
         Outcome: Implement one playable interaction and leave scoring outside this first increment.
         Context: Locate the scene entry point and input handler in the project or create them for the first scene.
@@ -63,7 +63,7 @@ internal sealed class FirstSprintModel(bool dependencies)
         }
 
         Assert.Equal("game-technical-director", actor.Role);
-        if (technicalPage++ == 0)
+        if (CheckpointStack.Matches(request))
         {
             Assert.Contains(messages, text => text.Contains(Pitch));
             Assert.Contains(messages, text => text.Contains("on merit"));
@@ -71,7 +71,7 @@ internal sealed class FirstSprintModel(bool dependencies)
             return new { engine = Engine, language = Language, libraries = Libraries, rationale = Rationale, setup = Setup, lockfile = Lockfile };
         }
         string[] none = [];
-        return technicalPage switch
+        return ++technicalPage switch
         {
             2 => new { commitments = new[] { new { statement = Outcome, sourceIndexes = new[] { 0 }, kind = "Outcome" } } },
             3 => new { epics = new[] { new { title = "Playable interaction", outcome = Outcome, acceptanceCriteria = new[] { Outcome },

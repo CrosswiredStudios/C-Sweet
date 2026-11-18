@@ -1,0 +1,4 @@
+{
+  "pitch": "Make a tiny browser puzzle where a player moves a tile one square at a time. Use keyboard input. The first playable should open from a clean checkout.",
+  "outcome": "The selected tile moves one square."
+}
