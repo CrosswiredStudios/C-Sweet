@@ -2,6 +2,7 @@ extern alias Director;
 extern alias Creative;
 using System.Text.Json;
 using CSweet.Agent.SDK;
+using CSweet.Agent.Testing;
 using CSweet.WorkManagement.Contracts;
 using DirectorAgent = Director::CSweet.Agent.Director.VideoGame.VideoGameDirectorAgent;
 using DirectorState = Director::CSweet.Agent.Director.VideoGame.GameDirectorOperatingState;
@@ -71,7 +72,8 @@ public sealed class CreativeDesignFinalizationJourneyTests
                 decisions++; return Task.FromResult(gdd!); });
         var manager = new AgentCoordinationParticipant(director,Guid.NewGuid(),"Marcus","Initiator");
         var creative = new AgentCoordinationParticipant(naomi,Guid.NewGuid(),"Naomi","Target");
-        var directorContext=Runtime(director).CreateContext(organization.ToString(),identity:new(director.ToString(),"Marcus",null,"Video Game Director",null,[],null,Guid.NewGuid().ToString(),"CEO"));
+        var directorRuntime = Runtime(director);
+        var directorContext=directorRuntime.CreateContext(organization.ToString(),identity:new(director.ToString(),"Marcus",null,"Video Game Director",null,[],null,Guid.NewGuid().ToString(),"CEO"));
         var creativeContext=Runtime(naomi).CreateContext(organization.ToString(),identity:new(naomi.ToString(),"Naomi",null,"Creative Director",null,[],null,director.ToString(),"Video Game Director"));
         var marcus=new DirectorAgent(); var creativeAgent=new CreativeAgent();
         Assert.True((await marcus.ExecuteCapabilityAsync(new(Guid.NewGuid(),AgentConfigurationCapabilities.Update,
@@ -109,9 +111,22 @@ public sealed class CreativeDesignFinalizationJourneyTests
             Assert.Equal("Blocked",final.Disposition); Assert.Equal(final,replay);
             Assert.Contains(revised.Content,final.Content);
             Assert.Equal(1,decisions); Assert.Equal(priorReads,reads); Assert.Equal(originalRevision,gdd.LatestRevisionId);
-            // Use the actual SDK validator which rejected all three incident attempts.
-            var worker=typeof(CSweetAgentBase).Assembly.GetType("CSweet.Agent.SDK.AgentRuntimeWorker`1")!.MakeGenericType(typeof(DirectorAgent));
-            worker.GetMethod("ValidateCoordinationResult",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.Invoke(null,[finalRequest,final]);
+            // A finalization replay must pass SDK validation and submit the same owned blocker.
+            var replies = new List<RespondToAgentCoordinationRequest>();
+            directorRuntime.RegisterCapability<RespondToAgentCoordinationRequest, AgentCoordinationSession>(
+                CommunicationCapabilities.CoordinationRespond, (reply, _) => {
+                    replies.Add(reply);
+                    var now = DateTimeOffset.UtcNow;
+                    return Task.FromResult(new AgentCoordinationSession(session, Guid.Empty, Guid.Empty, Guid.Empty,
+                        Guid.Empty, manager, creative, finalRequest.Subject, finalRequest.Objective, [], reply.Disposition,
+                        reply.ExpectedRevision + 1, reply.ExpectedTurnOrdinal + 1, null, true, reply.Content, now, now, turns));
+                });
+            var host = new AgentTestHost(marcus, directorRuntime, directorContext.Identity, organization.ToString());
+            Assert.True((await host.DeliverCoordinationTurnAsync(finalRequest)).Succeeded);
+            var submittedBlocker = Assert.Single(replies);
+            Assert.Equal(session, submittedBlocker.SessionId);
+            Assert.Equal(final.Disposition, submittedBlocker.Disposition);
+            Assert.Equal(final.Content, submittedBlocker.Content);
             // A human retry of the now-blocked chat returns to Marcus without finalization.
             Append(director,final);
             var resumed=await marcus.HandleCoordinationTurnAsync(Request(false),directorContext,default);
