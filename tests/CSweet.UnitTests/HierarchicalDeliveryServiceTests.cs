@@ -477,6 +477,17 @@ public sealed class HierarchicalDeliveryServiceTests
                     Db.ScopedActionGrants.Add(new() { Id = Guid.NewGuid(), OrganizationId = Org, SubjectKind = GrantSubjectKind.OrganizationUser,
                         SubjectId = person.Id, ScopeKind = GrantScopeKind.Board, ScopeId = Board.Id, Action = action });
             }
+            if (!Artifact)
+            {
+                for (var index = 0; index < (twoRepositories ? 2 : 1); index++)
+                {
+                    var connection = new SourceControlConnection { Id = Guid.NewGuid(), OrganizationId = Org, Provider = SourceControlProvider.InternalGit, Status = SourceControlConnectionStatus.Connected };
+                    var repository = new SourceControlRepository { Id = Guid.NewGuid(), OrganizationId = Org, Connection = connection, ConnectionId = connection.Id,
+                        Name = "Repository " + index, DefaultBranch = "main", Status = SourceControlRepositoryStatus.Ready };
+                    Db.SourceControlRepositories.Add(repository); Repositories.Add(repository.Id);
+                    Db.TeamRepositoryPolicies.Add(new() { Id = Guid.NewGuid(), OrganizationId = Org, TeamId = team.Id, RepositoryId = repository.Id });
+                }
+            }
             if (!includeWorkItems)
             {
                 await Db.SaveChangesAsync();
@@ -495,14 +506,6 @@ public sealed class HierarchicalDeliveryServiceTests
                 Assign("technical-review", Technical);
                 Db.WorkItemStageAssignments.Add(new() { Id = Guid.NewGuid(), OrganizationId = Org, BoardId = Board.Id, WorkItemId = Task.Id,
                     StageKey = "task-integration", PrincipalKind = WorkOrchestrationPrincipalKind.PlatformAction, PlatformAction = HierarchicalWorkflows.TaskIntegrationAction });
-                for (var index = 0; index < (twoRepositories ? 2 : 1); index++)
-                {
-                    var connection = new SourceControlConnection { Id = Guid.NewGuid(), OrganizationId = Org, Provider = SourceControlProvider.InternalGit, Status = SourceControlConnectionStatus.Connected };
-                    var repository = new SourceControlRepository { Id = Guid.NewGuid(), OrganizationId = Org, Connection = connection, ConnectionId = connection.Id,
-                        Name = "Repository " + index, DefaultBranch = "main", Status = SourceControlRepositoryStatus.Ready };
-                    Db.SourceControlRepositories.Add(repository); Repositories.Add(repository.Id);
-                    Db.TeamRepositoryPolicies.Add(new() { Id = Guid.NewGuid(), OrganizationId = Org, TeamId = team.Id, RepositoryId = repository.Id });
-                }
             }
             await Db.SaveChangesAsync();
         }
@@ -549,8 +552,9 @@ public sealed class HierarchicalDeliveryServiceTests
         {
             var result = await Service.ConfigureAsync(Org, Manager.Id, Declare(request ?? Request())); PlanId = result.Id;
             Task = await Db.CoreWorkTasks.SingleAsync(x => x.Id == Task.Id);
+            var planning = JsonSerializer.Deserialize<WorkItemPlanningSpecification>(Task.PlanningSpecificationJson!, Json)!;
             Task.DeliverySpecificationJson = JsonSerializer.Serialize(new WorkItemDeliverySpecification(Artifact ? Guid.Empty : Repositories[0],
-                ["Deliver requirement"], ["Requirement works"]) { BaseBranch = Artifact ? "" : "csweet/story/one", DeliveryKind = Artifact ? "Artifact" : "Code", DeliveryPlanId = PlanId }, Json);
+                planning.Requirements, planning.AcceptanceCriteria) { BaseBranch = Artifact ? "" : "csweet/story/one", DeliveryKind = Artifact ? "Artifact" : "Code", DeliveryPlanId = PlanId }, Json);
             await Db.SaveChangesAsync(); return result;
         }
         public Task<WorkDeliveryPlanResponse> Activate(WorkDeliveryPlanResponse draft) => Service.ControlAsync(Org, Manager.Id, new(draft.Id, draft.Revision, "activate", "activate"));

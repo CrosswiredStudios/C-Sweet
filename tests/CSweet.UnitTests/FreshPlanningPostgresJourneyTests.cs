@@ -28,7 +28,14 @@ public sealed class FreshPlanningPostgresJourneyTests
     [LifecyclePostgresFact]
     public Task PublishedGameStoryStartsSprintOneAndIsClaimedByItsAssignedEngineer() => Run(true);
 
-    private static async Task Run(bool verifyWorkerPickup)
+    [LifecyclePostgresFact]
+    public async Task EngineerClaimsSprintOneCodeSetupWithOrWithoutAProjectLockfile()
+    {
+        await Run(true, "Launch the static browser puzzle directly from a clean checkout.");
+        await Run(true, "Commit the npm lockfile and launch the track from a clean checkout.");
+    }
+
+    private static async Task Run(bool verifyWorkerPickup, string? setupCriterion = null)
     {
         var settings = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("CSWEET_COMPUTE_TEST_DATABASE"));
         Assert.Contains(settings.Host, new[] { "127.0.0.1", "localhost" });
@@ -36,7 +43,7 @@ public sealed class FreshPlanningPostgresJourneyTests
         await using var admin = new NpgsqlConnection(new NpgsqlConnectionStringBuilder(settings.ConnectionString) { Database = "postgres" }.ConnectionString);
         await admin.OpenAsync(); await using (var create = new NpgsqlCommand($"CREATE DATABASE \"{settings.Database}\"",admin)) await create.ExecuteNonQueryAsync();
         try {
-            await using var f = new HierarchicalDeliveryServiceTests.Fixture(true,new DbContextOptionsBuilder<CSweetDbContext>().UseNpgsql(settings.ConnectionString).Options);
+            await using var f = new HierarchicalDeliveryServiceTests.Fixture(setupCriterion is null,new DbContextOptionsBuilder<CSweetDbContext>().UseNpgsql(settings.ConnectionString).Options);
             await f.Db.Database.MigrateAsync();
             await f.Db.Database.OpenConnectionAsync();
             var audit = new TestAuditEventWriter();
@@ -75,7 +82,7 @@ public sealed class FreshPlanningPostgresJourneyTests
                 f.Db.WorkBoardColumns.Add(new(){Id=Guid.NewGuid(),BoardId=f.Board.Id,Name=name,Category=category,Position=columnPosition++});
             var source=new W.WorkApprovedSource(Guid.NewGuid(),Guid.NewGuid(),new string('a',64));
             f.Db.CoreArtifacts.Add(new(){Id=source.DocumentId,OrganizationId=f.Org,WorkstreamId=f.Project,Title="Approved arcade outcomes",AcceptedRevisionId=source.RevisionId,LatestRevisionId=source.RevisionId});
-            f.Db.ArtifactRevisions.Add(new(){Id=source.RevisionId,OrganizationId=f.Org,ArtifactId=source.DocumentId,Status=ArtifactRevisionStatus.Accepted,ContentSha256=source.Digest,Content="Deliver the technical proof and then the remaining approved outcome. Requirement works."});
+            f.Db.ArtifactRevisions.Add(new(){Id=source.RevisionId,OrganizationId=f.Org,ArtifactId=source.DocumentId,Status=ArtifactRevisionStatus.Accepted,ContentSha256=source.Digest,Content=setupCriterion ?? "Deliver the technical proof and then the remaining approved outcome. Requirement works."});
             f.Db.ScopedActionGrants.Add(new(){Id=Guid.NewGuid(),OrganizationId=f.Org,SubjectKind=GrantSubjectKind.AgentInstallation,SubjectId=publisher.AgentInstallationId.Value,
                 ScopeKind=GrantScopeKind.Artifact,ScopeId=source.DocumentId,Action=CSweet.Contracts.Core.ArtifactActions.Read});
             await f.Db.SaveChangesAsync();
@@ -106,16 +113,21 @@ public sealed class FreshPlanningPostgresJourneyTests
                 if(sequence>1)f.BeginNextDeclaredIncrement();
                 var input=new WorkRefinementRequest(f.Project,f.Board.Id,"Approaching approved outcome "+sequence,new(source.DocumentId,source.RevisionId,source.Digest),
                     [new("Epic",W.WorkItemTypeKeys.ProjectEpicV2,false,null),new("Story",W.WorkItemTypeKeys.ProjectStoryV2,false,"Epic"),new("Task",W.WorkItemTypeKeys.ProjectTaskV2,true,"Story")],
-                    [new("game-engineer","Artifact","specialist-execution")],[]);
+                    [new("game-engineer", setupCriterion is null ? "Artifact" : "Code", "specialist-execution")],[]);
+                var approvedCriterion = setupCriterion ?? "Requirement works";
                 var draft=new WorkRefinementDraft("Source-bound approaching work "+sequence,[
-                    new("Epic","Outcome "+sequence,"Approved deliverable",["Requirement works"],null,[],null),
-                    new("Story","Slice "+sequence,"Independently verifiable outcome",["Requirement works"],0,[],null),
-                    new("Task","Implementation "+sequence,"Deliver requirement with exact document evidence",["Requirement works"],1,[],"game-engineer")]);
+                    new("Epic","Outcome "+sequence,"Approved deliverable",[approvedCriterion],null,[],null),
+                    new("Story","Slice "+sequence,"Independently verifiable outcome",[approvedCriterion],0,[],null),
+                    new("Task", setupCriterion is null ? "Implementation "+sequence : "Set up the first playable slice",
+                        setupCriterion ?? "Deliver requirement with exact document evidence", [approvedCriterion],1,[],"game-engineer")]);
                 var ids=await ScopedWorkRefinement.PublishAsync(input,draft,"reviewed-scope-"+sequence,context,default);
                 Assert.Equal(ids,await ScopedWorkRefinement.PublishAsync(input,draft,"reviewed-scope-"+sequence,context,default));
                 f.Epic=await f.Db.CoreWorkTasks.SingleAsync(i=>i.Id==ids[0]);f.Story=await f.Db.CoreWorkTasks.SingleAsync(i=>i.Id==ids[1]);f.Task=await f.Db.CoreWorkTasks.SingleAsync(i=>i.Id==ids[2]);
                 foreach(var (stage,person) in new[]{("development",f.Author),("quality",f.Qa),("technical-review",f.Technical)})
                     f.Db.WorkItemStageAssignments.Add(new(){Id=Guid.NewGuid(),OrganizationId=f.Org,BoardId=f.Board.Id,WorkItemId=f.Task.Id,StageKey=stage,PrincipalKind=WorkOrchestrationPrincipalKind.Human,OrganizationUserId=person.Id});
+                if (setupCriterion is not null)
+                    f.Db.WorkItemStageAssignments.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Org, BoardId = f.Board.Id, WorkItemId = f.Task.Id,
+                        StageKey = "task-integration", PrincipalKind = WorkOrchestrationPrincipalKind.PlatformAction, PlatformAction = W.HierarchicalWorkflows.TaskIntegrationAction });
                 f.Task.AccountableOrganizationUserId=f.Author.Id;await f.Db.SaveChangesAsync();
                 if (verifyWorkerPickup)
                 {
@@ -168,8 +180,14 @@ public sealed class FreshPlanningPostgresJourneyTests
                         return await Invoke<W.WorkSprint>(C.WorkSprintActions.ManageCapacity,
                             new W.SetWorkSprintCapacityRequest(f.Board.Id, sprint.Id, 2, sprint.Revision, "capacity-1"));
                     }
-                    await HierarchicalTaskRuntimeTests.RunJourney(f, true, game: true, publicSprintSequence: sequence,
+                    await HierarchicalTaskRuntimeTests.RunJourney(f, f.Artifact, game: true, publicSprintSequence: sequence,
                         claimAs: installation, prepareAgentSprint: PlanSprint);
+                    if (setupCriterion is not null)
+                    {
+                        var setupTicket = JsonSerializer.Deserialize<W.WorkItemDeliverySpecification>(f.Task.DeliverySpecificationJson!, Json)!;
+                        Assert.Equal("Code", setupTicket.DeliveryKind);
+                        Assert.Contains(setupCriterion, setupTicket.AcceptanceCriteria);
+                    }
                     Assert.Single(await f.Db.WorkSprints.ToArrayAsync());
                     Assert.Single(await f.Db.AgentWorkAttempts.ToArrayAsync());
                     return;

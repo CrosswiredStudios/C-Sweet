@@ -18,6 +18,7 @@ try {
     & dotnet @testArgs
     if($LASTEXITCODE -ne 0){throw 'Required planning lifecycle acceptance failed.'}
     $required = @('FreshBoardPublishesThroughPublicProtocol', 'PublishedGameStoryStartsSprintOneAndIsClaimedByItsAssignedEngineer',
+        'EngineerClaimsSprintOneCodeSetupWithOrWithoutAProjectLockfile',
         'Assigned_implementer_claims_the_first_dispatched_sprint_leaf',
         'ContributionDiscoveryPagesOnlyOriginalRequestsFromTheCurrentBoardTeam', 'Recovery_decision_applies_to_its_Story',
         'Admission_must_name_the_Story')
