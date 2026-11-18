@@ -585,9 +585,7 @@ public sealed partial class WorkOrchestrationService(
                     var (decision, basis) = group.OrderByDescending(a => a.Basis!.PriorRevision)
                         .ThenByDescending(a => a.Decision.CreatedAt).ThenByDescending(a => a.Decision.Id).First();
                     var admission = basis!;
-                    var released = directions.TryGetValue(admission.PriorDecisionId, out var prior) &&
-                        prior.Revision == admission.PriorRevision && prior.SupersededByDecisionId == null &&
-                        prior.DecidedByOrganizationUserId == admission.PriorAuthorityId &&
+                    var released = PlanningContributionDecisions.HasCurrentDirection(admission, directions.GetValueOrDefault(admission.PriorDecisionId)) &&
                         admission.Allows(decision.Status, decision.SelectedOptionId, decision.DecidedByOrganizationUserId, decision.Rationale);
                     foreach (var item in items.Where(i => i.ParentWorkTaskId is Guid parent && parents.GetValueOrDefault(parent) == admission.StoryKey))
                     {

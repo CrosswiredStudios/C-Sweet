@@ -9,6 +9,10 @@ namespace CSweet.Infrastructure.WorkManagement;
 
 internal static class PlanningContributionDecisions
 {
+    internal static bool HasCurrentDirection(CSweet.Agent.SDK.ContributionAdmission basis, WorkstreamDecisionRecord? prior) =>
+        prior is { Status: CSweet.WorkManagement.Contracts.DecisionStatuses.Decided, SupersededByDecisionId: null } &&
+        prior.Revision == basis.PriorRevision && prior.DecidedByOrganizationUserId == basis.PriorAuthorityId;
+
     internal static IQueryable<WorkstreamDecisionRecord> ForBoard(CSweetDbContext db, Guid organizationId, Guid project, Guid boardId)
     {
         var query = db.WorkstreamDecisions.AsNoTracking().Where(d => d.WorkstreamId == project &&
@@ -30,14 +34,21 @@ public sealed partial class WorkBoardService
         var drafts = new Dictionary<string, WorkBoardPlanningContribution>();
         var directions = await PlanningContributionDecisions.ForBoard(db, board.OrganizationId, project, board.Id)
             .OrderByDescending(d => d.UpdatedAt).Take(64).ToListAsync(ct);
-        foreach (var decision in directions)
+        var admissions = directions.Select(d => (Decision: d,
+            Basis: CSweet.Agent.SDK.ContributionAdmission.Read(JsonSerializer.Deserialize<JsonElement>(d.TypeDataJson!))))
+            .Where(a => a.Basis?.BoardId == board.Id).ToList();
+        var priorIds = admissions.Select(a => a.Basis!.PriorDecisionId).Distinct().ToArray();
+        var priorDirections = await db.WorkstreamDecisions.AsNoTracking().Where(d => d.OrganizationId == board.OrganizationId &&
+            d.WorkstreamId == project && priorIds.Contains(d.Id)).ToDictionaryAsync(d => d.Id, ct);
+        foreach (var (decision, candidate) in admissions)
         {
-            var basis = CSweet.Agent.SDK.ContributionAdmission.Read(JsonSerializer.Deserialize<JsonElement>(decision.TypeDataJson!));
-            if (basis is null || basis.BoardId != board.Id || published.Contains(basis.StoryKey)) continue;
-            var admitted = basis.Allows(decision.Status, decision.SelectedOptionId, decision.DecidedByOrganizationUserId, decision.Rationale);
-            drafts.TryAdd(basis.StoryKey, new(basis.StoryKey, basis.StoryKey, admitted ? "Ready to publish" :
+            var basis = candidate!;
+            if (published.Contains(basis.StoryKey)) continue;
+            var current = PlanningContributionDecisions.HasCurrentDirection(basis, priorDirections.GetValueOrDefault(basis.PriorDecisionId));
+            var admitted = current && basis.Allows(decision.Status, decision.SelectedOptionId, decision.DecidedByOrganizationUserId, decision.Rationale);
+            drafts.TryAdd(basis.StoryKey, new(basis.StoryKey, basis.StoryKey, !current ? "Needs current direction" : admitted ? "Ready to publish" :
                 decision.Status == "Pending" ? "Awaiting decision" : "On hold",
-                admitted ? decision.RequestedByOrganizationUserId : basis.PriorAuthorityId, "", decision.UpdatedAt));
+                !current || admitted ? decision.RequestedByOrganizationUserId : basis.PriorAuthorityId, "", decision.UpdatedAt));
         }
         // Only the explicit board summary is shared. Session transcripts remain participant-scoped.
         var requests = await (from s in db.AgentCoordinationSessions.AsNoTracking()

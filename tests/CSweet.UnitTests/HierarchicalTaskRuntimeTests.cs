@@ -124,7 +124,7 @@ public sealed class HierarchicalTaskRuntimeTests
         int publicSprintSequence = 0, AgentInstallation? claimAs = null,
         Func<Task<CSweet.WorkManagement.Contracts.WorkSprint>>? prepareAgentSprint = null)
     {
-        foreach (var person in new[] { f.Author, f.Qa, f.Technical })
+        foreach (var person in new[] { f.Author, f.Qa, f.Technical }.Where(person => person.EmployeeType == EmployeeType.Human))
         {
             person.ApplicationUserId = Guid.NewGuid();
             f.Db.Users.Add(new CSweet.Infrastructure.Auth.ApplicationUser { Id = person.ApplicationUserId.Value, UserName = person.Id.ToString("N") });

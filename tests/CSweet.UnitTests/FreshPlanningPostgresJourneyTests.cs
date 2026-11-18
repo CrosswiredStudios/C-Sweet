@@ -6,6 +6,8 @@ using CSweet.Domain.Security;
 using CSweet.Domain.Setup;
 using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Core;
+using CSweet.Infrastructure.Auth;
+using CSweet.Infrastructure.BusinessOnboarding;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Security;
 using CSweet.Infrastructure.WorkManagement;
@@ -35,18 +37,33 @@ public sealed class FreshPlanningPostgresJourneyTests
         await admin.OpenAsync(); await using (var create = new NpgsqlCommand($"CREATE DATABASE \"{settings.Database}\"",admin)) await create.ExecuteNonQueryAsync();
         try {
             await using var f = new HierarchicalDeliveryServiceTests.Fixture(true,new DbContextOptionsBuilder<CSweetDbContext>().UseNpgsql(settings.ConnectionString).Options);
-            await f.Db.Database.EnsureCreatedAsync(); await f.Db.Database.OpenConnectionAsync();
-            await f.Db.Database.ExecuteSqlRawAsync("SET session_replication_role = replica");
-            await f.Seed();
-            f.Db.WorkItemStageAssignments.RemoveRange(await f.Db.WorkItemStageAssignments.ToArrayAsync());
-            f.Db.CoreWorkTasks.RemoveRange(await f.Db.CoreWorkTasks.ToArrayAsync()); await f.Db.SaveChangesAsync();
-            Assert.Empty(await f.Db.CoreWorkTasks.ToArrayAsync());
+            await f.Db.Database.MigrateAsync();
+            await f.Db.Database.OpenConnectionAsync();
+            var audit = new TestAuditEventWriter();
+            var owner = new ApplicationUser { Id = Guid.NewGuid(), UserName = "arcade-owner" };
+            f.Db.Users.Add(owner);
+            await f.Db.SaveChangesAsync();
+            var roles = new RoleService(f.Db, audit);
+            var onboarding = new BusinessOnboardingService(new CoreOrganizationService(f.Db, audit, roles), roles,
+                new StrategicObjectiveService(f.Db, audit), new WorkerService(f.Db, audit), audit,
+                new ExecutiveBriefingService(f.Db, audit, TimeProvider.System), f.Db);
+            var business = await onboarding.StartAsync(new("Arcade studio", "Video Games", "Demonstrate a playable arcade scene",
+                null, null, "create-game-business", null) { StartMode = "New" }, owner.Id);
+            Assert.Empty(await f.Db.Workstreams.ToArrayAsync());
+            Assert.Empty(await f.Db.AgentInstallations.ToArrayAsync());
+            Assert.NotNull(business.OrganizationId);
+            await f.Seed(existingBusiness: business.OrganizationId, includeWorkItems: false);
+            Assert.False(await f.Db.CoreWorkTasks.AnyAsync(t => t.BoardId == f.Board.Id));
             var publisher = new OrganizationUser { Id=Guid.NewGuid(),OrganizationId=f.Org,DisplayName="Independent publisher",EmployeeType=EmployeeType.Agent,
                 AgentInstallationId=Guid.NewGuid(),ReportsToOrganizationUserId=f.Manager.Id,IsActive=true };
             f.Db.CoreOrganizationUsers.Add(publisher);
             f.Db.ProjectParticipants.Add(new() { OrganizationId=f.Org, WorkstreamId=f.Project, OrganizationUserId=publisher.Id, AddedByOrganizationUserId=f.Manager.Id });
             f.Db.TeamMemberships.Add(new() { Id=Guid.NewGuid(), OrganizationId=f.Org, TeamId=f.Board.TeamId!.Value, OrganizationUserId=publisher.Id });
-            f.Db.AgentInstallations.Add(new() {Id=publisher.AgentInstallationId.Value,InstallationKey=Guid.NewGuid(),BusinessId=f.Org.ToString(),PackageVersionId=Guid.NewGuid()});
+            var sourcePackage = new AgentPackageSource { Id = Guid.NewGuid(), RepositoryUrl = "https://example.test/arcade-fixtures" };
+            var producerPackage = new AgentPackageVersion { Id = Guid.NewGuid(), PackageSource = sourcePackage,
+                AgentId = "example.external-producer", Version = "1.0", ManifestJson = "{}" };
+            f.Db.AgentInstallations.Add(new() { Id = publisher.AgentInstallationId.Value, InstallationKey = Guid.NewGuid(),
+                BusinessId = f.Org.ToString(), PackageVersion = producerPackage });
             f.Board.ManagerOrganizationUserId=publisher.Id; f.Board.ProfileKey=W.WorkBoardProfileKeys.ProjectDeliveryV2;
             var planningActions = new[] { C.WorkSprintActions.Create, C.WorkSprintActions.ManageScope, C.WorkSprintActions.ManageCapacity, C.WorkItemActions.Estimate };
             foreach(var action in new[] {C.WorkBoardActions.Read,C.WorkBoardActions.Configure,C.WorkItemActions.Read,C.WorkItemActions.Create}.Concat(planningActions))
@@ -62,7 +79,7 @@ public sealed class FreshPlanningPostgresJourneyTests
             f.Db.ScopedActionGrants.Add(new(){Id=Guid.NewGuid(),OrganizationId=f.Org,SubjectKind=GrantSubjectKind.AgentInstallation,SubjectId=publisher.AgentInstallationId.Value,
                 ScopeKind=GrantScopeKind.Artifact,ScopeId=source.DocumentId,Action=CSweet.Contracts.Core.ArtifactActions.Read});
             await f.Db.SaveChangesAsync();
-            var auth=new ScopedActionAuthorizationService(f.Db);var audit=new TestAuditEventWriter();
+            var auth=new ScopedActionAuthorizationService(f.Db);
             var work=new WorkManagementCapabilityHandler(f.Db,auth,audit,new WorkOrchestrationService(f.Db,TimeProvider.System,auth));
             var documents=new ArtifactCapabilityHandler(f.Db,new ArtifactDocumentService(f.Db,audit,TimeProvider.System),audit,TimeProvider.System);
             var session=new AgentSession("public-participant","example.external-producer",publisher.AgentInstallationId.ToString()!,f.Org.ToString(),Guid.NewGuid().ToString(),Guid.NewGuid().ToString(),
@@ -102,18 +119,36 @@ public sealed class FreshPlanningPostgresJourneyTests
                 f.Task.AccountableOrganizationUserId=f.Author.Id;await f.Db.SaveChangesAsync();
                 if (verifyWorkerPickup)
                 {
-                    var package = new AgentPackageVersion { Id = Guid.NewGuid(), AgentId = "example.game-engineer", Version = "1.0",
+                    var engineerSource = new AgentPackageSource { Id = Guid.NewGuid(), RepositoryUrl = "https://example.test/game-engineer" };
+                    var package = new AgentPackageVersion { Id = Guid.NewGuid(), PackageSource = engineerSource, AgentId = "example.game-engineer", Version = "1.0",
                         ManifestJson = """{"provides":[{"name":"work.execution.run"}],"rolePolicy":{"declaredRoleKeys":["game-engineer"],"specializationKeys":[]}}""" };
                     var installation = new AgentInstallation { Id = Guid.NewGuid(), InstallationKey = Guid.NewGuid(),
                         PackageVersionId = package.Id, BusinessId = f.Org.ToString() };
                     var executionGrant = new AgentInstallationGrant { Id = Guid.NewGuid(), AgentInstallationId = installation.Id,
                         ProvidedCapabilitiesJson = """["work.execution.run"]""" };
-                    f.Author.EmployeeType = EmployeeType.Agent;
-                    f.Author.AgentInstallationId = installation.Id;
-                    f.Db.ScopedActionGrants.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Org,
-                        SubjectKind = GrantSubjectKind.AgentInstallation, SubjectId = installation.Id, ScopeKind = GrantScopeKind.Board,
-                        ScopeId = f.Board.Id, Action = C.WorkItemActions.Read });
+                    f.Db.AddRange(package, installation, executionGrant);
+                    f.Db.WorkstreamTeamAssignments.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Org, WorkstreamId = f.Project,
+                        TeamId = f.Board.TeamId!.Value, StartsAt = DateTimeOffset.UtcNow });
+                    await f.Db.SaveChangesAsync();
+                    var employees = new OrganizationUserService(f.Db, audit);
+                    var hiring = new HiringService(f.Db, employees, audit, teams: new TeamService(f.Db, audit, TimeProvider.System));
+                    var need = await hiring.UpsertRecommendationAsync(f.Org, publisher.AgentInstallationId.Value,
+                        new("Game engineer", "Implement the first arcade scene", f.Project, [], null, "staff-scene")
+                        { TeamId = f.Board.TeamId, RoleKey = "game-engineer" });
+                    var hire = await employees.CreateAsync(f.Org, new("Scene engineer", null, (int)OrganizationPermissionLevel.Contributor,
+                        (int)EmployeeType.Agent, ReportsToOrganizationUserId: publisher.Id, AgentInstallationId: installation.Id));
+                    Assert.True(hire.Succeeded, hire.Message);
+                    f.Author = await f.Db.CoreOrganizationUsers.SingleAsync(u => u.Id == hire.OrganizationUser!.Id);
+                    var fulfillment = new CSweet.Contracts.Core.ResolveHiringRecommendationRequest(need.Id, f.Author.Id, "fulfill-scene");
+                    await hiring.ResolveRecommendationAsync(f.Org, publisher.AgentInstallationId.Value, fulfillment);
+                    await hiring.ResolveRecommendationAsync(f.Org, publisher.AgentInstallationId.Value, fulfillment);
+                    Assert.Single(await f.Db.HiringRecommendationFulfillments.Where(x => x.WorkforcePlanId == need.Id).ToListAsync());
+                    Assert.True(await f.Db.ProjectParticipants.AnyAsync(p => p.WorkstreamId == f.Project && p.OrganizationUserId == f.Author.Id && p.RemovedAt == null));
+                    Assert.True(await f.Db.ScopedActionGrants.AnyAsync(g => g.SubjectId == installation.Id && g.ScopeId == f.Board.Id &&
+                        g.Action == C.WorkItemActions.Read && g.RevokedAt == null));
                     var assignment = await f.Db.WorkItemStageAssignments.SingleAsync(a => a.WorkItemId == f.Task.Id && a.StageKey == "development");
+                    f.Task.AccountableOrganizationUserId = f.Author.Id;
+                    assignment.OrganizationUserId = f.Author.Id;
                     assignment.AgentInstallationId = installation.Id;
                     assignment.PrincipalKind = WorkOrchestrationPrincipalKind.AgentInstallation;
                     var team = await f.Db.OrganizationTeams.SingleAsync(t => t.Id == f.Board.TeamId);
@@ -121,7 +156,6 @@ public sealed class FreshPlanningPostgresJourneyTests
                     assignment.RequirementsJson = JsonSerializer.Serialize(new W.WorkAssignmentRequirements("game-engineer", [], [], ["work.execution.run"]), Json);
                     assignment.SelectionEvidenceJson = JsonSerializer.Serialize(new W.WorkAssignmentSelectionEvidence(installation.Id, team.Revision,
                         workstream.ProfileDefinitionDigest!, [], "selected-for-scene", DateTimeOffset.UtcNow), Json);
-                    f.Db.AddRange(package, installation, executionGrant);
                     await f.Db.SaveChangesAsync();
                     async Task<W.WorkSprint> PlanSprint()
                     {

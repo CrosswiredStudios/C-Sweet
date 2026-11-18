@@ -431,9 +431,11 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
                 b.WorkstreamId == request.WorkstreamId && b.ManagerOrganizationUserId == actorId && b.ArchivedAt == null, token);
             var original = await db.AgentCoordinationSessions.AsNoTracking().Where(s => s.Id == admission.SessionId &&
                 s.SourceKind == "Board" && s.SourceBoardId == admission.BoardId && s.WorkstreamId == request.WorkstreamId &&
-                s.OrganizationId == organizationId && s.InitiatorOrganizationUserId == actorId && s.Turns.Any(t =>
-                    t.SpeakerOrganizationUserId == s.TargetOrganizationUserId && t.ArtifactDigest == admission.ArtifactDigest &&
-                    t.ArtifactIsFinalPage == true)).SelectMany(s => s.Turns.Where(t =>
+                s.OrganizationId == organizationId && s.InitiatorOrganizationUserId == actorId &&
+                s.Status == CSweet.Domain.Communications.AgentCoordinationStatus.Completed &&
+                s.Turns.Where(t => t.SpeakerOrganizationUserId == s.TargetOrganizationUserId && t.ArtifactType != null)
+                    .OrderByDescending(t => t.Ordinal).Select(t => t.ArtifactIsFinalPage == true ? t.ArtifactDigest : null)
+                    .FirstOrDefault() == admission.ArtifactDigest).SelectMany(s => s.Turns.Where(t =>
                     t.Ordinal == 0 && t.SpeakerOrganizationUserId == actorId))
                 .Select(t => new { t.ArtifactType, t.ArtifactPayloadJson }).SingleOrDefaultAsync(token);
             if (!ownsBoard || original?.ArtifactPayloadJson is null ||

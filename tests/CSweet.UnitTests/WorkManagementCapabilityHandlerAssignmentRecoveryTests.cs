@@ -14,10 +14,11 @@ namespace CSweet.UnitTests;
 public sealed partial class WorkManagementCapabilityHandlerTests
 {
     [Theory]
-    [InlineData("request-more-evidence", false, true)]
-    [InlineData("continue-current-plan", false, false)]
-    [InlineData("continue-current-plan", true, true)]
-    public async Task Recovery_decision_applies_to_its_Story_and_exact_returned_revision(string choice, bool revisedTask, bool held)
+    [InlineData("request-more-evidence", false, false, true)]
+    [InlineData("continue-current-plan", false, false, false)]
+    [InlineData("continue-current-plan", true, false, true)]
+    [InlineData("continue-current-plan", false, true, true)]
+    public async Task Recovery_decision_applies_to_its_Story_and_exact_returned_revision(string choice, bool revisedTask, bool superseded, bool held)
     {
         await using var db = CreateDb();
         var setup = SeedInstallation(db);
@@ -47,6 +48,12 @@ public sealed partial class WorkManagementCapabilityHandlerTests
         var prior = new WorkstreamDecisionRecord { Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, WorkstreamId = board.WorkstreamId.Value,
             Status = Wire.DecisionStatuses.Decided, DecidedByOrganizationUserId = owner, Revision = 2 };
         var basis = new CSweet.Agent.SDK.ContributionAdmission(board.Id, "scene", session, digest, prior.Id, prior.Revision, owner, "Pause", ["Run the scene"]);
+        if (superseded)
+        {
+            prior.SupersededByDecisionId = Guid.NewGuid();
+            prior.Revision++;
+            prior.Status = Wire.DecisionStatuses.Superseded;
+        }
         db.AddRange(board, sprint, prior, new WorkstreamDecisionRecord { Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId,
             WorkstreamId = prior.WorkstreamId, TypeDataJson = JsonSerializer.Serialize(basis, JsonSerializerOptions.Web),
             Status = Wire.DecisionStatuses.Decided, SelectedOptionId = choice, DecidedByOrganizationUserId = owner, Rationale = "Reviewed evidence." });
