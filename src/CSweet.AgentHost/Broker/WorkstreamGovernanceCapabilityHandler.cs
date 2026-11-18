@@ -419,6 +419,30 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
         if (request.SupersedesDecisionId.HasValue && !await db.WorkstreamDecisions.AsNoTracking().AnyAsync(x =>
             x.OrganizationId == organizationId && x.WorkstreamId == request.WorkstreamId && x.Id == request.SupersedesDecisionId, token))
             throw new ArgumentException("The superseded decision was not found in this Workstream.");
+        if (ContributionAdmission.Read(request.TypeData) is { } admission)
+        {
+            if (admission.StoryKey is null or { Length: 0 or > 256 } || admission.ArtifactDigest is null or { Length: not 64 } ||
+                request.SupersedesDecisionId.HasValue || request.Options.Count != 2 ||
+                !request.Options.Select(o => o.Id).ToHashSet().SetEquals([ContributionAdmission.Admit, ContributionAdmission.Hold]))
+                throw new ArgumentException("Contribution admission requires its source Story, artifact digest and both scoped dispositions.");
+            var prior = await db.WorkstreamDecisions.AsNoTracking().SingleOrDefaultAsync(d => d.Id == admission.PriorDecisionId &&
+                d.OrganizationId == organizationId && d.WorkstreamId == request.WorkstreamId, token);
+            var ownsBoard = await db.WorkBoards.AsNoTracking().AnyAsync(b => b.Id == admission.BoardId && b.OrganizationId == organizationId &&
+                b.WorkstreamId == request.WorkstreamId && b.ManagerOrganizationUserId == actorId && b.ArchivedAt == null, token);
+            var original = await db.AgentCoordinationSessions.AsNoTracking().Where(s => s.Id == admission.SessionId &&
+                s.SourceKind == "Board" && s.SourceBoardId == admission.BoardId && s.WorkstreamId == request.WorkstreamId &&
+                s.OrganizationId == organizationId && s.InitiatorOrganizationUserId == actorId && s.Turns.Any(t =>
+                    t.SpeakerOrganizationUserId == s.TargetOrganizationUserId && t.ArtifactDigest == admission.ArtifactDigest &&
+                    t.ArtifactIsFinalPage == true)).SelectMany(s => s.Turns.Where(t =>
+                    t.Ordinal == 0 && t.SpeakerOrganizationUserId == actorId))
+                .Select(t => new { t.ArtifactType, t.ArtifactPayloadJson }).SingleOrDefaultAsync(token);
+            if (!ownsBoard || original?.ArtifactPayloadJson is null ||
+                !RequestNamesStory(original.ArtifactPayloadJson, original.ArtifactType, admission.StoryKey) ||
+                prior is null || prior.Status != W.DecisionStatuses.Decided ||
+                prior.SupersededByDecisionId != null || prior.DecidedByOrganizationUserId != admission.PriorAuthorityId ||
+                prior.Revision != admission.PriorRevision || prior.TypeKey != request.TypeKey || prior.AuthorityRuleKey != request.AuthorityRuleKey)
+                throw new InvalidOperationException("The board manager must present an actual returned artifact to the current issuing decision authority.");
+        }
         var now = clock.GetUtcNow();
         var decision = new WorkstreamDecisionRecord
         {
@@ -473,6 +497,11 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
             throw new DbUpdateConcurrencyException($"Expected revision {request.ExpectedRevision}; current revision is {decision.Revision}.");
         if (decision.Status != W.DecisionStatuses.Pending) throw new InvalidOperationException("Only a pending decision can be decided.");
         var options = ReadList<W.DecisionOption>(decision.OptionsJson);
+        if (ContributionAdmission.Read(JsonSerializer.Deserialize<JsonElement>(decision.TypeDataJson ?? "null")) is { } admission &&
+            (actorId != admission.PriorAuthorityId || !await db.WorkstreamDecisions.AsNoTracking().AnyAsync(d =>
+                d.Id == admission.PriorDecisionId && d.WorkstreamId == decision.WorkstreamId && d.OrganizationId == organizationId &&
+                d.Revision == admission.PriorRevision && d.SupersededByDecisionId == null && d.DecidedByOrganizationUserId == actorId, token)))
+            throw new UnauthorizedAccessException("Only the current issuing authority can dispose of this recovered contribution.");
         if (options.All(x => x.Id != request.SelectedOptionId)) throw new ArgumentException("The selected option is invalid.");
         var rationale = CSweet.Application.Common.AuthoredText.Required(request.Rationale, "Decision rationale");
         ValidateText(request.IdempotencyKey, 1, 200, "Idempotency key");
@@ -751,6 +780,23 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
 
     private static T Read<T>(RequestCapability request) =>
         JsonSerializer.Deserialize<T>(request.Payload.Span, JsonOptions) ?? throw new JsonException("The capability payload is required.");
+
+    internal static bool RequestNamesStory(string payload, string? type, string storyKey)
+    {
+        using var doc = JsonDocument.Parse(payload);
+        var root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Object) return false;
+        if (root.TryGetProperty("boardIncrement", out var summary))
+            return Matches(summary, "key", storyKey);
+        // Read the original game request shape for contributions created before board summaries.
+        return type == "video-game.production.planning-cycle.v1" &&
+            root.TryGetProperty("progressivePlanning", out var scope) &&
+            Matches(scope, "phase", "Story") && Matches(scope, "storyKey", storyKey);
+
+        static bool Matches(JsonElement value, string property, string expected) =>
+            value.ValueKind == JsonValueKind.Object && value.TryGetProperty(property, out var field) &&
+            field.ValueKind == JsonValueKind.String && field.GetString() == expected;
+    }
 
     private static void ValidateText(string? value, int minimum, int maximum, string name)
     {

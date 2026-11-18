@@ -1199,7 +1199,8 @@ public sealed partial class WorkBoardService(
                 .ToList(),
             items)
         {
-            LinkedCommitments = await LinkedCommitmentsAsync(board, memberId, cancellationToken)
+            LinkedCommitments = await LinkedCommitmentsAsync(board, memberId, cancellationToken),
+            PlanningContributions = canReadItems ? await PlanningContributionsAsync(board, itemRows, cancellationToken) : []
         };
     }
 

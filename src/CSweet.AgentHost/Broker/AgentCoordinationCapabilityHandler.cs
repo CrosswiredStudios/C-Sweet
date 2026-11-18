@@ -110,9 +110,17 @@ public sealed class AgentCoordinationCapabilityHandler(
         Guid organizationId,
         Guid actorId,
         ListAgentCoordinationRequest request,
-        CancellationToken cancellationToken) =>
-        new(await coordination.ListAsync(
-            organizationId, actorId, request.ChatId, request.ActiveOnly, cancellationToken));
+        CancellationToken cancellationToken)
+    {
+        if (request.BoardContributions is { } query)
+        {
+            if (request.ChatId.HasValue || request.ActiveOnly || string.IsNullOrWhiteSpace(query.RequestKey) ||
+                string.IsNullOrWhiteSpace(query.RequestType))
+                throw new InvalidOperationException("Board discovery requires an original request type and key and its own board scope.");
+            return new([]) { Contributions = await coordination.DiscoverBoardContributionsAsync(organizationId, actorId, query, cancellationToken) };
+        }
+        return new(await coordination.ListAsync(organizationId, actorId, request.ChatId, request.ActiveOnly, cancellationToken));
+    }
 
     private static T Read<T>(RequestCapability request) =>
         JsonSerializer.Deserialize<T>(request.Payload.Span, JsonOptions)

@@ -567,6 +567,36 @@ public sealed partial class WorkOrchestrationService(
             .Where(x => x.SprintId == sprintId && x.IsExecutable)
             .ToListAsync(cancellationToken);
         if (items.Count == 0) errors.Add(new("sprint.empty", "The sprint has no executable work items."));
+        if (board.WorkstreamId is Guid project && items.Any(i => i.ParentWorkTaskId.HasValue))
+        {
+            var decisions = await PlanningContributionDecisions.ForBoard(db, organizationId, project, boardId).ToListAsync(cancellationToken);
+            var admissions = decisions.Select(d => (Decision: d, Basis: CSweet.Agent.SDK.ContributionAdmission.Read(
+                JsonSerializer.Deserialize<JsonElement>(d.TypeDataJson!)))).Where(a => a.Basis?.BoardId == boardId).ToList();
+            if (admissions.Count > 0)
+            {
+                var parentIds = items.Select(i => i.ParentWorkTaskId).Distinct().ToArray();
+                var parents = await db.CoreWorkTasks.AsNoTracking().Where(p => p.BoardId == boardId &&
+                    p.OrganizationId == organizationId && parentIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, p => p.ProposalItemKey, cancellationToken);
+                var priorIds = admissions.Select(a => a.Basis!.PriorDecisionId).Distinct().ToArray();
+                var directions = await db.WorkstreamDecisions.AsNoTracking().Where(d => d.OrganizationId == organizationId &&
+                    d.WorkstreamId == project && priorIds.Contains(d.Id)).ToDictionaryAsync(d => d.Id, cancellationToken);
+                foreach (var group in admissions.GroupBy(a => (a.Basis!.PriorDecisionId, a.Basis.StoryKey)))
+                {
+                    var (decision, basis) = group.OrderByDescending(a => a.Basis!.PriorRevision)
+                        .ThenByDescending(a => a.Decision.CreatedAt).ThenByDescending(a => a.Decision.Id).First();
+                    var admission = basis!;
+                    var released = directions.TryGetValue(admission.PriorDecisionId, out var prior) &&
+                        prior.Revision == admission.PriorRevision && prior.SupersededByDecisionId == null &&
+                        prior.DecidedByOrganizationUserId == admission.PriorAuthorityId &&
+                        admission.Allows(decision.Status, decision.SelectedOptionId, decision.DecidedByOrganizationUserId, decision.Rationale);
+                    foreach (var item in items.Where(i => i.ParentWorkTaskId is Guid parent && parents.GetValueOrDefault(parent) == admission.StoryKey))
+                    {
+                        if (released && item.ProposalCoordinationSessionId == admission.SessionId && item.ProposalArtifactDigest == admission.ArtifactDigest) continue;
+                        errors.Add(new("item.planning_hold", $"Planning decision {decision.Id:D} requires current approval from {admission.PriorAuthorityId:D} for {admission.StoryKey}.", item.Id));
+                    }
+                }
+            }
+        }
         var sprintIds = items.Select(x => x.Id).ToHashSet();
         var dependencies = await db.WorkItemDependencies.AsNoTracking()
             .Where(x => sprintIds.Contains(x.WorkItemId)).ToListAsync(cancellationToken);
