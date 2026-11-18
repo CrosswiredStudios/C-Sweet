@@ -63,7 +63,7 @@ public sealed class PlanningDirectionJourneyTests
                 var request = r.Artifact!.Payload.GetProperty("progressivePlanning").Deserialize(requestType, web)!;
                 var method = type.GetMethod("GenerateProgressivePlanningAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
                 var result = await (Task<AgentCoordinationTurnResult>)method.Invoke(technical, [technicalRuntime.CreateContext(), model,
-                    new ChatMessage[] { new(ChatRole.User, r.InitialMessage) }, new string[] { "Approved arcade requirement." }, technicalCycle, request, ct, null])!;
+                    new ChatMessage[] { new(ChatRole.User, r.InitialMessage) }, new string[] { "Approved arcade requirement." }, technicalCycle, request, ct, null, null])!;
                 Assert.NotNull(result.Artifact);
                 var artifact = result.Artifact!;
                 return retained = new(Guid.NewGuid(), Guid.NewGuid(), Guid.Empty, Guid.Empty, Guid.Empty, person, person,

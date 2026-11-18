@@ -94,6 +94,7 @@ public sealed class NodeToolchainFulfillmentHandler(CSweetDbContext db, IGitHubA
         if (state.ResourceType != ResourceCapabilities.BuildToolchain || package.AgentId != ProviderId || package.PublisherId != "com.csweet" ||
             package.PluginKind != PluginKind.Service || package.Status != AgentPackageVersionStatus.Built ||
             package.Version != plan.PackageVersion || package.ManifestDigest != plan.ManifestDigest || package.PackageDigest != plan.PackageDigest ||
+            !EnvironmentProfiles(definition.DefinitionJson, state.ProfileKey).Contains(plan.EnvironmentProfileKey, StringComparer.Ordinal) ||
             definition.DefinitionDigest != plan.DefinitionDigest || definition.ProviderPackageVersion != package.Version ||
             definition.ProviderPackageId != package.AgentId)
             throw new InvalidOperationException("The reviewed provider artifact or definition changed; a fresh plan and approval are required.");
