@@ -76,7 +76,7 @@ public sealed class FreshTeamSprintJourneyTests
     }
 
     // Retain each installation's platform state and coordination receipts across fresh SDK dispatchers.
-    private sealed class PlanningTeam
+    internal sealed class PlanningTeam
     {
         private readonly FreshTeamSprintPlatform platform;
         private readonly FreshTeamPlanningQueue queue;
@@ -88,6 +88,21 @@ public sealed class FreshTeamSprintJourneyTests
         private PersonalTodoAvailableEvent firstWake = null!;
         private readonly Guid firstEvent = Guid.NewGuid();
         private readonly Guid provider = Guid.NewGuid();
+        private readonly Dictionary<Guid, string> modelNames = [];
+        public Guid ProviderId => provider;
+
+        public void SetModel(AgentCoordinationParticipant actor, string name, Func<JsonElement, CancellationToken, Task<object>> answer)
+        {
+            modelNames[actor.OrganizationUserId] = name;
+            platforms[actor.OrganizationUserId].RegisterCapability(PlatformCapabilities.LlmChatStream, answer);
+        }
+
+        public Task<AgentOperatingState<CheckpointStack>?> ReadStackAsync()
+        {
+            var key = AgentOperatingStateKey.Create("game-stack:v1", new { project = platform.Project, revision = platform.RevisionId });
+            return platforms[platform.Victor.OrganizationUserId].CreateContext().Platform.ReadOperatingStateAsync<CheckpointStack>(key);
+        }
+
         public RespondToAgentCoordinationRequest StoryAnswer => replies.Values.Single(r =>
             r.Artifact?.Payload.TryGetProperty("progressivePlanning", out var evidence) == true &&
             evidence.GetProperty("phase").GetString() == "Story");
@@ -144,7 +159,7 @@ public sealed class FreshTeamSprintJourneyTests
             {
                 var identity = new AgentIdentity(actor.OrganizationUserId.ToString(), actor.DisplayName, null, actor.Role, null, [], null, null, null) { TeamContext = platform.Roster };
                 var host = hosts[actor.OrganizationUserId] = new(agent, platforms[actor.OrganizationUserId], identity, platform.Organization.ToString(), actor.AgentInstallationId.ToString());
-                var settings = new Dictionary<string, JsonElement> { ["llmProviderId"] = JsonSerializer.SerializeToElement(provider), ["llmModel"] = JsonSerializer.SerializeToElement("scripted") };
+                var settings = new Dictionary<string, JsonElement> { ["llmProviderId"] = JsonSerializer.SerializeToElement(provider), ["llmModel"] = JsonSerializer.SerializeToElement(modelNames.GetValueOrDefault(actor.OrganizationUserId, "scripted")) };
                 var configured = await host.ApplyConfigurationAsync(new(actor.AgentInstallationId, "1.0", settings, settings.Keys.ToArray(), 1, "fixture"));
                 Assert.True(configured.Succeeded, configured.Error);
             }
