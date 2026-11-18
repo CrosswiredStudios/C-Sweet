@@ -4,6 +4,12 @@ The SDK currently ships `AgentTestRuntime`. This plan covers the proposed shared
 
 An author working in a single agent checkout should be able to start at the callback that failed, make an edit, and rerun the scenario with `dotnet test`. A new agent author should be able to develop a flow the same way before installing the agent in C-Sweet. Both workflows use the real agent and assert its observable result.
 
+## Implementation status
+
+The SDK pull request introduces the shared dispatcher, standalone host and revision-aware operating-state fixture in version `5.42.0`. The Producer pilot covers Brickstorm recovery across restart and duplicate delivery. The Director pilot exercises pitch review from a standalone clone with the packed dependencies. [SDK pull request](https://github.com/CrosswiredStudios/CSweet.Agent.Sdk/pull/12) · [Producer pull request](https://github.com/CrosswiredStudios/CSweet.Agent.Producer.VideoGame/pull/7) · [Director pull request](https://github.com/CrosswiredStudios/CSweet.Agent.Director.VideoGame/pull/12)
+
+The Director pilot measured 3.18 seconds at p95 across 20 warm edits, within the 15-second target. Shared operating state reduced scenario setup from 69 to 52 lines, leaving 22 lines above budget. The original author was familiar with the harness. Independent onboarding, automatic discovery by Codex and Claude Code, and the required CI check are still open. [Pilot measurements](https://github.com/CrosswiredStudios/CSweet.Agent.Director.VideoGame/blob/a566461bde2c0e34eb058d11e3814b999c42856e/docs/pitch-review-harness-pilot.md)
+
 ## First release
 
 | Owner | Deliverable | Acceptance evidence |
@@ -72,7 +78,7 @@ Make the check required for merge when each repo adopts the harness. Its release
 |---|---|
 | Package and template | SDK maintainer packs both packages and extends `scripts/verify-authoring-template.ps1` to generate a clean repo, check the instruction import, and execute the example against the packed versions. A deliberately broken assertion fails CI. A run that discovers zero scenarios also fails. |
 | Pilot repositories | Producer and Director maintainers adopt the published package and enable the PR and release checks. In separate fresh Codex and Claude Code sessions, give each assistant an ordinary behavioral change without naming the harness. Verify it finds the example, runs the relevant test, and reports the observed outcome. Use local checkouts independent of personal instruction files. |
-| Adoption targets | On a named reference machine, target p95 at or below 15 seconds from edit through incremental build and scripted verdict across 20 warm runs. Target 30 minutes and at most 30 nonblank lines of scenario setup for the second maintainer, including custom helpers. Record seed data size separately. These are first-release targets awaiting measurement. |
+| Adoption targets | On a named reference machine, target p95 at or below 15 seconds from edit through incremental build and scripted verdict across 20 warm runs. Target 30 minutes and at most 30 nonblank lines of scenario setup for the second maintainer, including custom helpers. Record seed data size separately. Use the pilot measurements above as the baseline for the next maintainer. |
 | Existing agent fleet | Inventory maintained agents by repository and SDK version. Track the pinned testing package, first meaningful scenario, instruction files, required PR check, release verification and maintainer. Roll out by repo after the pilots. For Adrian and Daniel, carry shared execution regressions through both suites and run the existing developer-core parity check. |
 
 ## Follow-on work
