@@ -2,7 +2,7 @@ using CSweet.Contracts.Communications;
 
 namespace CSweet.Application.Communications;
 
-public sealed record CreateExecutiveDecisionOption(string Id, string Label, string? Description);
+public sealed record CreateExecutiveDecisionOption(string Id, string Label, string? Description, string? Impact = null);
 
 public sealed record CreateExecutiveDecisionCommand(
     Guid OrganizationId,

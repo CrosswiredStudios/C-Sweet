@@ -56,7 +56,7 @@ public sealed class StackCheckpointTests(ITestOutputHelper output)
             }
 
             // Subsequent scripted judgments check the setup that Victor actually accepted.
-            if (await team.ReadStackAsync() is { } accepted) model.Setup = accepted.Payload.Setup;
+            if (await team.ReadStackAsync() is { } accepted) model.Stack = accepted.Payload;
             return new { text = JsonSerializer.Serialize(model.Answer(platform.Victor, request), JsonSerializerOptions.Web) };
         });
 
@@ -75,7 +75,8 @@ public sealed class StackCheckpointTests(ITestOutputHelper output)
         Assert.Contains(stack.Language, decision);
         Assert.All(stack.Libraries, lib => Assert.Contains(lib, decision));
         var delivery = JsonSerializer.Deserialize<WorkItemDeliverySpecification>(ticket.DeliverySpecificationJson!, JsonSerializerOptions.Web)!;
-        var setup = Assert.Single(delivery.AcceptanceCriteria, c => c.Contains(stack.Setup, StringComparison.Ordinal));
+        var setup = Assert.Single(delivery.AcceptanceCriteria, c => c.Contains("clean checkout", StringComparison.OrdinalIgnoreCase) &&
+            c.Contains(stack.Engine) && c.Contains(stack.Language));
         if (!string.IsNullOrWhiteSpace(stack.Lockfile)) Assert.Contains(stack.Lockfile, setup);
         var engineer = Assert.Single(platform.Roster.Members, member => member.DeclaredRoleKeys.Contains("game-engineer"));
         Assert.Equal(Guid.Parse(engineer.EmployeeId), ticket.AccountableOrganizationUserId);

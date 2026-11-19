@@ -53,7 +53,7 @@ public sealed class PendingAgentQuestionsTests
             Assert.Contains("2 pending questions", html);
             Assert.Contains("Project question 1", html);
             Assert.Contains("Project question 2", html);
-            Assert.Contains("Send response", html);
+            Assert.Contains("Confirm choice", html);
             Assert.Contains("View conversation", html);
             Assert.Contains("type=\"radio\"", html);
         }

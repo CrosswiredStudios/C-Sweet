@@ -13,12 +13,13 @@ internal sealed class FirstSprintModel(bool dependencies)
         ? "Make a browser game where the player deflects moving obstacles using a simulated spring."
         : "Make a tiny browser puzzle where a player moves a tile one square at a time.";
     public string Outcome { get; init; } = dependencies ? "The spring deflects the obstacle." : "The selected tile moves one square.";
-    public string Engine => dependencies ? "Matter.js" : "DOM";
-    public string Language => dependencies ? "TypeScript" : "JavaScript";
-    public string Setup { get; set; } = dependencies ? "Install dependencies and launch the spring scene." : "Open the puzzle page directly.";
-    public string Rationale => dependencies ? "A physics solver supports the spring response." : "Native DOM input covers a single tile with minimal setup.";
-    public string[] Libraries => dependencies ? ["matter-js"] : [];
-    public string? Lockfile => dependencies ? "package-lock.json" : null;
+    public string[] StoryCriteria { get; init; } = [];
+    public string? SupersededCriterion { get; init; }
+    public bool RefineWithoutCandidate { get; init; }
+    public int RevisionRequests { get; private set; }
+    public CheckpointStack Stack { get; set; } = dependencies
+        ? new("Matter.js", "TypeScript", ["matter-js"], "A physics solver supports the spring response.", "Install dependencies and launch the spring scene.", "package-lock.json")
+        : new("DOM", "JavaScript", [], "Native DOM input covers a single tile with minimal setup.", "Open the puzzle page directly.", null);
     public int StackChoices { get; private set; }
     public int Admissions { get; private set; }
     public int Estimates { get; private set; }
@@ -37,7 +38,7 @@ internal sealed class FirstSprintModel(bool dependencies)
         if (actor.Role is "game-engineer" or "software-developer")
         {
             Estimates++;
-            Assert.Contains(messages, text => text.Contains(Setup));
+            Assert.Contains(messages, text => text.Contains("clean checkout", StringComparison.OrdinalIgnoreCase) && text.Contains(Stack.Engine));
             return new { estimates = new[] { new { points = 2, confidence = "high", rationale = "One small scene with one input." } },
                 capacityAssessment = new { offeredPoints = 3, rationale = "There is room for the first scene." }, assumptions = Array.Empty<string>(), blockers = Array.Empty<string>() };
         }
@@ -52,7 +53,22 @@ internal sealed class FirstSprintModel(bool dependencies)
                 "Unscripted Producer judgment: " + messages[0][..Math.Min(320, messages[0].Length)] + " " + string.Join(", ", data.EnumerateObject().Select(p => p.Name)));
             if (data.GetProperty("provisional").ValueKind == JsonValueKind.Array)
             {
-                Assert.Contains(Setup, data.GetProperty("provisional").GetRawText());
+                var tasks = data.GetProperty("provisional");
+                Assert.Contains(Stack.Engine, tasks.GetRawText());
+                if (SupersededCriterion is not null && tasks.EnumerateArray().Any(task =>
+                    task.GetProperty("AcceptanceCriteria").EnumerateArray().Any(c => c.GetString() == SupersededCriterion)))
+                {
+                    Assert.Equal(0, RevisionRequests);
+                    RevisionRequests++;
+                    var review = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(
+                        AppContext.BaseDirectory, "Fixtures", "prism-breaker-refine-review.json")))!;
+                    if (RefineWithoutCandidate)
+                    {
+                        review["disposition"] = "refine";
+                        review["nextCandidate"] = null;
+                    }
+                    return review;
+                }
                 if (ReplaysBreakout)
                 {
                     var facts = data.GetProperty("evidence").EnumerateArray().ToArray();
@@ -69,7 +85,7 @@ internal sealed class FirstSprintModel(bool dependencies)
                         return recorded;
                     }
                     Assert.Equal("build-environment", facts[provider].GetProperty("Kind").GetString());
-                    Assert.Contains(Rationale, data.GetProperty("technicalConstraints").GetRawText());
+                    Assert.Contains(Stack.Rationale, data.GetProperty("technicalConstraints").GetRawText());
                     Assert.Contains(messages, text => text.Contains("provider selection", StringComparison.OrdinalIgnoreCase)
                         && text.Contains("correction", StringComparison.OrdinalIgnoreCase));
                 }
@@ -90,18 +106,26 @@ internal sealed class FirstSprintModel(bool dependencies)
             Assert.Contains(messages, text => text.Contains(Pitch));
             Assert.Contains(messages, text => text.Contains("on merit"));
             StackChoices++;
-            return new { engine = Engine, language = Language, libraries = Libraries, rationale = Rationale, setup = Setup, lockfile = Lockfile };
+            return Stack;
         }
         string[] none = [];
-        return ++technicalPage switch
+        var page = ++technicalPage;
+        if (RevisionRequests == 1 && page is 7 or 8)
+        {
+            Assert.Contains(messages, text => text.Contains("Remove the setup criterion"));
+            Assert.Contains(messages, text => text.Contains("Apply the Producer's corrections directly to the returned task briefs"));
+            page -= 2; // Reuse the frozen Story and answer only the revised task index and brief.
+        }
+        return page switch
         {
             2 => new { commitments = new[] { new { statement = Outcome, sourceIndexes = new[] { 0 }, kind = "Outcome" } } },
             3 => new { epics = new[] { new { title = "Playable interaction", outcome = Outcome, acceptanceCriteria = new[] { Outcome },
                 sourceIndexes = new[] { 0 }, prerequisiteIndexes = Array.Empty<int>() } }, feasibilityFindings = none, technicalConstraints = none, openFeasibilityDecisions = none },
-            4 => new { stories = new[] { new { title = "Playable opening scene", outcome = Outcome, acceptanceCriteria = none, epicCriterionIndexes = new[] { 0 }, prerequisiteIndexes = Array.Empty<int>() } } },
+            4 => new { stories = new[] { new { title = "Playable opening scene", outcome = Outcome, acceptanceCriteria = StoryCriteria, epicCriterionIndexes = new[] { 0 }, prerequisiteIndexes = Array.Empty<int>() } } },
             5 => new { setupTaskIndex = 0, tasks = new[] { new { title = "Implement the opening scene", description = Brief, workItemTypeKey = ReplaysBreakout ? "video-game.research-spike.v1" : "video-game.task.v1",
-                accountableRoleKey = "game-engineer", requiredSpecializationKeys = none, preferredSpecializationKeys = none, storyCriterionIndexes = new[] { 0 },
-                additionalCriteria = none, browserVerification = "none", interactionCriteria = Array.Empty<int>(), earlierTaskIndexes = Array.Empty<int>(), priorTaskIndexes = Array.Empty<int>() } } },
+                accountableRoleKey = "game-engineer", requiredSpecializationKeys = none, preferredSpecializationKeys = none, storyCriterionIndexes = Enumerable.Range(0, StoryCriteria.Length + 1).ToArray(),
+                additionalCriteria = SupersededCriterion is not null && RevisionRequests == 0 ? new[] { SupersededCriterion } : none,
+                browserVerification = "none", interactionCriteria = Array.Empty<int>(), earlierTaskIndexes = Array.Empty<int>(), priorTaskIndexes = Array.Empty<int>() } } },
             6 => new { items = new[] { new { proposalKey = "roadmap-epic-1.story-1.task-1", description = Brief } } },
             _ => throw new InvalidOperationException("Unexpected technical generation or correction: " + messages.Last()[..Math.Min(300, messages.Last().Length)])
         };

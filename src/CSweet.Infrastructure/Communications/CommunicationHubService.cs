@@ -398,17 +398,18 @@ public sealed class CommunicationHubService(
 
         var members = await db.CoreOrganizationUsers.Where(x => memberIds.Contains(x.Id)).ToListAsync(cancellationToken);
         var now = DateTimeOffset.UtcNow;
-        var otherAgent = request.IsDirect ? members.SingleOrDefault(x => x.Id != actor.Id && x.EmployeeType == EmployeeType.Agent) : null;
+        var chatAgent = request.IsDirect ? members.SingleOrDefault(x => x.Id != actor.Id && x.EmployeeType == EmployeeType.Agent)
+            ?? (actor.EmployeeType == EmployeeType.Agent ? actor : null) : null;
         var chat = new Conversation
         {
             Id = Guid.NewGuid(), OrganizationId = organizationId, InitiatedByOrganizationUserId = actor.Id,
-            AgentOrganizationUserId = otherAgent?.Id,
+            AgentOrganizationUserId = chatAgent?.Id,
             WorkstreamId = request.IsDirect ? null : request.WorkstreamId,
             TeamId = request.IsDirect ? null : request.TeamId,
             Kind = request.IsDirect ? ConversationKind.DirectHumanAgent : ConversationKind.Team,
             Title = request.IsDirect ? null : request.Title?.Trim(),
             Description = Clean(request.Description), IsPrivate = request.IsDirect || request.IsPrivate,
-            IsDeletionProtected = otherAgent is not null,
+            IsDeletionProtected = chatAgent is not null,
             CreatedAt = now, UpdatedAt = now
         };
         if (!request.IsDirect && string.IsNullOrWhiteSpace(chat.Title))

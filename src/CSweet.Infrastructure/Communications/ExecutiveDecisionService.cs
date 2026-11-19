@@ -43,7 +43,8 @@ public sealed partial class ExecutiveDecisionService(
         var options = command.Options.Select(option => new StoredOption(
                 Required(option.Id, 80, "option.id"),
                 CSweet.Application.Common.AuthoredText.Required(option.Label, "option.label"),
-                CSweet.Application.Common.AuthoredText.Optional(option.Description)))
+                CSweet.Application.Common.AuthoredText.Optional(option.Description),
+                CSweet.Application.Common.AuthoredText.Optional(option.Impact)))
             .ToList();
         if (options.Select(x => x.Id).Distinct(StringComparer.Ordinal).Count() != options.Count)
             throw new ArgumentException("Decision option IDs must be unique.");
@@ -91,7 +92,10 @@ public sealed partial class ExecutiveDecisionService(
             var currentLabel = field.Options!.Single(x => x.Value == change.CurrentValue).Label;
             var proposedLabel = field.Options!.Single(x => x.Value == change.ProposedValue).Label;
             prompt = $"Current {field.Label}: {currentLabel}. Switch to {proposedLabel}?";
-            options = [new("apply", $"Switch to {proposedLabel}", null), new("leave-unchanged", "Leave unchanged", $"Keep {currentLabel}.")];
+            options = [
+                new("apply", $"Switch to {proposedLabel}", null, $"Future work will use {proposedLabel} for {field.Label}."),
+                new("leave-unchanged", "Leave unchanged", $"Keep {currentLabel}.", $"Future work will keep using {currentLabel} for {field.Label}.")
+            ];
             recommendedOptionId = "apply";
         }
 
@@ -274,7 +278,10 @@ public sealed partial class ExecutiveDecisionService(
 
         var targetAgentId = await db.CoreConversations.AsNoTracking()
             .Where(x => x.Id == conversationId && x.OrganizationId == organizationId && x.ArchivedAt == null)
-            .Select(x => x.AgentOrganizationUserId)
+            .Select(x => x.AgentOrganizationUserId ?? (x.Kind == ConversationKind.DirectHumanAgent
+                ? x.Participants.Where(p => p.LeftAt == null && p.OrganizationUser!.IsActive &&
+                    p.OrganizationUser.EmployeeType == EmployeeType.Agent && p.OrganizationUser.AgentInstallationId == decision.RequestingInstallationId)
+                    .Select(p => (Guid?)p.OrganizationUserId).SingleOrDefault() : null))
             .SingleOrDefaultAsync(cancellationToken);
         if (!targetAgentId.HasValue) return Failure("agent_unavailable", "The agent for this chat is not available.");
 
@@ -413,21 +420,20 @@ public sealed partial class ExecutiveDecisionService(
 
     private static ExecutiveDecisionCardResponse ToCard(ExecutiveDecision decision)
     {
-        var options = ReadOptions(decision.OptionsJson)
+        var stored = ReadDecisionOptions(decision.OptionsJson);
+        var options = stored.Options
             .OrderByDescending(x => x.Id == decision.RecommendedOptionId)
             .Select(x => new ExecutiveDecisionOptionResponse(x.Id, x.Label, x.Description,
-                x.Id == decision.RecommendedOptionId))
+                x.Id == decision.RecommendedOptionId) { Impact = stored.IncidentIntendedOutcomes?.GetValueOrDefault(x.Id) ?? x.Impact })
             .ToList();
         return new(decision.Id, decision.Prompt, decision.Status.ToString(), options,
             decision.RecommendedOptionId, decision.SelectedOptionId, decision.FreeTextAnswer,
             decision.CreatedAt, decision.AnsweredAt) { AllowFreeText =
-                ReadDecisionOptions(decision.OptionsJson).ConfigurationChange is null &&
-                (ReadDecisionOptions(decision.OptionsJson).WorkstreamDecisionId is null || options.Any(x => x.Id == "provide-direction")),
-                IncidentId = ReadDecisionOptions(decision.OptionsJson).Incident?.IncidentId,
-                IncidentReportRevision = ReadDecisionOptions(decision.OptionsJson).Incident?.ReportRevision };
+                stored.ConfigurationChange is null &&
+                (stored.WorkstreamDecisionId is null || options.Any(x => x.Id == "provide-direction")),
+                IncidentId = stored.Incident?.IncidentId,
+                IncidentReportRevision = stored.Incident?.ReportRevision };
     }
-
-    private static List<StoredOption> ReadOptions(string json) => ReadDecisionOptions(json).Options;
 
     // Legacy decisions stored a bare options array. New decisions also retain their typed action.
     private static StoredDecisionOptions ReadDecisionOptions(string json)
@@ -455,5 +461,5 @@ public sealed partial class ExecutiveDecisionService(
     private static AnswerExecutiveDecisionResponse Failure(string code, string message,
         ExecutiveDecisionCardResponse? decision = null) => new(false, code, message, decision);
 
-    private sealed record StoredOption(string Id, string Label, string? Description);
+    private sealed record StoredOption(string Id, string Label, string? Description, string? Impact = null);
 }

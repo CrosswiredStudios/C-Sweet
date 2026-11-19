@@ -67,12 +67,20 @@ public sealed partial class ExecutiveDecisionServiceTests
         Assert.Contains("IS NULL", created.Filter);
     }
 
-    [Fact]
-    public async Task ProjectReviewReplayReusesDirectChatAndReturnsAnActionableMessage()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProjectReviewReplayReusesDirectChatAndReturnsAnActionableMessage(bool legacyAgentInitiatedChat)
     {
         await using var db = CreateDb();
         var setup = await SeedAsync(db);
         var agent = await db.CoreOrganizationUsers.SingleAsync(x => x.AgentInstallationId == setup.InstallationId);
+        if (legacyAgentInitiatedChat)
+        {
+            var existing = await db.CoreConversations.SingleAsync(x => x.Id == setup.ConversationId);
+            existing.AgentOrganizationUserId = null;
+            await db.SaveChangesAsync();
+        }
         var stream = new Workstream { Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, Name = "Game", ProfileKey = "game" };
         var source = new WorkstreamDecisionRecord {
             Id = Guid.NewGuid(), OrganizationId = setup.OrganizationId, WorkstreamId = stream.Id,

@@ -24,10 +24,10 @@ public sealed class IncidentResolutionChoicesTests
     public async Task ChoiceAndCustomAnswerStayInlineAndKeepTheirRetryKey(bool custom)
     {
         await using var f = new Fixture();
-        var root = await f.Render(); await f.OpenMenu();
+        var root = await f.Render();
+        await f.Renderer.Dispatcher.InvokeAsync(() => f.Capture.Options!.SelectedChanged.InvokeAsync(custom ? DecisionChoices.Other : "reconcile"));
         if (custom)
         {
-            await f.Renderer.Dispatcher.InvokeAsync(() => f.Capture.Items.Last().OnClick.InvokeAsync(new MouseEventArgs()));
             Assert.Contains("Your blocker resolution", await f.Renderer.Dispatcher.InvokeAsync(root.ToHtmlString));
             await f.Renderer.Dispatcher.InvokeAsync(() =>
             {
@@ -35,9 +35,8 @@ public sealed class IncidentResolutionChoicesTests
                 typeof(ComponentBase).GetMethod("StateHasChanged", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(f.Capture.Choices, null);
             });
         }
-        async Task Submit() => await f.Renderer.Dispatcher.InvokeAsync(() => custom
-            ? f.Capture.Buttons.Last().OnClick.InvokeAsync(new MouseEventArgs())
-            : f.Capture.Items.First().OnClick.InvokeAsync(new MouseEventArgs()));
+        var submit = Assert.Single(f.Capture.Buttons, b => b.Variant == Variant.Filled);
+        async Task Submit() => await f.Renderer.Dispatcher.InvokeAsync(() => submit.OnClick.InvokeAsync(new MouseEventArgs()));
         f.Handler.Fail = true; await Submit();
         Assert.Contains("Try again", await f.Renderer.Dispatcher.InvokeAsync(root.ToHtmlString));
         f.Handler.Fail = false; await Submit(); await Submit();
@@ -72,7 +71,7 @@ public sealed class IncidentResolutionChoicesTests
     {
         await using var f = new Fixture(); f.Decision = f.Decision with { Status = status };
         var root = await f.Render(); var html = await f.Renderer.Dispatcher.InvokeAsync(root.ToHtmlString);
-        Assert.Contains("blocker changed", html); Assert.Null(f.Capture.Menu); Assert.Empty(f.Handler.Requests);
+        Assert.Contains("blocker changed", html); Assert.Null(f.Capture.Options); Assert.Empty(f.Handler.Requests);
     }
 
     [Fact]
@@ -80,7 +79,7 @@ public sealed class IncidentResolutionChoicesTests
     {
         await using var f = new Fixture(); f.Decision = f.Decision with { Status = "Cancelled" };
         var root = await f.Render(); var html = await f.Renderer.Dispatcher.InvokeAsync(root.ToHtmlString);
-        Assert.Contains("No response is needed", html); Assert.Null(f.Capture.Menu); Assert.Empty(f.Handler.Requests);
+        Assert.Contains("No response is needed", html); Assert.Null(f.Capture.Options); Assert.Empty(f.Handler.Requests);
     }
 
     private sealed class Fixture : IAsyncDisposable
@@ -103,21 +102,17 @@ public sealed class IncidentResolutionChoicesTests
             Renderer.RenderComponentAsync<IncidentResolutionChoices>(ParameterView.FromDictionary(new Dictionary<string, object?> {
                 ["OrganizationId"] = Org, ["ConversationId"] = Chat, ["Decision"] = Decision,
                 ["Answered"] = EventCallback.Factory.Create(this, () => Answers++) })));
-        public Task OpenMenu() => Renderer.Dispatcher.InvokeAsync(async () =>
-            await Renderer.RenderComponentAsync<CascadingValue<MudMenu>>(ParameterView.FromDictionary(new Dictionary<string, object?>
-                { ["Value"] = Capture.Menu, ["IsFixed"] = true, ["ChildContent"] = Capture.Menu!.ChildContent })));
         public async ValueTask DisposeAsync() { await Renderer.DisposeAsync(); await services.DisposeAsync(); }
     }
     private sealed class Capturing : IComponentActivator
     {
-        public IncidentResolutionChoices? Choices; public MudMenu? Menu;
-        public List<MudMenuItem> Items { get; } = []; public List<MudButton> Buttons { get; } = []; public List<PersonAvatarContent> Avatars { get; } = [];
+        public IncidentResolutionChoices? Choices; public DecisionChoices? Options;
+        public List<MudButton> Buttons { get; } = []; public List<PersonAvatarContent> Avatars { get; } = [];
         public IComponent CreateInstance(Type type)
         {
             var instance = (IComponent)Activator.CreateInstance(type)!;
             if (instance is IncidentResolutionChoices c) Choices = c;
-            if (instance is MudMenu m) Menu = m;
-            if (instance is MudMenuItem i) Items.Add(i);
+            if (instance is DecisionChoices o) Options = o;
             if (instance is MudButton b) Buttons.Add(b);
             if (instance is PersonAvatarContent a) Avatars.Add(a);
             return instance;

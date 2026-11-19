@@ -4,6 +4,12 @@ The SDK provides `AgentTestRuntime` and the standalone `AgentTestHost` dispatche
 
 An author working in a single agent checkout should be able to start at the callback that failed, make an edit, and rerun the scenario with `dotnet test`. A new agent author should be able to develop a flow the same way before installing the agent in C-Sweet. Both workflows use the real agent and assert its observable result.
 
+## Test a planning handoff
+
+Run `FreshTeamSprintJourneyTests.Planning_question_routes_to_the_team_or_to_one_owner_according_to_the_selected_action` in `CSweet.GameRoleWorkflow.Tests`. The Producer submits the original question through C-Sweet's decision broker. The Director's real event handler records direction, the technical lead receives it, and the engineer estimates and claims the first sprint task. The second case selects a change to an accepted requirement and checks the owner card and the recorded human answer after a late recovery attempt.
+
+From the Director checkout, run `dotnet test -c Release --filter FullyQualifiedName~PlanningContextRecoveryTests`. The fixture `prism-planning-capacity.json` contains the original alternatives and final model reply. The same dispatcher accepts a prose question with no private payload. Set `CSWEET_REVIEW_MODEL_URL` and `CSWEET_REVIEW_MODEL` to include the local-model paraphrase and option-order check.
+
 ## Test Victor’s technical review
 
 From the Technical Director checkout, run the real `work.execution.run` capability with a simulated repository, operating-state store, and inference provider.
@@ -40,13 +46,19 @@ This pilot covers the accepted-pitch checkpoint in the game workflow suite. Capt
 
 ## Regression coverage for flow fixes
 
+`FreshTeamSprintJourneyTests.Prism_Breaker_first_epic_assigns_only_the_approved_baseline_to_Adrian` replays Victor's recorded PixiJS stack choice and setup notes. One case plans from scratch. Two cases give Gabriel the original conflicting criterion and follow his revision request back to Victor, including a review that names the draft correction without a candidate index. Each checks the first Story’s playable outcome, clean restore and explicit effects exclusions on the published ticket, then verifies that Adrian claims it once across restart.
+
+The conflicting-draft replay returns the model's `refine` action and counts coordination sessions so a second consultation fails the test. `Certified_build_wakes_Gabriels_retained_draft_before_the_timer` follows Victor's resource request through fulfillment. It covers a stable wait, changing resource facts, and certification immediately before Gabriel saves his wait. The harness delivers C-Sweet's targeted outbox event after restarting the agents and checks that planning reaches one engineer claim before the fallback timer. Both journeys use scripted model answers.
+
+The Qwen Studios regression, `Qwen_estimate_resumes_on_QA_hire_and_preserves_the_owner_offer`, runs the recorded legacy 13-point estimate through Gabriel. It covers QA joining on either side of the defer, one first-attempt engineer claim across restart, and a confirmed impediment that waits for the manager's decision. To run Gabriel's risk assessment against a local model, set `CSWEET_RISK_CHECKPOINT_URL`, `CSWEET_RISK_CHECKPOINT_MODEL` and `CSWEET_RISK_CHECKPOINT_OUTPUT_TOKENS`, then run the test by name. The other model judgments stay scripted.
+
 Every agent-flow fix ships with an accompanying `AgentTestHost` regression. The rule applies to the contributor or AI copilot working on the fix, including when the code change belongs to Headquarters. Reproduce the failing delivery through the SDK dispatcher, script only inputs outside the behavior under test, then drive the receiving agent or platform service until its observable effect is recorded. Keep an ordinary scheduled wake distinguishable from an operator retry. For a restart, keep the platform state, replace the agent instance and redeliver the original event ID.
 
 `FreshTeamSprintJourneyTests` in `tests/CSweet.GameRoleWorkflow.Tests` exercises this boundary for game planning. It starts with a staffed team and an accepted pitch on an empty board. The two cases use scripted technical judgments for different game mechanics and follow the selected stack into the published setup ticket, the active sprint and the assigned engineer's inbox lease. Run both with `dotnet test tests/CSweet.GameRoleWorkflow.Tests -c Release --filter FullyQualifiedName~FreshTeamSprintJourneyTests`. Use the same sibling checkout paths as `scripts/Test-GameStudioWorkflow.ps1`. The Prism Break recovery cases also load the sibling `CSweet.Agent.SoftwareDeveloper` checkout. They start Daniel with his own manifest, interrupt the same command twice, and verify Gabriel sends him one checkpoint-bound repair after a stage-stopped wake or an explicit retry.
 
 ## Implementation status
 
-The SDK pull request introduces the shared dispatcher, standalone host and revision-aware operating-state fixture in version `5.43.0`. The Producer pilot covers Brickstorm recovery across restart and duplicate delivery. The Director pilot exercises pitch review from a standalone clone with the packed dependencies. [SDK pull request](https://github.com/CrosswiredStudios/CSweet.Agent.Sdk/pull/12) · [Producer pull request](https://github.com/CrosswiredStudios/CSweet.Agent.Producer.VideoGame/pull/7) · [Director pull request](https://github.com/CrosswiredStudios/CSweet.Agent.Director.VideoGame/pull/12)
+SDK `5.42.0` introduced the shared dispatcher, standalone host and revision-aware operating-state fixture. The Producer pilot covers Brickstorm recovery across restart and duplicate delivery. The Director pilot exercises pitch review from a standalone clone with the packed dependencies. [SDK pull request](https://github.com/CrosswiredStudios/CSweet.Agent.Sdk/pull/12) · [Producer pull request](https://github.com/CrosswiredStudios/CSweet.Agent.Producer.VideoGame/pull/7) · [Director pull request](https://github.com/CrosswiredStudios/CSweet.Agent.Director.VideoGame/pull/12)
 
 The Director pilot measured 3.18 seconds at p95 across 20 warm edits, within the 15-second target. Shared operating state reduced scenario setup from 69 to 52 lines, leaving 22 lines above budget. The original author was familiar with the harness. Independent onboarding, automatic discovery by Codex and Claude Code, and the required CI check are still open. [Pilot measurements](https://github.com/CrosswiredStudios/CSweet.Agent.Director.VideoGame/blob/a566461bde2c0e34eb058d11e3814b999c42856e/docs/pitch-review-harness-pilot.md)
 

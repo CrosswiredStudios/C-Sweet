@@ -21,22 +21,22 @@ internal sealed class CheckpointModelEndpoint(string model, AgentSession session
     public string Model => model;
 
     public static async Task<CheckpointModelEndpoint> OpenAsync(CSweetDbContext db, AgentCoordinationParticipant actor,
-        Guid organization, Guid providerId)
+        Guid organization, Guid providerId, string settingsPrefix = "CSWEET_STACK_CHECKPOINT")
     {
-        var url = Environment.GetEnvironmentVariable("CSWEET_STACK_CHECKPOINT_URL");
+        var url = Environment.GetEnvironmentVariable(settingsPrefix + "_URL");
         if (!Uri.TryCreate(url, UriKind.Absolute, out var endpoint) || endpoint.Scheme is not ("http" or "https") ||
             endpoint.UserInfo.Length != 0 || endpoint.Query.Length != 0 || endpoint.Fragment.Length != 0)
             throw new InvalidOperationException("Supply an HTTP(S) API base URL without credentials, query or fragment.");
-        var model = Environment.GetEnvironmentVariable("CSWEET_STACK_CHECKPOINT_MODEL");
+        var model = Environment.GetEnvironmentVariable(settingsPrefix + "_MODEL");
         if (string.IsNullOrWhiteSpace(model)) throw new InvalidOperationException("Select a model ID.");
-        var budgetText = Environment.GetEnvironmentVariable("CSWEET_STACK_CHECKPOINT_OUTPUT_TOKENS");
+        var budgetText = Environment.GetEnvironmentVariable(settingsPrefix + "_OUTPUT_TOKENS");
         if (!int.TryParse(budgetText, out var budget) || budget < 1 || budget >= AgentTokenBudget.DefaultContextTokens)
             throw new InvalidOperationException($"Select an output budget between 1 and {AgentTokenBudget.DefaultContextTokens - 1}.");
 
         var secrets = new InMemoryLlmProviderSecretStore();
         var profile = new LlmProviderProfile { Id = providerId, Name = "Checkpoint", ProviderType = LlmProviderType.OpenAiCompatible,
             BaseUrl = endpoint.AbsoluteUri, DefaultChatModel = model, IsEnabled = true, SupportsStreaming = true, SupportsStructuredOutput = true };
-        if (Environment.GetEnvironmentVariable("CSWEET_STACK_CHECKPOINT_KEY_VARIABLE") is { Length: > 0 } variable)
+        if (Environment.GetEnvironmentVariable(settingsPrefix + "_KEY_VARIABLE") is { Length: > 0 } variable)
         {
             var key = Environment.GetEnvironmentVariable(variable);
             if (string.IsNullOrWhiteSpace(key)) throw new InvalidOperationException("Selected API key environment variable is empty.");

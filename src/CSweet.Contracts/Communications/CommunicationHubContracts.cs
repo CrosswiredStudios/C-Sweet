@@ -262,7 +262,10 @@ public sealed record ExecutiveDecisionOptionResponse(
     string Id,
     string Label,
     string? Description,
-    bool Recommended);
+    bool Recommended)
+{
+    public string? Impact { get; init; }
+}
 
 public sealed record ExecutiveDecisionCardResponse(
     Guid Id,
@@ -284,6 +287,9 @@ public sealed record AnswerExecutiveDecisionRequest(
     [property: MaxLength(80)] string? OptionId,
     string? SomethingElse,
     [property: Required, MaxLength(160)] string IdempotencyKey);
+
+public sealed record DecisionQuestionRequest([property: Required, MaxLength(4000)] string Question, string? OptionId = null);
+public sealed record DecisionExplanationResponse(string Explanation);
 
 public sealed record AnswerExecutiveDecisionResponse(
     bool Succeeded,

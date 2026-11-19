@@ -10,7 +10,10 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="Microsoft.Agents.AI" VersionOverride="1.15.0" />
     <PackageReference Include="xunit" />
+    <None Update="Fixtures/qwen-adrian-estimate.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures/prism-break-recipe-review.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures/prism-breaker-stack.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures/prism-breaker-refine-review.json" CopyToOutputDirectory="PreserveNewest" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <Using Include="Xunit" />
     <ProjectReference Include="../CSweet.UnitTests/CSweet.UnitTests.csproj" />
@@ -18,6 +21,7 @@
     <ProjectReference Include="$(CSweetSourceRepositoriesRoot)/CSweet.Agent.SoftwareDeveloper/src/CSweet.Agents.SoftwareDeveloper/CSweet.Agents.SoftwareDeveloper.csproj" Aliases="Developer" />
     <EmbeddedResource Include="$(CSweetSourceRepositoriesRoot)/CSweet.Agent.SoftwareDeveloper/csweet-plugin.json" LogicalName="software-developer.json" />
     <EmbeddedResource Include="$(CSweetGameDirectorRepositoryRoot)/profiles/video-game-production.v2.8.json" LogicalName="first-sprint-profile.json" />
+    <EmbeddedResource Include="$(CSweetGameDirectorRepositoryRoot)/csweet-plugin.json" LogicalName="game-director.json" />
     <EmbeddedResource Include="$(CSweetSourceRepositoriesRoot)/CSweet.Agent.TechnicalDirector.VideoGame/csweet-plugin.json" LogicalName="game-technical-director.json" />
     <EmbeddedResource Include="$(CSweetSourceRepositoriesRoot)/CSweet.Agent.Producer.VideoGame/csweet-plugin.json" LogicalName="game-producer.json" />
     <EmbeddedResource Include="$(CSweetSourceRepositoriesRoot)/CSweet.Agent.Engineer.VideoGame/csweet-plugin.json" LogicalName="game-engineer.json" />

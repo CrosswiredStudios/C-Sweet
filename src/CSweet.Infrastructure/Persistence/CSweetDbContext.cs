@@ -276,9 +276,11 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
-        using var internetTransaction = (HasRuntimeGrantChanges() || HasProviderDataWrites()) && Database.IsRelational() && Database.CurrentTransaction is null
+        var waitSources = ChangedPersonalWaitSources();
+        using var internetTransaction = (waitSources.Length > 0 || HasRuntimeGrantChanges() || HasProviderDataWrites()) && Database.IsRelational() && Database.CurrentTransaction is null
             ? Database.BeginTransaction() : null;
         CaptureRuntimeInternetRevocationsAsync().GetAwaiter().GetResult();
+        CapturePersonalDependencyWakesAsync(waitSources, default).GetAwaiter().GetResult();
         CaptureCoordinationWakesAsync().GetAwaiter().GetResult();
         CaptureWorkLifecycle();
         CaptureTrackedWorkChanges();
@@ -309,9 +311,11 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
 
     public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
-        await using var internetTransaction = (HasRuntimeGrantChanges() || HasProviderDataWrites()) && Database.IsRelational() && Database.CurrentTransaction is null
+        var waitSources = ChangedPersonalWaitSources();
+        await using var internetTransaction = (waitSources.Length > 0 || HasRuntimeGrantChanges() || HasProviderDataWrites()) && Database.IsRelational() && Database.CurrentTransaction is null
             ? await Database.BeginTransactionAsync(cancellationToken) : null;
         await CaptureRuntimeInternetRevocationsAsync(cancellationToken);
+        await CapturePersonalDependencyWakesAsync(waitSources, cancellationToken);
         await CaptureCoordinationWakesAsync(cancellationToken);
         CaptureWorkLifecycle();
         CaptureTrackedWorkChanges();

@@ -6,6 +6,7 @@ using CSweet.Contracts.Core;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Security;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.Core;
@@ -47,7 +48,7 @@ public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<I
             input.ResourceType, input.ProfileKey, input.Purpose, "Preparing", 1, "", null,
             "Preparing an exact resource plan; no installation is authorized.", null, null, now, now);
         await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(token) : null;
-        await LockAsync(organization, token);
+        await LockAsync(db, organization, token);
         var replay = await db.PluginOperationalStates.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organization && x.Kind == CommandKind && x.ExternalKey == identity, token);
         if (replay is not null)
         {
@@ -100,11 +101,39 @@ public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<I
         {
             if (query.WorkstreamId is { } project && state.WorkstreamId != project) continue;
             if (query.PendingApprovalOnly && (state.Status != "PendingApproval" || state.ApproverId != actor.Id)) continue;
-            if (state.RequesterId != actor.Id && state.ApproverId != actor.Id && !await ManagesProjectAsync(actor, state.WorkstreamId, token)) continue;
+            if (!await CanReadAsync(actor, state, token)) continue;
             result.Add(state);
         }
         return result;
     }
+
+    private async Task<bool> CanReadAsync(OrganizationUser actor, ResourceRequestState state, CancellationToken token) =>
+        state.RequesterId == actor.Id || state.ApproverId == actor.Id || await ManagesProjectAsync(actor, state.WorkstreamId, token);
+
+    internal static string FulfillmentPhase(string status) => status is "Preparing" or "PendingApproval" or
+        "Approved" or "Installing" or "Certifying" or "WaitingDependency" ? "Pending" : status;
+
+    internal async Task<string> ReadWaitPhaseAsync(Guid organization, Guid installation, Guid requestId, Guid? project, CancellationToken token)
+    {
+        var actor = await ActorAsync(organization, installation, token);
+        if (!await db.HasRequiredCapabilityAsync(actor.OrganizationId, actor.AgentInstallationId, ResourceCapabilities.Read, token))
+            throw new UnauthorizedAccessException("The installation needs resource read access to wait on fulfillment.");
+        // A worker wakes waiters before committing its mutation. Other callers need the current database value.
+        var row = db.PluginOperationalStates.Local.FirstOrDefault(x => x.OrganizationId == organization &&
+            x.Id == requestId && x.Kind == StateKind && db.Entry(x).State == EntityState.Modified);
+        row ??= await db.PluginOperationalStates.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organization &&
+            x.Id == requestId && x.Kind == StateKind, token);
+        if (row is not null)
+        {
+            var state = Read(row);
+            if (state.WorkstreamId == project && await CanReadAsync(actor, state, token))
+                return FulfillmentPhase(state.Status);
+        }
+        throw new UnauthorizedAccessException("The waiting work cannot read this project resource.");
+    }
+
+    private Task WakeFulfillmentWaitsAsync(Guid organization, Guid requestId, CancellationToken token) =>
+        new WorkManagement.WorkItemMutationEngine(db, clock).RecoverDependencyWaitsAsync(token, organizationId: organization, changed: (ResourceCapabilities.Changed, requestId));
 
     public async Task<ResourceRequestState> DecideAsync(OrganizationUser actor, ResourceDecision decision, CancellationToken token)
     {
@@ -112,7 +141,7 @@ public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<I
             string.IsNullOrWhiteSpace(decision.IdempotencyKey) || decision.IdempotencyKey.Length > 160)
             throw new ArgumentException("A rationale and stable decision key are required.");
         await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(token) : null;
-        await LockAsync(actor.OrganizationId, token);
+        await LockAsync(db, actor.OrganizationId, token);
         var row = await db.PluginOperationalStates.SingleAsync(x => x.OrganizationId == actor.OrganizationId && x.Kind == StateKind && x.Id == decision.RequestId, token);
         await db.Entry(row).ReloadAsync(token);
         var state = Read(row);
@@ -175,6 +204,7 @@ public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<I
             proposal.DecidedAt = clock.GetUtcNow();
         }
         Save(row, state, decision.Decision.ToLowerInvariant());
+        if (FulfillmentPhase(state.Status) != "Pending") await WakeFulfillmentWaitsAsync(actor.OrganizationId, state.Id, token);
         if (decision.Decision == "Escalate") proposal.PayloadJson = ApprovalBinding(Read(row));
         db.PluginOperationalStates.Add(new() { Id = Guid.NewGuid(), OrganizationId = actor.OrganizationId, AgentInstallationId = row.AgentInstallationId,
             Kind = CommandKind, ExternalKey = commandKey, PayloadJson = command, CreatedAt = clock.GetUtcNow(), UpdatedAt = clock.GetUtcNow() });
@@ -190,7 +220,7 @@ public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<I
             .OrderBy(x => x.AvailableAt).FirstOrDefaultAsync(token);
         if (candidate is null) return false;
         await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(token) : null;
-        await LockAsync(candidate.OrganizationId, token);
+        await LockAsync(db, candidate.OrganizationId, token);
         var row = await db.PluginOperationalStates.SingleAsync(x => x.Id == candidate.Id, token);
         await db.Entry(row).ReloadAsync(token);
         if (row.AvailableAt is null || row.AvailableAt > now) return true;
@@ -258,6 +288,8 @@ public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<I
                 FailureCode = state.Plan is null ? "resource.preparation_failed" : "resource.fulfillment_failed", Condition = error.Message }, "blocked");
             row.AvailableAt = null;
         }
+        if (row.Revision != candidate.Revision && FulfillmentPhase(Read(row).Status) != "Pending")
+            await WakeFulfillmentWaitsAsync(row.OrganizationId, row.Id, token);
         await db.SaveChangesAsync(token);
         if (transaction is not null) await transaction.CommitAsync(token);
         return true;
@@ -312,25 +344,15 @@ public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<I
             if (actor.EmployeeType == EmployeeType.Human && actor.ApplicationUserId.HasValue && (!requiresOwner || actor.PermissionLevel == OrganizationPermissionLevel.Owner)) return actor;
             if (requiresOwner) continue;
             if (actor.EmployeeType != EmployeeType.Agent) continue;
-            var installation = await db.AgentInstallations.AsNoTracking().Include(x => x.Grant).SingleOrDefaultAsync(x =>
-                x.Id == actor.AgentInstallationId && x.IsEnabled && x.RevisionStatus == PluginRevisionStatus.Active && x.SetupState == PluginSetupState.Ready, token);
-            var grants = JsonSerializer.Deserialize<string[]>(installation?.Grant?.RequiredCapabilitiesJson ?? "[]", Json) ?? [];
-            if (grants.Contains(ResourceCapabilities.Decide, StringComparer.Ordinal)) return actor;
+            if (await db.HasRequiredCapabilityAsync(actor.OrganizationId, actor.AgentInstallationId, ResourceCapabilities.Decide, token)) return actor;
         }
         throw new InvalidOperationException("No active approver on the reporting chain has resource decision authority.");
     }
     private async Task RequireApproverAsync(OrganizationUser actor, ResourceRequestState state, CancellationToken token)
     {
         if (!actor.IsActive || actor.ArchivedAt is not null || actor.Id != state.ApproverId) throw new UnauthorizedAccessException("Only the current assigned approver can decide or fulfill this resource.");
-        if (actor.EmployeeType == EmployeeType.Agent)
-        {
-            var managerInstallation = await db.AgentInstallations.AsNoTracking().Include(x => x.Grant).SingleOrDefaultAsync(x =>
-                x.Id == actor.AgentInstallationId && x.BusinessId == actor.OrganizationId.ToString("D") && x.IsEnabled &&
-                x.RevisionStatus == PluginRevisionStatus.Active && x.SetupState == PluginSetupState.Ready, token);
-            var grants = JsonSerializer.Deserialize<string[]>(managerInstallation?.Grant?.RequiredCapabilitiesJson ?? "[]", Json) ?? [];
-            if (!grants.Contains(ResourceCapabilities.Decide, StringComparer.Ordinal))
-                throw new UnauthorizedAccessException("The manager's resource approval authority is no longer granted.");
-        }
+        if (actor.EmployeeType == EmployeeType.Agent && !await db.HasRequiredCapabilityAsync(actor.OrganizationId, actor.AgentInstallationId, ResourceCapabilities.Decide, token))
+            throw new UnauthorizedAccessException("The manager's resource approval authority is no longer granted.");
         var requester = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(x => x.OrganizationId == actor.OrganizationId && x.Id == state.RequesterId && x.IsActive && x.ArchivedAt == null, token);
         var requesterConfiguration = await db.AgentInstallationConfigurations.AsNoTracking().Where(x => x.AgentInstallationId == requester.AgentInstallationId)
             .Select(x => x.SettingsJson).SingleOrDefaultAsync(token);
@@ -410,7 +432,7 @@ public sealed class ResourceFulfillmentService(CSweetDbContext db, IEnumerable<I
                 OccurredAt = clock.GetUtcNow(), NextAttemptAt = clock.GetUtcNow() });
         }
     }
-    private async Task LockAsync(Guid organization, CancellationToken token)
+    internal static async Task LockAsync(CSweetDbContext db, Guid organization, CancellationToken token)
     {
         if (db.Database.IsNpgsql()) await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({"resource:" + organization}, 0))", token);
     }

@@ -395,7 +395,9 @@ public sealed partial class PersonalTodoServiceTests
         var prefix = $"personal-todo-available:{item.Id:N}:";
         var leased = Delivery(prefix, setup, AgentWorkStatus.Leased, DateTimeOffset.UtcNow.AddMinutes(-2));
         var pending = Delivery(prefix, setup, AgentWorkStatus.Pending, DateTimeOffset.UtcNow.AddMinutes(-1));
-        db.AgentWorkItems.AddRange(leased, pending);
+        var successor = Delivery(prefix + "dependency-3:", setup, AgentWorkStatus.Pending, DateTimeOffset.UtcNow);
+        var duplicateSuccessor = Delivery(prefix + "dependency-3:", setup, AgentWorkStatus.Pending, DateTimeOffset.UtcNow.AddSeconds(1));
+        db.AgentWorkItems.AddRange(leased, pending, successor, duplicateSuccessor);
         await db.SaveChangesAsync();
 
         await service.ReconcileAsync();
@@ -403,6 +405,8 @@ public sealed partial class PersonalTodoServiceTests
         Assert.Equal(AgentWorkStatus.Leased, leased.Status);
         Assert.Equal(AgentWorkStatus.Cancelled, pending.Status);
         Assert.NotNull(pending.CompletedAt);
+        Assert.Equal(AgentWorkStatus.Pending, successor.Status);
+        Assert.Equal(AgentWorkStatus.Cancelled, duplicateSuccessor.Status);
     }
 
     [Fact]

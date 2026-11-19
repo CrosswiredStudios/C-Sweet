@@ -52,7 +52,7 @@ internal static class WorkstreamDecisionChatReview
             ?? throw new InvalidOperationException("The project decision message could not be created.");
         await decisions.CreateAsync(new CreateExecutiveDecisionCommand(source.OrganizationId, chat.Chat.Id, null,
             sent.Message.Id, installation, source.Summary,
-            options.Select(x => new CreateExecutiveDecisionOption(x.Id, x.Label, x.Description)).ToArray(),
+            options.Select(x => new CreateExecutiveDecisionOption(x.Id, x.Label, x.Description, x.Impact)).ToArray(),
             source.RecommendedOptionId, key) { WorkstreamDecisionId = source.Id }, token);
     }
 }

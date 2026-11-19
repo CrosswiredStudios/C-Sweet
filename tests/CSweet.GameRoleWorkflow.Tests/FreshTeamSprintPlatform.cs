@@ -35,6 +35,7 @@ internal sealed class FreshTeamSprintPlatform(bool useSoftwareDeveloper = false)
     private readonly EphemeralDataProtectionProvider protection = new();
     private WorkManagementCapabilityHandler work = null!;
     private ArtifactCapabilityHandler artifacts = null!;
+    private WorkstreamGovernanceCapabilityHandler governance = null!;
     public Guid PitchId { get; } = Guid.NewGuid();
     public Guid RevisionId { get; } = Guid.NewGuid();
     public Guid PackageId { get; } = Guid.NewGuid();
@@ -112,7 +113,8 @@ internal sealed class FreshTeamSprintPlatform(bool useSoftwareDeveloper = false)
                 ManifestJson = manifest.GetRawText() };
             Db.AgentInstallations.Add(new() { Id = installation, InstallationKey = Guid.NewGuid(), BusinessId = Organization.ToString(),
                 PackageVersion = package, Schedule = new() { Id = Guid.NewGuid(), IsEnabled = true },
-                Grant = new() { Id = Guid.NewGuid(), ProvidedCapabilitiesJson = JsonSerializer.Serialize(capabilities) } });
+                Grant = new() { Id = Guid.NewGuid(), ProvidedCapabilitiesJson = JsonSerializer.Serialize(capabilities),
+                    RequiredCapabilitiesJson = JsonSerializer.Serialize(manifest.GetProperty("requires").EnumerateArray().Select(r => r.GetProperty("name").GetString())) } });
             people[person.Id] = new(person.Id, installation, name, role);
             members.Add(new(person.Id.ToString(), name, "Agent", null, null, "Peer", "Online") { AgentInstallationId = installation,
                 IsAvailable = true, RuntimeEligibility = "Eligible", DeclaredRoleKeys = policy.GetProperty("declaredRoleKeys").Deserialize<string[]>()!,
@@ -126,6 +128,10 @@ internal sealed class FreshTeamSprintPlatform(bool useSoftwareDeveloper = false)
         Roster = new(Team.ToString(), "game", "Game", team.Revision, Gabriel.OrganizationUserId.ToString(), "Gabriel", members, [], members.Count, false);
         await Db.SaveChangesAsync();
         var authorization = new ScopedActionAuthorizationService(Db);
+        var turns = new ChatTurnService(Db);
+        var decisions = new CSweet.Infrastructure.Communications.ExecutiveDecisionService(Db, turns);
+        governance = new(Db, new TestAuditEventWriter(), new AgentEmployeeIdentityResolver(Db), clock,
+            new CSweet.Infrastructure.Communications.CommunicationHubService(Db, new TestAuditEventWriter(), turns, decisions), decisions);
         artifacts = new(Db, new ArtifactDocumentService(Db, new TestAuditEventWriter(), TimeProvider.System), new TestAuditEventWriter(), TimeProvider.System);
         work = new(Db, authorization, new TestAuditEventWriter(), new WorkOrchestrationService(Db, TimeProvider.System, authorization, studio.Client));
         await InvokeAsync(Gabriel, C.WorkOrchestrationActions.ConfigureProfile, JsonSerializer.SerializeToElement(
@@ -135,6 +141,50 @@ internal sealed class FreshTeamSprintPlatform(bool useSoftwareDeveloper = false)
     private void Grant(Guid installation, string action, GrantScopeKind kind, Guid scope) =>
         Db.ScopedActionGrants.Add(new() { Id = Guid.NewGuid(), OrganizationId = Organization, SubjectKind = GrantSubjectKind.AgentInstallation,
             SubjectId = installation, Action = action, ScopeKind = kind, ScopeId = scope });
+
+    public void ConnectDecisions(AgentTestRuntime runtime, AgentCoordinationParticipant actor)
+    {
+        foreach (var action in new[] { PlatformCapabilities.DecisionRead, PlatformCapabilities.DecisionRequest, PlatformCapabilities.DecisionDecide })
+            runtime.RegisterCapability<JsonElement, JsonElement>(action, (input, _) => InvokeAsync(actor, action, input));
+    }
+
+    public async Task<(Guid Document, Guid Revision)> AddProductionBriefAsync(string content, AgentCoordinationParticipant director)
+    {
+        var document = Guid.NewGuid(); var revision = Guid.NewGuid();
+        Db.CoreArtifacts.Add(new() { Id = document, OrganizationId = Organization, WorkstreamId = Project, TeamId = Team, Title = "Production plan",
+            DocumentType = "video-game.production-plan.v1", DocumentStatus = ArtifactDocumentStatus.Approved, LatestRevisionId = revision, AcceptedRevisionId = revision,
+            Revisions = [new() { Id = revision, Number = 1, OrganizationId = Organization, Content = content, ContentSha256 = Digest(content), Status = ArtifactRevisionStatus.Accepted }] });
+        foreach (var actor in new[] { director, Gabriel })
+            Grant(actor.AgentInstallationId, CSweet.Contracts.Core.ArtifactActions.Read, GrantScopeKind.Artifact, document);
+        await Db.SaveChangesAsync();
+        return (document, revision);
+    }
+
+    public async Task<AgentCoordinationParticipant> AddProjectDirectorAsync()
+    {
+        var owner = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = Organization, DisplayName = "Business owner",
+            EmployeeType = EmployeeType.Human, PermissionLevel = OrganizationPermissionLevel.Owner, IsActive = true };
+        var director = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = Organization, DisplayName = "Marcus", AgentInstallationId = Guid.NewGuid(),
+            EmployeeType = EmployeeType.Agent, ReportsToOrganizationUserId = owner.Id, IsActive = true };
+        Db.CoreOrganizationUsers.AddRange(owner, director);
+        using var stream = typeof(FreshTeamSprintPlatform).Assembly.GetManifestResourceStream("game-director.json")!;
+        using var manifest = await JsonDocument.ParseAsync(stream);
+        var root = manifest.RootElement;
+        Db.AgentInstallations.Add(new() { Id = director.AgentInstallationId.Value, InstallationKey = Guid.NewGuid(), BusinessId = Organization.ToString(),
+            PackageVersion = new() { Id = Guid.NewGuid(), Version = root.GetProperty("version").GetString()!, AgentId = root.GetProperty("id").GetString()!,
+                ManifestJson = root.GetRawText(), PackageSource = new() { Id = Guid.NewGuid(), RepositoryUrl = "https://example.test/director" } },
+            Schedule = new() { Id = Guid.NewGuid(), IsEnabled = true }, Grant = new() { Id = Guid.NewGuid() } });
+        studio.Manager.ReportsToOrganizationUserId = director.Id;
+        Db.WorkstreamSupervisionAssignments.Add(new() { Id = Guid.NewGuid(), OrganizationId = Organization, WorkstreamId = Project,
+            SupervisorOrganizationUserId = director.Id, RoleKey = "video-game-director", StartsAt = DateTimeOffset.UtcNow });
+        Db.WorkstreamAuthorityEnvelopes.Add(new() { Id = Guid.NewGuid(), OrganizationId = Organization, WorkstreamId = Project,
+            AgentAuthorizedActionKeysJson = """["work-planning"]""", HumanRequiredActionKeysJson = """["material-strategy-change"]""" });
+        foreach (var action in new[] { C.WorkBoardActions.Read, C.WorkItemActions.Read })
+            Grant(director.AgentInstallationId.Value, action, GrantScopeKind.Team, Team);
+        Grant(director.AgentInstallationId.Value, CSweet.Contracts.Core.ArtifactActions.Read, GrantScopeKind.Artifact, PitchId);
+        await Db.SaveChangesAsync();
+        return new(director.Id, director.AgentInstallationId.Value, director.DisplayName, "video-game-director");
+    }
 
     public void Connect(AgentTestRuntime runtime, AgentCoordinationParticipant actor)
     {
@@ -158,7 +208,7 @@ internal sealed class FreshTeamSprintPlatform(bool useSoftwareDeveloper = false)
         var session = new AgentSession("first-sprint", actor.Role, actor.AgentInstallationId.ToString(), Organization.ToString(),
             Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), new(new HashSet<string>(), new HashSet<string>(), new HashSet<string> { action }, 1));
         var request = new RequestCapability { RequestId = Guid.NewGuid().ToString(), Capability = action, Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(input)) };
-        IPlatformCapabilityHandler handler = artifacts.CanHandle(action) ? artifacts : work;
+        IPlatformCapabilityHandler handler = artifacts.CanHandle(action) ? artifacts : governance.CanHandle(action) ? governance : work;
         await foreach (var response in handler.HandleAsync(session, request, default))
         {
             Assert.True(response.Succeeded, $"{actor.DisplayName} {action}: {response.Error}");

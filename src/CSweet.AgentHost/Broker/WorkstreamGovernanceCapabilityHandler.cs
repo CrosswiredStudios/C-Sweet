@@ -416,9 +416,18 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
                 await WorkstreamDecisionChatReview.PresentAsync(db, hub, executiveDecisions, existing, token);
             return MapDecision(existing);
         }
-        if (request.SupersedesDecisionId.HasValue && !await db.WorkstreamDecisions.AsNoTracking().AnyAsync(x =>
-            x.OrganizationId == organizationId && x.WorkstreamId == request.WorkstreamId && x.Id == request.SupersedesDecisionId, token))
-            throw new ArgumentException("The superseded decision was not found in this Workstream.");
+        WorkstreamDecisionRecord? predecessor = null;
+        if (request.SupersedesDecisionId is Guid previousId)
+        {
+            predecessor = await db.WorkstreamDecisions.SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
+                x.WorkstreamId == request.WorkstreamId && x.Id == previousId, token)
+                ?? throw new ArgumentException("The superseded decision was not found in this Workstream.");
+            if (predecessor.SupersededByDecisionId.HasValue)
+                throw new DbUpdateConcurrencyException("A newer decision already exists. Read its current direction.");
+            if (predecessor.Status == W.DecisionStatuses.Decided && !await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x =>
+                x.Id == predecessor.DecidedByOrganizationUserId && x.OrganizationId == organizationId && x.EmployeeType == EmployeeType.Agent, token))
+                throw new InvalidOperationException("A recorded human or unattributed answer must be preserved. Open a separate question for any new proposal.");
+        }
         if (ContributionAdmission.Read(request.TypeData) is { } admission)
         {
             if (admission.StoryKey is null or { Length: 0 or > 256 } || admission.ArtifactDigest is null or { Length: not 64 } ||
@@ -457,11 +466,10 @@ public sealed class WorkstreamGovernanceCapabilityHandler(
             RequestedByInstallationId = installationId, SupersedesDecisionId = request.SupersedesDecisionId,
             DueAt = request.DueAt, IdempotencyKey = request.IdempotencyKey, CreatedAt = now, UpdatedAt = now
         };
-        if (request.SupersedesDecisionId.HasValue)
+        if (predecessor is not null)
         {
-            var superseded = await db.WorkstreamDecisions.SingleAsync(x => x.Id == request.SupersedesDecisionId, token);
-            superseded.Status = W.DecisionStatuses.Superseded; superseded.SupersededByDecisionId = decision.Id;
-            superseded.Revision++; superseded.UpdatedAt = now;
+            predecessor.Status = W.DecisionStatuses.Superseded; predecessor.SupersededByDecisionId = decision.Id;
+            predecessor.Revision++; predecessor.UpdatedAt = now;
         }
         db.WorkstreamDecisions.Add(decision);
         AddEvent(organizationId, W.WorkstreamEventNames.DecisionRequestedV1, workstream, decision.Id, decision.Revision,

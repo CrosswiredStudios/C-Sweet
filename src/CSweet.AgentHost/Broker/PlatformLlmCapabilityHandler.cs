@@ -273,7 +273,7 @@ public sealed partial class PlatformLlmCapabilityHandler
         var languageInstructions = CSweet.Application.Localization.AgentLanguageInstructions.For(
             await CSweet.Infrastructure.Localization.WorkspaceLanguagePolicy.ResolveAsync(_dbContext, session.BusinessId, requestToken));
         var combinedInstructions = string.Join("\n\n", new[] { callerInstructions, caseInstructions?.Text,
-            CSweet.Application.WorkManagement.ForecastDrivenPlanning.Instructions, languageInstructions }
+            CSweet.Application.WorkManagement.ForecastDrivenPlanning.Instructions, McpToolCatalog.DecisionWritingInstructions, languageInstructions }
             .Where(value => !string.IsNullOrWhiteSpace(value)));
         var runLog = CreateRunLog(
             session,

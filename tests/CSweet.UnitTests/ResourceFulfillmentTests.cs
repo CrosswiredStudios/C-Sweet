@@ -10,6 +10,29 @@ namespace CSweet.UnitTests;
 public sealed class ResourceFulfillmentTests
 {
     [Fact]
+    public async Task Waiting_for_fulfillment_requires_read_access_to_the_exact_project()
+    {
+        await using var f = await Fixture.CreateAsync();
+        var resource = await f.RequestAsync();
+        var bystander = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = f.Organization,
+            AgentInstallationId = Guid.NewGuid(), IsActive = true, EmployeeType = EmployeeType.Agent, DisplayName = "Other teammate" };
+        var readGrant = System.Text.Json.JsonSerializer.Serialize(new[] { ResourceCapabilities.Read });
+        var requesterGrant = new AgentInstallationGrant { Id = Guid.NewGuid(), AgentInstallationId = f.Installation, RequiredCapabilitiesJson = readGrant };
+        f.Db.AddRange(bystander, requesterGrant, new AgentInstallation { Id = bystander.AgentInstallationId!.Value,
+            BusinessId = f.Organization.ToString("D"), Grant = new() { Id = Guid.NewGuid(), RequiredCapabilitiesJson = readGrant } });
+        await f.Db.SaveChangesAsync();
+        Assert.Equal("Pending", await f.Service.ReadWaitPhaseAsync(f.Organization, f.Installation, resource.Id, f.Project, default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            f.Service.ReadWaitPhaseAsync(f.Organization, f.Installation, resource.Id, Guid.NewGuid(), default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            f.Service.ReadWaitPhaseAsync(f.Organization, bystander.AgentInstallationId!.Value, resource.Id, f.Project, default));
+        requesterGrant.RequiredCapabilitiesJson = "[]";
+        await f.Db.SaveChangesAsync();
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            f.Service.ReadWaitPhaseAsync(f.Organization, f.Installation, resource.Id, f.Project, default));
+    }
+
+    [Fact]
     public async Task Fresh_request_manager_approval_restart_and_verification_resume_one_operation()
     {
         await using var f = await Fixture.CreateAsync();
@@ -244,10 +267,10 @@ public sealed class ResourceFulfillmentTests
         public override DateTimeOffset GetUtcNow() => _now;
         public void Advance() => _now = _now.AddSeconds(10);
     }
-    internal sealed class Handler : IResourceFulfillmentHandler
+    internal sealed class Handler(string profileKey = "phaser.web-2d.v1") : IResourceFulfillmentHandler
     {
         public string Key => "test-node";
-        public bool Supports(string type, string profile) => type == ResourceCapabilities.BuildToolchain && profile == "phaser.web-2d.v1";
+        public bool Supports(string type, string profile) => type == ResourceCapabilities.BuildToolchain && profile == profileKey;
         public bool Valid = true, Verified, Fail, CrashAfterInstall, MissingRelease, InvalidPreparation;
         public Exception? PreparationError;
         public int Installations;

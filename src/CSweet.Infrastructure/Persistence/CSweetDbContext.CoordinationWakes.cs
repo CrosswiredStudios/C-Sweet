@@ -31,7 +31,7 @@ public sealed partial class CSweetDbContext
         var waiting = await CoreWorkTasks
             .Where(x => x.AssignedEmployeeId != null && participants.Contains(x.AssignedEmployeeId.Value) &&
                         x.Status == WorkTaskStatus.Running && x.ClaimEventId == null && x.ClaimExpiresAt == null &&
-                        x.NextReviewAt != null && x.NextReviewAt > now &&
+                        x.NextReviewAt != null && x.NextReviewAt > now && x.WaitingDependencyJson == null &&
                         x.ArchivedAt == null && x.PersonalWorkContextJson != null)
             .ToListAsync(ct);
         foreach (var task in waiting)
@@ -40,7 +40,7 @@ public sealed partial class CSweetDbContext
             // return a tracked task already woken or claimed in this transaction.
             // Do not put a review deadline back onto ready or actively claimed work.
             if (task.Status != WorkTaskStatus.Running || task.ClaimEventId is not null ||
-                task.ClaimExpiresAt is not null || task.NextReviewAt is null || task.NextReviewAt <= now)
+                task.ClaimExpiresAt is not null || task.NextReviewAt is null || task.NextReviewAt <= now || task.WaitingDependencyJson is not null)
                 continue;
             var sessionId = ReadGuidProperty(task.PersonalWorkContextJson, "coordinationSessionId");
             var boardId = ReadGuidProperty(task.PersonalWorkContextJson, "boardId");

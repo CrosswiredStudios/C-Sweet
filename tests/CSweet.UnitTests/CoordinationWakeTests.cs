@@ -38,7 +38,11 @@ public sealed class CoordinationWakeTests
         var dependent = Waiting(producer, board);
         var unrelatedBoard = Waiting(producer, otherBoard);
         var bystander = Waiting(Guid.NewGuid(), board);
-        db.AddRange(session, dependent, unrelatedBoard, bystander);
+        var awaitingResource = Waiting(producer, board);
+        awaitingResource.WaitingDependencyJson = System.Text.Json.JsonSerializer.Serialize(
+            new CSweet.WorkManagement.Contracts.PersonalTodoDependency(CSweet.Agent.SDK.ResourceCapabilities.Changed, Guid.NewGuid(), "Pending"),
+            System.Text.Json.JsonSerializerOptions.Web);
+        db.AddRange(session, dependent, unrelatedBoard, bystander, awaitingResource);
         await db.SaveChangesAsync();
 
         session.Status = AgentCoordinationStatus.Completed;
@@ -48,6 +52,7 @@ public sealed class CoordinationWakeTests
         Assert.True(dependent.NextReviewAt <= DateTimeOffset.UtcNow);
         Assert.True(unrelatedBoard.NextReviewAt > DateTimeOffset.UtcNow.AddMinutes(10));
         Assert.True(bystander.NextReviewAt > DateTimeOffset.UtcNow.AddMinutes(10));
+        Assert.Equal(now.AddMinutes(15), awaitingResource.NextReviewAt);
     }
 
     [Fact]

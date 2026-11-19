@@ -438,7 +438,9 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         var deliveries = active
             .Select(x => new { Work = x, ItemId = ReadAvailableItemId(x.IdempotencyKey) })
             .Where(x => x.ItemId.HasValue)
-            .GroupBy(x => new { x.Work.AgentInstallationId, ItemId = x.ItemId!.Value });
+            .GroupBy(x => new { x.Work.AgentInstallationId, ItemId = x.ItemId!.Value,
+                Generation = x.Work.IdempotencyKey.Split(':') is [_, _, var generation, ..] &&
+                    generation.StartsWith("dependency-", StringComparison.Ordinal) ? generation : null });
         foreach (var delivery in deliveries)
         {
             var hasLeasedDelivery = delivery.Any(x => x.Work.Status == AgentWorkStatus.Leased);
@@ -994,6 +996,12 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             request.NextReviewAt > clock.GetUtcNow().AddDays(30))
             throw new ArgumentException("The next personal-work review must be within the next 30 days.");
         var reason = CSweet.Application.Common.AuthoredText.Required(request.Reason, "Waiting reason");
+        var fulfillmentWait = request.Dependency?.Kind == CSweet.Agent.SDK.ResourceCapabilities.Changed;
+        var scopedWait = request.Dependency?.Kind is CSweet.Agent.SDK.WorkforceEvents.Changed or Wire.WorkstreamEventNames.DecisionDecidedV1;
+        await using var transaction = (fulfillmentWait || scopedWait) && db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        if (fulfillmentWait)
+            await CSweet.Infrastructure.Core.ResourceFulfillmentService.LockAsync(db, organizationId, cancellationToken);
         var item = await LoadPersonalItemAsync(organizationId, request.ItemId, actor, cancellationToken);
         await RequireGrantAsync(organizationId, item.BoardId!.Value,
             actor, PersonalTodoActions.Defer, cancellationToken);
@@ -1005,8 +1013,17 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
                 x.Id == request.WaitingOnOrganizationUserId &&
                 x.OrganizationId == organizationId && x.IsActive, cancellationToken))
             throw new ArgumentException("The waiting-on employee is not active in this organization.");
-        if (request.Dependency is not null)
-            _ = await ReadDependencyVersionAsync(item, request.Dependency, cancellationToken);
+        if (request.Dependency is { } dependency)
+        {
+            _ = await ReadDependencyVersionAsync(item, dependency, cancellationToken);
+            if (scopedWait)
+                await db.LockPersonalWaitSourceAsync(organizationId, dependency.Kind, dependency.ResourceId, cancellationToken);
+            if (dependency.Kind == Wire.WorkstreamEventNames.DecisionDecidedV1)
+            {
+                var context = JsonSerializer.Deserialize<Wire.PersonalTodoWorkContext>(item.PersonalWorkContextJson!, JsonOptions)!;
+                item.PersonalWorkContextJson = JsonSerializer.Serialize(context with { DecisionId = dependency.ResourceId }, JsonOptions);
+            }
+        }
         item.ClaimEventId = null;
         item.ClaimExpiresAt = null;
         item.NextReviewAt = request.NextReviewAt;
@@ -1016,8 +1033,9 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         item.Revision++;
         item.UpdatedAt = clock.GetUtcNow();
         await RecoverCoordinationWaitsAsync(cancellationToken, item);
-        await RecoverDependencyWaitsAsync(cancellationToken, item, organizationId);
+        await RecoverDependencyWaitsAsync(cancellationToken, item, organizationId, request.Dependency is { } source ? (source.Kind, source.ResourceId) : null);
         await SaveChangesWithRealtimeAsync(cancellationToken);
+        if (transaction != null) await transaction.CommitAsync(cancellationToken);
         return await MapItemAsync(item, cancellationToken);
     }
 
@@ -1238,11 +1256,14 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
         Guid boardId,
         Guid itemId,
         DateTimeOffset now,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        long? dependencyRevision = null)
     {
         if (!owner.AgentInstallationId.HasValue)
             return;
         var prefix = $"personal-todo-available:{itemId:N}:";
+        // A leased callback that just deferred cannot consume its own successor wake.
+        if (dependencyRevision.HasValue) prefix += $"dependency-{dependencyRevision}:";
         var hasTrackedWake = db.AgentPlatformEventOutbox.Local.Any(x =>
             x.OrganizationId == organizationId &&
             x.TargetInstallationId == owner.AgentInstallationId &&
@@ -1273,7 +1294,7 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             Id = eventId, OrganizationId = organizationId, TargetInstallationId = owner.AgentInstallationId,
             EventType = Wire.PersonalTodoEvents.Available,
             DataJson = JsonSerializer.Serialize(new Wire.PersonalTodoAvailableEvent(owner.Id, boardId, itemId)),
-            IdempotencyKey = $"personal-todo-available:{itemId:N}:{eventId:N}",
+            IdempotencyKey = $"{prefix}{eventId:N}",
             Status = AgentPlatformEventOutboxStatus.Pending, NextAttemptAt = now, OccurredAt = now
         });
     }

@@ -77,7 +77,7 @@ public sealed class OverviewQuestionAnswerTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task InstalledAvatarAndMenuLinkBelongToTheRequestingAgent(bool grouped)
+    public async Task ReviewShowsTheRequestingAgentAndIndependentImpactControls(bool grouped)
     {
         await using var fixture = new Fixture();
         fixture.Api.Grouped = grouped;
@@ -87,12 +87,12 @@ public sealed class OverviewQuestionAnswerTests
         Assert.Contains("Custom agent name", html);
         Assert.Contains("Creative Director", html);
         Assert.Contains("Which direction?", html);
-        await fixture.OpenMenuAsync();
-        var other = Assert.Single(fixture.Activator.Items, x => x.Href is not null);
-        Assert.Equal($"/organizations/{fixture.Api.Organization}/communications/{fixture.Api.Question.ConversationId}", other.Href);
+        Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(html, "Show impact").Count);
+        Assert.Contains("Ask a follow-up", html);
+        Assert.Contains("Give different direction", html);
+        Assert.DoesNotContain("Something Else", html);
         Assert.Empty(fixture.Api.Answers);
         Assert.Empty(fixture.Navigation.Destinations);
-        Assert.Equal(2, fixture.Activator.Items.Count(x => x.Href is null));
     }
 
     [Theory]
@@ -109,15 +109,19 @@ public sealed class OverviewQuestionAnswerTests
         fixture.Api.FailFirst = failFirst;
         fixture.Api.ReturnStaleQuestions = staleRead;
         var output = await fixture.RenderAsync();
-        await fixture.OpenMenuAsync();
-        var option = fixture.Activator.Items.First(x => x.Href is null);
-        await fixture.Renderer.Dispatcher.InvokeAsync(() => option.OnClick.InvokeAsync(new MouseEventArgs()));
+        var submit = Assert.Single(fixture.Activator.Buttons, button => button.Variant == Variant.Filled);
+        Assert.True(submit.Disabled);
+        var choices = fixture.Activator.Choices!;
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => choices.SelectedChanged.InvokeAsync("a"));
+        Assert.Empty(fixture.Api.Answers);
+        Assert.False(submit.Disabled);
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => submit.OnClick.InvokeAsync(new MouseEventArgs()));
         if (failFirst)
         {
             var failed = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
             Assert.Contains("Try again", failed);
             Assert.Contains("Which direction?", failed);
-            await fixture.Renderer.Dispatcher.InvokeAsync(() => option.OnClick.InvokeAsync(new MouseEventArgs()));
+            await fixture.Renderer.Dispatcher.InvokeAsync(() => submit.OnClick.InvokeAsync(new MouseEventArgs()));
             Assert.Equal(fixture.Api.Answers[0].IdempotencyKey, fixture.Api.Answers[1].IdempotencyKey);
         }
         var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
@@ -128,8 +132,54 @@ public sealed class OverviewQuestionAnswerTests
         Assert.All(fixture.Api.AnswerUris, uri => Assert.EndsWith($"/hub/chats/{fixture.Api.Question.ConversationId}/decisions/{fixture.Api.Question.Decision.Id}/respond", uri));
         Assert.Empty(fixture.Navigation.Destinations);
         var answerCount = fixture.Api.Answers.Count;
-        await fixture.Renderer.Dispatcher.InvokeAsync(() => option.OnClick.InvokeAsync(new MouseEventArgs()));
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => submit.OnClick.InvokeAsync(new MouseEventArgs()));
         Assert.Equal(answerCount, fixture.Api.Answers.Count);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AskingAboutImpactKeepsDecisionPendingWithoutSelectingAnOption(bool allowFreeText)
+    {
+        await using var fixture = new Fixture();
+        fixture.Api.Question = fixture.Api.Question with { Decision = fixture.Api.Question.Decision with { AllowFreeText = allowFreeText } };
+        var output = await fixture.RenderAsync();
+        var followUp = Assert.Single(fixture.Activator.Help, help => help.Option is null);
+        var toggle = Assert.Single(fixture.Activator.Buttons, button => button.Class == "ask-follow-up");
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => toggle.OnClick.InvokeAsync(new MouseEventArgs()));
+        var ask = Assert.Single(fixture.Activator.Buttons, b => b.Variant == Variant.Outlined);
+        Assert.True(ask.Disabled);
+        await fixture.Renderer.Dispatcher.InvokeAsync(() =>
+        {
+            typeof(DecisionExplanation).GetField("_question", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .SetValue(followUp, "Does this approve spending?");
+            typeof(ComponentBase).GetMethod("StateHasChanged", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .Invoke(followUp, null);
+        });
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => ask.OnClick.InvokeAsync(new MouseEventArgs()));
+        Assert.Equal(new DecisionQuestionRequest("Does this approve spending?", null), Assert.Single(fixture.Api.Questions));
+        Assert.Empty(fixture.Api.Answers);
+        Assert.Null(fixture.Activator.Choices!.Selected);
+        var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
+        Assert.Contains("It needs separate approval.", html);
+        Assert.Contains("Which direction?", html);
+        Assert.Contains("Work can start today.", html);
+    }
+
+    [Fact]
+    public async Task LegacyImpactIsLoadedOnceWithoutChoosingTheOption()
+    {
+        await using var fixture = new Fixture();
+        var output = await fixture.RenderAsync();
+        var toggle = Assert.Single(fixture.Activator.Buttons, button => button.Class == "show-impact");
+        Assert.Empty(fixture.Api.Questions);
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => toggle.OnClick.InvokeAsync(new MouseEventArgs()));
+        Assert.Contains("It needs separate approval.", await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString));
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => toggle.OnClick.InvokeAsync(new MouseEventArgs()));
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => toggle.OnClick.InvokeAsync(new MouseEventArgs()));
+        Assert.Equal("b", Assert.Single(fixture.Api.Questions).OptionId);
+        Assert.Null(fixture.Activator.Choices!.Selected);
+        Assert.Empty(fixture.Api.Answers);
     }
 
     private sealed class Fixture : IAsyncDisposable
@@ -167,28 +217,21 @@ public sealed class OverviewQuestionAnswerTests
             return await Renderer.RenderComponentAsync<EmployeePortraitScope>(ParameterView.FromDictionary(new Dictionary<string, object?>
             { ["OrganizationId"] = Api.Organization, ["ChildContent"] = content }));
         });
-        public Task OpenMenuAsync() => Renderer.Dispatcher.InvokeAsync(async () =>
-        {
-            // HtmlRenderer does not run the browser lifecycle that mounts popovers.
-            // Render the actual menu content to exercise its bound callbacks and links.
-            await Renderer.RenderComponentAsync<CascadingValue<MudMenu>>(ParameterView.FromDictionary(new Dictionary<string, object?>
-            { ["Value"] = Activator.Menu, ["IsFixed"] = true, ["ChildContent"] = Activator.Menu!.ChildContent }));
-        });
         public async ValueTask DisposeAsync() { await Renderer.DisposeAsync(); await _services.DisposeAsync(); }
     }
     private sealed class CapturingActivator : IComponentActivator
     {
-        public MudMenu? Menu { get; private set; }
+        public DecisionChoices? Choices { get; private set; }
+        public List<DecisionExplanation> Help { get; } = [];
         public AgentQuestionCard? Card { get; private set; }
         public List<MudButton> Buttons { get; } = [];
-        public List<MudMenuItem> Items { get; } = [];
         public IComponent CreateInstance(Type type)
         {
             var component = (IComponent)System.Activator.CreateInstance(type)!;
-            if (component is MudMenu menu) Menu = menu;
+            if (component is DecisionChoices choices) Choices = choices;
+            if (component is DecisionExplanation followUp) Help.Add(followUp);
             if (component is AgentQuestionCard card) Card = card;
             if (component is MudButton button) Buttons.Add(button);
-            if (component is MudMenuItem item) Items.Add(item);
             return component;
         }
     }
@@ -198,16 +241,22 @@ public sealed class OverviewQuestionAnswerTests
         private readonly Guid _employee = Guid.NewGuid(), _installation = Guid.NewGuid();
         public PendingAgentQuestionResponse Question { get; set; }
         public List<AnswerExecutiveDecisionRequest> Answers { get; } = [];
+        public List<DecisionQuestionRequest> Questions { get; } = [];
         public List<string> AnswerUris { get; } = [];
         public bool FailFirst { get; set; }
         public bool Grouped { get; set; }
         public bool ReturnStaleQuestions { get; set; }
         private bool _answered;
         public ApiHandler() => Question = new(Guid.NewGuid(), _employee, "Custom agent name",
-            new(Guid.NewGuid(), "Which direction?", "Pending", [new("a", "Proceed", "Keep moving", true), new("b", "Wait", null, false)], "a", null, null, DateTimeOffset.UtcNow, null));
+            new(Guid.NewGuid(), "Which direction?", "Pending", [new("a", "Proceed", "Keep moving", true) { Impact = "Work can start today." }, new("b", "Wait", null, false)], "a", null, null, DateTimeOffset.UtcNow, null));
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             var path = request.RequestUri!.AbsolutePath;
+            if (request.Method == HttpMethod.Post && path.EndsWith($"/chats/{Question.ConversationId}/decisions/{Question.Decision.Id}/explain"))
+            {
+                Questions.Add((await request.Content!.ReadFromJsonAsync<DecisionQuestionRequest>(token))!);
+                return new(HttpStatusCode.OK) { Content = JsonContent.Create(new DecisionExplanationResponse("It needs separate approval.")) };
+            }
             if (request.Method == HttpMethod.Post)
             {
                 Answers.Add((await request.Content!.ReadFromJsonAsync<AnswerExecutiveDecisionRequest>(token))!);

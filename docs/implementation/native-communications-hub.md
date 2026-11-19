@@ -57,17 +57,17 @@ and answer controls stay in the structured decision widget, including Markdown h
 emphasis. `DecisionMessageBody` suppresses message text that repeats its attached question, including
 the former generated project-review wrapper, while preserving distinct context and mentions.
 `WorkstreamDecisionChatReview.PresentAsync` now stores only the question as its searchable message
-body and attaches the actionable decision to it, without adding a second prose request. **Choose an answer** opens a menu with the
-decision's options and recommendation/description labels. Choosing a predefined option
-posts to the existing decision response endpoint with the card's stable idempotency key,
-then removes that decision immediately, reloads authoritative pending questions, and shows
-confirmation on Overview. `PendingAgentQuestions.OnAnsweredAsync` remembers completed
-decision IDs for the current organization so a racing or stale read cannot reintroduce
-them; organization changes clear that set. `AgentQuestionCard` also blocks further
-submissions after success. Only a confirmed successful answer removes the card.
-Errors keep the card actionable for retry. **Something Else** (when free text is allowed)
-and `provide-direction` options open the question's conversation for text entry without
-posting an answer. The normal Approvals decision inbox retains its expanded response form.
+body and attaches the actionable decision to it, without adding a second prose request. **Choose an answer** expands choices inside the card. `DecisionChoices` shows short labels,
+recommendations and the main trade-off. Each option has an independent **Show impact** control.
+New requirement drafts keep technical follow-through in the planning record. Older options can
+request a plain-English explanation and expose the full original wording.
+
+**Ask a follow-up** works in Overview, Approvals, incident cards and Communications, including
+questions with fixed answers. `DecisionExplanationService` reads the pending card for an active
+human chat member and asks the configured model to explain its facts without tools. The reply
+appears inside the card. Only an explicit answer goes to the response endpoint. Free-form direction
+is available once when permitted. Confirmed submissions dismiss the card using its stable answer
+key and refresh pending questions. A failed submission keeps the card available for retry.
 
 `OverviewAttentionItems.IsInvalidationEvent` is shared by `CommandCenter` and
 `OverviewAttentionState`. `CommunicationEvents.DecisionUpdated` must reload the grouped

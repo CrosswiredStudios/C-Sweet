@@ -550,26 +550,10 @@
                                         @if (decision.Status == "Pending" && !_hub.IsReadOnlyPerspective)
                                         {
                                             <div class="executive-decision-options">
-                                                @foreach (var option in decision.Options)
+                                                @if (decision.Options.Count > 0)
                                                 {
-                                                    <label class="@(option.Recommended ? "recommended" : null)">
-                                                        <input type="radio" name="@($"decision-{decision.Id}")"
-                                                               checked="@SelectedDecisionOption(decision.Id, option.Id)"
-                                                               @onchange="@(() => SelectDecisionOption(decision.Id, option.Id))" />
-                                                        <span><strong>@option.Label</strong>
-                                                            @if (option.Recommended) { <small class="recommendation-badge">@L["Communications.Decision.Recommended"]</small> }
-                                                            @if (!string.IsNullOrWhiteSpace(option.Description)) { <small>@option.Description</small> }
-                                                        </span>
-                                                    </label>
-                                                }
-                                                @if (decision.AllowFreeText && decision.Options.Count > 0)
-                                                {
-                                                    <label>
-                                                        <input type="radio" name="@($"decision-{decision.Id}")"
-                                                               checked="@SelectedDecisionOption(decision.Id, SomethingElseKey)"
-                                                               @onchange="@(() => SelectDecisionOption(decision.Id, SomethingElseKey))" />
-                                                        <span><strong>@L["Communications.Decision.SomethingElse"]</strong><small>@L["Communications.Decision.SomethingElseHint"]</small></span>
-                                                    </label>
+                                                    <DecisionChoices OrganizationId="OrganizationId" ConversationId="_selected!.Id" Decision="decision" Selected="@_decisionSelections.GetValueOrDefault(decision.Id)"
+                                                        Disabled="_decisionBusy.Contains(decision.Id)" SelectedChanged="@(id => SelectDecisionOption(decision.Id, id))" />
                                                 }
                                                 @if (decision.AllowFreeText && (decision.Options.Count == 0 || SelectedDecisionOption(decision.Id, SomethingElseKey)))
                                                 {
@@ -578,6 +562,7 @@
                                                               @oninput="@(e => SetDecisionOther(decision.Id, e.Value?.ToString()))"></textarea>
                                                 }
                                             </div>
+                                            <DecisionExplanation @key="decision.Id" OrganizationId="OrganizationId" ConversationId="_selected!.Id" DecisionId="decision.Id" />
                                             @if (_decisionErrors.TryGetValue(decision.Id, out var decisionError))
                                             {
                                                 <div class="executive-decision-error">@decisionError</div>
@@ -904,7 +889,7 @@
     private string? _resourceDecisionError;
     private string? _resourceFeedback;
     private readonly Dictionary<Guid, string> _decisionErrors = [];
-    private const string SomethingElseKey = "__something_else__";
+    private const string SomethingElseKey = DecisionChoices.Other;
     private bool _loading = true, _switchingChat, _sending, _stoppingTurn, _showEditor, _editorBusy, _editorPrivate, _confirmArchive;
     private bool _showMentions, _mentionOpen;
     private int _mentionTriggerOffset, _mentionCaret, _mentionSelection;

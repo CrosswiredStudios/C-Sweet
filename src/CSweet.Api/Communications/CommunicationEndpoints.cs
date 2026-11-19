@@ -213,6 +213,19 @@ public static class CommunicationEndpoints
             }
         });
 
+        group.MapPost("/hub/chats/{chatId:guid}/decisions/{decisionId:guid}/explain", async (
+            Guid organizationId, Guid chatId, Guid decisionId, DecisionQuestionRequest request, HttpContext http,
+            ICommunicationHubService hub, CSweet.Infrastructure.Communications.DecisionExplanationService explanations,
+            CancellationToken token) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.Question) || request.Question.Length > 4000) return Results.BadRequest();
+            var actor = await ResolveActorAsync(organizationId, http, hub, token);
+            if (actor is null) return Results.Forbid();
+            var result = await explanations.ExplainAsync(organizationId, chatId, decisionId, actor.Value, request, token);
+            return result is null ? Results.NotFound() : Results.Ok(result);
+        })
+        .AllowFromMobile(MobileAccess.Write, "Decision explanation requires active human membership of the decision's chat.");
+
         group.MapPost("/hub/chats/{chatId:guid}/decisions/{decisionId:guid}/respond", async (
             Guid organizationId, Guid chatId, Guid decisionId, AnswerExecutiveDecisionRequest request,
             HttpContext http, ICommunicationHubService hub, IExecutiveDecisionService decisions,

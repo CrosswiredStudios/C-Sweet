@@ -1,0 +1,77 @@
+@using CSweet.Contracts.Communications
+@implements IDisposable
+@inject HttpClient Http
+@inject IAppLocalizer L
+
+<div class="decision-follow-up">
+    <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Primary" Class="@(Option is null ? "ask-follow-up" : "show-impact")" aria-expanded="@(_open ? "true" : "false")" OnClick="ToggleAsync">
+        @(Option is null ? L["Communications.Decision.AskFollowUp"] : L["Communications.Decision.ShowImpact"])
+        @if (Option is not null) { <span class="visually-hidden"> — @Option.Label</span> }
+    </MudButton>
+    @if (_open)
+    {
+        @if (Option is null)
+        {
+            <label>@L["Communications.Decision.QuestionLabel"]
+                <textarea rows="2" maxlength="4000" disabled="@_busy" @bind="_question" @bind:event="oninput"></textarea>
+            </label>
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(_busy || string.IsNullOrWhiteSpace(_question))" OnClick="AskAsync">
+                @(_busy ? L["Communications.Decision.Asking"] : L["Communications.Decision.SendQuestion"])
+            </MudButton>
+        }
+        else if (_busy)
+        {
+            <p role="status">@L["Communications.Decision.Asking"]</p>
+        }
+        @if (_error is not null) { <p role="alert">@_error</p> }
+        @if (_answer is not null) { <p role="status">@_answer</p> }
+        @if (!string.IsNullOrWhiteSpace(Option?.Description))
+        {
+            <details open="@(_error is not null)"><summary>@L["Communications.Decision.OriginalWording"]</summary><p>@Option.Description</p></details>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid ConversationId { get; set; }
+    [Parameter] public Guid DecisionId { get; set; }
+    [Parameter] public ExecutiveDecisionOptionResponse? Option { get; set; }
+    private readonly CancellationTokenSource _lifetime = new();
+    private bool _open, _busy;
+    private string? _question, _answer, _error;
+
+    private async Task ToggleAsync()
+    {
+        _open = !_open;
+        if (_open && Option is not null && _answer is null) await AskAsync();
+    }
+
+    private async Task AskAsync()
+    {
+        if (_busy || (Option is null && string.IsNullOrWhiteSpace(_question))) return;
+        var token = _lifetime.Token;
+        _busy = true;
+        _answer = _error = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync(
+                $"api/organizations/{OrganizationId}/communications/hub/chats/{ConversationId}/decisions/{DecisionId}/explain",
+                new DecisionQuestionRequest(Option is null ? _question!.Trim() : "What would choosing this option mean?", Option?.Id), token);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                _error = L["Communications.Decision.Unavailable"];
+            else
+            {
+                response.EnsureSuccessStatusCode();
+                var result = await response.Content.ReadFromJsonAsync<DecisionExplanationResponse>(token);
+                if (string.IsNullOrWhiteSpace(result?.Explanation)) _error = L["Communications.Decision.ExplanationFailed"];
+                else _answer = result.Explanation;
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
+        { _error = L["Communications.Decision.ExplanationFailed"]; }
+        finally { _busy = false; }
+    }
+
+    public void Dispose() { _lifetime.Cancel(); _lifetime.Dispose(); }
+}

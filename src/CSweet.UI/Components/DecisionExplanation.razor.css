@@ -1,0 +1,7 @@
+.decision-follow-up { margin: .55rem 0; }
+label, textarea { display: block; margin: .4rem 0; }
+label, p { font-size: .875rem; }
+textarea { width: 100%; padding: .5rem; font: inherit; color: inherit; background: var(--mud-palette-surface); border: 1px solid var(--mud-palette-divider); border-radius: .4rem; resize: vertical; }
+p { margin-top: .5rem; max-width: 75ch; white-space: pre-line; }
+summary { cursor: pointer; font-size: .825rem; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

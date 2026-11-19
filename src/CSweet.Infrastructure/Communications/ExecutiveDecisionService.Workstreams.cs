@@ -21,7 +21,7 @@ public sealed partial class ExecutiveDecisionService
             throw new InvalidOperationException("The project decision is no longer pending.");
         var options = JsonSerializer.Deserialize<List<W.DecisionOption>>(source.OptionsJson, JsonOptions) ?? [];
         if (command.Prompt != source.Summary || command.RecommendedOptionId != source.RecommendedOptionId ||
-            !options.Select(x => (x.Id, x.Label, x.Description)).SequenceEqual(command.Options.Select(x => (x.Id, x.Label, x.Description))))
+            !options.Select(x => (x.Id, x.Label, x.Description, x.Impact)).SequenceEqual(command.Options.Select(x => (x.Id, x.Label, x.Description, x.Impact))))
             throw new ArgumentException("The card must display the authoritative project decision and options.");
         return source;
     }

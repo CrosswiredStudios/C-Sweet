@@ -23,7 +23,7 @@ public sealed partial class WorkItemMutationEngine
         var waiting = await db.CoreWorkTasks.Include(x => x.Board).Where(x =>
             x.OrganizationId == session.OrganizationId && x.AssignedEmployeeId == owner.Id &&
             x.AssignedAgentInstallationId == session.InitiatorInstallationId && x.ArchivedAt == null &&
-            x.Status == WorkTaskStatus.Running && x.NextReviewAt != null && x.ClaimEventId == null &&
+            x.Status == WorkTaskStatus.Running && x.NextReviewAt != null && x.ClaimEventId == null && x.WaitingDependencyJson == null &&
             x.CreatedAt < session.CompletedAt && x.PersonalWorkContextJson != null &&
             (x.WaitingOnOrganizationUserId == null || x.WaitingOnOrganizationUserId == session.TargetOrganizationUserId) &&
             x.Board != null && x.Board.ArchivedAt == null &&
@@ -56,7 +56,7 @@ public sealed partial class WorkItemMutationEngine
         }
         foreach (var item in waiting)
         {
-            if (item.Status != WorkTaskStatus.Running || item.NextReviewAt is null || item.ClaimEventId is not null) continue;
+            if (item.Status != WorkTaskStatus.Running || item.NextReviewAt is null || item.ClaimEventId is not null || item.WaitingDependencyJson is not null) continue;
             await BindCoordinationWaitAsync(item, token);
             Wire.PersonalTodoWorkContext? context;
             try { context = JsonSerializer.Deserialize<Wire.PersonalTodoWorkContext>(item.PersonalWorkContextJson!, JsonOptions); }
@@ -167,6 +167,7 @@ public sealed partial class WorkItemMutationEngine
     {
         if (deferred is not null)
         {
+            if (deferred.WaitingDependencyJson is not null) return;
             // A new wait needs only its owner's cycle; do not scan the entire
             // organization's recovery backlog on every deferral.
             await BindCoordinationWaitAsync(deferred, token);
@@ -185,7 +186,7 @@ public sealed partial class WorkItemMutationEngine
         }
         // Bounded reconnect discovery repairs a missed notification or a pre-upgrade terminal session.
         var oldest = await db.CoreWorkTasks.Where(x => x.Status == WorkTaskStatus.Running &&
-            x.NextReviewAt != null && x.ClaimEventId == null && x.PersonalWorkContextJson != null && x.ArchivedAt == null)
+            x.NextReviewAt != null && x.ClaimEventId == null && x.PersonalWorkContextJson != null && x.WaitingDependencyJson == null && x.ArchivedAt == null)
             .Select(x => (DateTimeOffset?)x.CreatedAt).MinAsync(token);
         if (oldest is null) return;
         var sessions = await db.AgentCoordinationSessions.AsNoTracking().Where(x =>
@@ -193,7 +194,7 @@ public sealed partial class WorkItemMutationEngine
             (x.Status == AgentCoordinationStatus.Completed || x.Status == AgentCoordinationStatus.Blocked))
             .OrderByDescending(x => x.CompletedAt).Take(128).ToListAsync(token);
         var waits = await db.CoreWorkTasks.Where(x => x.Status == WorkTaskStatus.Running &&
-            x.NextReviewAt != null && x.ClaimEventId == null && x.PersonalWorkContextJson != null && x.ArchivedAt == null)
+            x.NextReviewAt != null && x.ClaimEventId == null && x.PersonalWorkContextJson != null && x.WaitingDependencyJson == null && x.ArchivedAt == null)
             .OrderBy(x => x.UpdatedAt).Take(HardOpenItemLimit).ToListAsync(token);
         foreach (var item in waits) await BindCoordinationWaitAsync(item, token);
         foreach (var session in sessions) await WakeCoordinationWaitsAsync(session, token);

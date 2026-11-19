@@ -16,7 +16,7 @@ using GameTechnicalDirector = Technical::CSweet.Agent.TechnicalDirector.VideoGam
 
 namespace CSweet.GameRoleWorkflow.Tests;
 
-public sealed class FreshTeamSprintJourneyTests
+public sealed partial class FreshTeamSprintJourneyTests
 {
     [Theory, Trait("Category", "AgentHarness")]
     [InlineData(false)]
@@ -27,6 +27,29 @@ public sealed class FreshTeamSprintJourneyTests
     [Fact, Trait("Category", "AgentHarness")]
     public Task Breakout_setup_spike_and_provider_recipe_reach_the_first_engineer_claim() =>
         VerifyFirstClaimAsync(new FirstSprintModel(false) { ReplaysBreakout = true });
+
+    [Theory, Trait("Category", "AgentHarness")]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Prism_Breaker_first_epic_assigns_only_the_approved_baseline_to_Adrian(bool reviseConflictingDraft, bool refineWithoutCandidate)
+    {
+        var stack = JsonSerializer.Deserialize<CheckpointStack>(await File.ReadAllTextAsync(Path.Combine(
+            AppContext.BaseDirectory, "Fixtures", "prism-breaker-stack.json")), JsonSerializerOptions.Web)!;
+        await VerifyFirstClaimAsync(new FirstSprintModel(true) {
+            Pitch = "Build a single-screen brick breaker. Start with a playable baseline and deliver audio and visual effects in later epics.",
+            Outcome = "Clearing a single row of bricks scores points and allows a restart.",
+            StoryCriteria = [
+                "The delivered source and runtime remain a 2D top-down single-playfield baseline and do not introduce 3D presentation, 3D game pipeline, or presentation-changing post-processing such as bloom, chromatic aberration, hit-stop, screen shake, or particle juice in this increment.",
+                "Restore the dependencies with npm ci and verify the playable baseline in Chromium."
+            ],
+            Stack = stack,
+            RefineWithoutCandidate = refineWithoutCandidate,
+            SupersededCriterion = reviseConflictingDraft
+                ? $"From a clean checkout, launch the first runnable slice using {stack.Engine} and {stack.Language}. {stack.Setup} Commit {stack.Lockfile} and verify a clean dependency restore."
+                : null
+        }, ["screen shake", "hit-stop", "particle bursts", "chromatic aberration", "game-over sting"]);
+    }
 
     [Theory, Trait("Category", "AgentHarness")]
     [InlineData(true)]
@@ -86,7 +109,7 @@ public sealed class FreshTeamSprintJourneyTests
         Assert.Single(await platform.Db.WorkOrchestrationEvents.Where(e => e.EventType == "stage.retry.requested").ToListAsync());
     }
 
-    private static async Task VerifyFirstClaimAsync(FirstSprintModel model)
+    private static async Task VerifyFirstClaimAsync(FirstSprintModel model, string[]? deferredFeatures = null)
     {
         await using var platform = new FreshTeamSprintPlatform();
         await platform.OpenAsync(model.Pitch);
@@ -102,17 +125,21 @@ public sealed class FreshTeamSprintJourneyTests
         Assert.Equal(platform.Engineer.OrganizationUserId, setup.AccountableOrganizationUserId);
         Assert.Equal(team.StoryAnswer.SessionId, setup.ProposalCoordinationSessionId);
         var planning = JsonSerializer.Deserialize<WorkItemPlanningSpecification>(setup.PlanningSpecificationJson!, JsonSerializerOptions.Web)!;
-        var decision = Assert.Single(planning.Constraints!, c => c.Contains(model.Rationale, StringComparison.Ordinal));
-        Assert.Contains(model.Engine, decision);
-        Assert.Contains(model.Language, decision);
-        Assert.All(model.Libraries, library => Assert.Contains(library, decision));
+        var stack = model.Stack;
+        var decision = Assert.Single(planning.Constraints!, c => c.Contains(stack.Rationale, StringComparison.Ordinal));
+        Assert.Contains(stack.Engine, decision);
+        Assert.Contains(stack.Language, decision);
+        Assert.All(stack.Libraries, library => Assert.Contains(library, decision));
         var delivery = JsonSerializer.Deserialize<WorkItemDeliverySpecification>(setup.DeliverySpecificationJson!, JsonSerializerOptions.Web)!;
         Assert.Equal("Code", delivery.DeliveryKind);
-        var criterion = Assert.Single(delivery.AcceptanceCriteria, c => c.Contains(model.Setup, StringComparison.Ordinal));
-        Assert.Contains(model.Engine, criterion);
-        Assert.Contains(model.Language, criterion);
-        if (model.Lockfile is not null)
-            Assert.Contains(model.Lockfile, criterion);
+        var criterion = Assert.Single(delivery.AcceptanceCriteria, c => c.Contains("clean checkout", StringComparison.OrdinalIgnoreCase) &&
+            c.Contains(stack.Engine) && c.Contains(stack.Language));
+        Assert.Contains(model.Outcome, delivery.AcceptanceCriteria);
+        Assert.All(model.StoryCriteria, c => Assert.Contains(c, delivery.AcceptanceCriteria));
+        foreach (var feature in deferredFeatures ?? [])
+            Assert.DoesNotContain(delivery.AcceptanceCriteria.Except(model.StoryCriteria), c => c.Contains(feature, StringComparison.OrdinalIgnoreCase));
+        if (stack.Lockfile is not null)
+            Assert.Contains(stack.Lockfile, criterion);
         else
             Assert.All(delivery.AcceptanceCriteria, c => Assert.DoesNotMatch(@"(?i)\block[ -]?files?\b|[.-]lock\b", c));
         var lease = await platform.ClaimAsync();
@@ -127,7 +154,15 @@ public sealed class FreshTeamSprintJourneyTests
         Assert.Equal(1, lease.Attempt);
         Assert.Empty(await platform.Db.WorkItemApprovals.ToListAsync());
 
-        await team.RestartAndRedeliverAsync();
+        Assert.Equal(model.SupersededCriterion is null ? 0 : 1, model.RevisionRequests);
+        if (model.RevisionRequests > 0)
+        {
+            var review = JsonSerializer.Deserialize<JsonElement>(await File.ReadAllTextAsync(Path.Combine(
+                AppContext.BaseDirectory, "Fixtures", "prism-breaker-refine-review.json")));
+            var revision = Assert.Single(team.TechnicalPlanningRequests, message => message.Contains(review.GetProperty("draftRevisionReason").GetString()!));
+            Assert.Contains(review.GetProperty("actions")[0].GetProperty("rationale").GetString()!, revision);
+        }
+        await team.RestartAndRedeliverAsync(model.RevisionRequests);
         Assert.Null(await platform.ClaimAsync());
         Assert.Empty(await platform.Db.WorkItemApprovals.ToListAsync());
         Assert.Single(await platform.Db.WorkSprints.ToListAsync());
@@ -143,9 +178,10 @@ public sealed class FreshTeamSprintJourneyTests
     }
 
     // Retain each installation's platform state and coordination receipts across fresh SDK dispatchers.
-    internal sealed class PlanningTeam
+    internal sealed partial class PlanningTeam
     {
         private readonly FreshTeamSprintPlatform platform;
+        private readonly Guid? manager;
         private readonly FreshTeamPlanningQueue queue;
         private readonly Dictionary<Guid, AgentTestRuntime> platforms = [];
         private readonly Dictionary<Guid, AgentTestHost> hosts = [];
@@ -170,18 +206,20 @@ public sealed class FreshTeamSprintJourneyTests
             return platforms[platform.Victor.OrganizationUserId].CreateContext().Platform.ReadOperatingStateAsync<CheckpointStack>(key);
         }
 
-        public RespondToAgentCoordinationRequest StoryAnswer => replies.Values.Single(r =>
+        public RespondToAgentCoordinationRequest StoryAnswer => replies.Values.Last(r =>
             r.Artifact?.Payload.TryGetProperty("progressivePlanning", out var evidence) == true &&
             evidence.GetProperty("phase").GetString() == "Story");
 
-        public PlanningTeam(FreshTeamSprintPlatform platform, FirstSprintModel model)
+        public PlanningTeam(FreshTeamSprintPlatform platform, FirstSprintModel model, GameProducer.ProducerAcceptedHandoff? planningSource = null,
+            PersonalTodoItem? planningCard = null, Guid? manager = null)
         {
             this.platform = platform;
-            queue = new(platform.Gabriel.OrganizationUserId);
+            this.manager = manager;
+            queue = new(platform.Gabriel.OrganizationUserId, planningCard?.BoardId);
             var digest = FreshTeamSprintPlatform.Digest(model.Pitch);
             var now = DateTimeOffset.UtcNow;
             var fingerprint = FreshTeamSprintPlatform.Digest(platform.Project.ToString() + digest);
-            var handoff = new GameProducer.ProducerAcceptedHandoff(platform.Project, platform.PitchId, platform.RevisionId, digest,
+            var handoff = planningSource ?? new GameProducer.ProducerAcceptedHandoff(platform.Project, platform.PitchId, platform.RevisionId, digest,
                 digest, Guid.NewGuid(), platform.PackageId, 1, now);
             foreach (var actor in new[] { platform.Gabriel, platform.Victor, platform.Engineer })
             {
@@ -219,7 +257,8 @@ public sealed class FreshTeamSprintJourneyTests
             }
             platforms[platform.Gabriel.OrganizationUserId].RegisterCapability<StartBoardCoordinationRequest, AgentCoordinationSession>(
                 CommunicationCapabilities.CoordinationStartBoard, (r, _) => Task.FromResult(StartSession(r)));
-            queue.Add(new("Plan the accepted game", "Plan the first playable increment", "High", null, "kickoff",
+            if (planningCard != null) queue.Track(planningCard);
+            else queue.Add(new("Plan the accepted game", "Plan the first playable increment", "High", null, "kickoff",
                 CorrelationId: $"producer-planning:{platform.Project:N}:{fingerprint}") { WorkContext = new(platform.Project, platform.Team, platform.Board, SourceFingerprint: fingerprint) });
         }
 
@@ -228,7 +267,7 @@ public sealed class FreshTeamSprintJourneyTests
             foreach (var (actor, agent) in new (AgentCoordinationParticipant, ICSweetAgent)[] {
                 (platform.Gabriel, new GameProducer.SpecialistAgent()), (platform.Victor, new GameTechnicalDirector()), (platform.Engineer, platform.Engineer.Role == "software-developer" ? new SoftwareDeveloper() : new GameEngineer()) })
             {
-                var identity = new AgentIdentity(actor.OrganizationUserId.ToString(), actor.DisplayName, null, actor.Role, null, [], null, null, null) { TeamContext = platform.Roster };
+                var identity = new AgentIdentity(actor.OrganizationUserId.ToString(), actor.DisplayName, null, actor.Role, null, [], null, actor == platform.Gabriel ? manager?.ToString() : null, null) { TeamContext = platform.Roster };
                 var host = hosts[actor.OrganizationUserId] = new(agent, platforms[actor.OrganizationUserId], identity, platform.Organization.ToString(), actor.AgentInstallationId.ToString());
                 var settings = new Dictionary<string, JsonElement> { ["llmProviderId"] = JsonSerializer.SerializeToElement(provider), ["llmModel"] = JsonSerializer.SerializeToElement(modelNames.GetValueOrDefault(actor.OrganizationUserId, "scripted")) };
                 var configured = await host.ApplyConfigurationAsync(new(actor.AgentInstallationId, "1.0", settings, settings.Keys.ToArray(), 1, "fixture"));
@@ -257,13 +296,13 @@ public sealed class FreshTeamSprintJourneyTests
             Assert.True(result.Succeeded, result.Error);
         }
 
-        public async Task PlanAsync()
+        public async Task PlanAsync(Func<Task<(PersonalTodoAvailableEvent, Guid)>>? nextWake = null, Func<bool>? reachedWait = null)
         {
             for (var step = 0; step < 16; step++)
             {
-                var wake = queue.NextWake();
+                var (wake, deliveryId) = nextWake is null ? (queue.NextWake(), Guid.NewGuid()) : await nextWake();
                 if (step == 0) firstWake = wake;
-                var result = await hosts[platform.Gabriel.OrganizationUserId].DeliverEventAsync(PersonalTodoEvents.Available, wake, step == 0 ? firstEvent : Guid.NewGuid());
+                var result = await hosts[platform.Gabriel.OrganizationUserId].DeliverEventAsync(PersonalTodoEvents.Available, wake, step == 0 ? firstEvent : deliveryId);
                 Assert.True(result.Succeeded, result.Error);
                 foreach (var session in sessions.Values.Where(s => s.Status == "Active").ToArray())
                 {
@@ -278,22 +317,24 @@ public sealed class FreshTeamSprintJourneyTests
                         request.GetProperty("phase").GetString() == "Story")
                     {
                         // Crash after the authoritative return, before the Producer can read or publish it.
-                        Assert.Empty(await platform.Db.CoreWorkTasks.Where(t => t.IsExecutable).ToListAsync());
+                        Assert.Empty(await platform.Db.CoreWorkTasks.Where(t => t.BoardId == platform.Board && t.IsExecutable).ToListAsync());
                         await StartHostsAsync();
                         var duplicate = await hosts[session.Target.OrganizationUserId].DeliverCoordinationTurnAsync(turn, eventId);
                         Assert.True(duplicate.Succeeded, duplicate.Error);
                     }
                 }
+                if (reachedWait?.Invoke() == true) return;
                 if (await platform.Db.WorkSprints.AnyAsync(s => s.Status == WorkSprintStatus.Active)) return;
             }
             throw new InvalidOperationException("Sprint 1 did not start: " + queue.Describe());
         }
 
-        public async Task RestartAndRedeliverAsync()
+        public async Task RestartAndRedeliverAsync(int revisionRequests = 0, int expectedEstimates = 1)
         {
             var counts = (sessions.Count, replies.Count);
-            Assert.Equal(3, sessions.Count); // Outline, Story, owner's estimate.
-            Assert.Equal(3, replies.Count);
+            Assert.Equal(expectedEstimates, sessions.Values.Count(s => s.Target == platform.Engineer));
+            Assert.Equal(2 + revisionRequests + expectedEstimates, sessions.Count); // Outline, Story, revisions and owner estimates.
+            Assert.Equal(sessions.Count, replies.Count);
             await StartHostsAsync();
             var (turn, eventId) = deliveries[StoryAnswer.SessionId];
             var answer = await hosts[turn.Self.OrganizationUserId].DeliverCoordinationTurnAsync(turn, eventId);

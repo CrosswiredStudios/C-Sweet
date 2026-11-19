@@ -10,18 +10,14 @@ summary:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-o
 .expand-label::after { content: ' ↓'; }
 details[open] .expand-label::after { content: ' ↑'; }
 .question-response { padding: 0 1rem 1rem; border-top: 1px solid var(--mud-palette-lines-default); }
-fieldset { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; border: 0; padding: .7rem 0; margin: 0; }
-legend { font-size: .78rem; font-weight: 600; padding-top: .7rem; }
-label { display: flex; gap: .5rem; align-items: flex-start; padding: .6rem; border: 1px solid var(--mud-palette-lines-default); border-radius: 7px; cursor: pointer; font-size: .8rem; }
-label:has(input:checked) { border-color: var(--mud-palette-primary); background: var(--mud-palette-primary-hover); }
-input { margin-top: .2rem; accent-color: var(--mud-palette-primary); }
-.option-description { display: block; color: var(--mud-palette-text-secondary); font-size: .75rem; line-height: 1.4; margin-top: .2rem; }
-small { display: inline-block; color: var(--mud-palette-primary); font-size: .65rem; margin-left: .3rem; }
 .direction-label { display: block; grid-column: 1 / -1; border: none; padding: .3rem 0; }
 textarea { display: block; width: 100%; min-height: 80px; margin-top: .3rem; padding: .65rem; color: inherit; background: inherit; border: 1px solid var(--mud-palette-lines-default); border-radius: 6px; }
 textarea { resize: vertical; box-sizing: border-box; font-family: inherit; font-size: .875rem; line-height: 1.6; border-radius: 9px; }
 textarea:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 2px; border-color: var(--mud-palette-primary); }
 textarea:disabled { opacity: .65; cursor: wait; }
 .question-dismissal { min-width: 0; }
-.response-actions { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
-@media (max-width: 600px) { fieldset { grid-template-columns: 1fr; } }
+.answer-options > summary { display: list-item; width: fit-content; list-style: disclosure-closed; padding: .35rem 0; color: var(--mud-palette-primary); font-weight: 600; }
+.answer-options[open] > summary { list-style: disclosure-open; }
+.answer-options > summary::-webkit-details-marker { display: inline; }
+.answer-form { display: grid; justify-items: start; gap: .65rem; margin: .5rem 0; }
+.answer-form > ::deep .decision-choices, .answer-form > .direction-label { width: 100%; }

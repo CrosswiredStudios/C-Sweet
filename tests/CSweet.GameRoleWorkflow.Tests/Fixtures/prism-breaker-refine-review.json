@@ -1,0 +1,18 @@
+{
+  "disposition": "select",
+  "nextGoal": "Continue with the baseline Story",
+  "nextCandidate": 0,
+  "draftAhead": false,
+  "keepDraft": false,
+  "draftRevisionReason": "Remove the setup criterion requiring effects and music. Keep the clean restore and baseline play check.",
+  "revisitWhen": "After Victor returns the corrected baseline",
+  "feelSummary": "The first Story remains selected.",
+  "actions": [
+    {
+      "kind": "refine",
+      "rationale": "Revise the baseline task to match the approved brief before implementation.",
+      "capability": null,
+      "evidenceIndexes": [0]
+    }
+  ]
+}

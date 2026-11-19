@@ -21,27 +21,18 @@ else if (ReadOnly)
 }
 else
 {
-    <MudMenu Label="@(_busy ? L["IncidentResolutionChoices.Sending"] : L["IncidentResolutionChoices.Choose"])" Variant="Variant.Filled" Color="Color.Primary"
-        EndIcon="@Icons.Material.Outlined.ExpandMore" Disabled="_busy" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
-        @foreach (var option in Decision.Options)
+    <details class="incident-choices">
+        <summary>@L["IncidentResolutionChoices.Choose"]</summary>
+        <DecisionChoices OrganizationId="OrganizationId" ConversationId="ConversationId" Decision="Decision" Selected="@_selection" SelectedChanged="@(id => _selection = id)" Disabled="_busy" />
+        @if (_selection == DecisionChoices.Other)
         {
-            <MudMenuItem Disabled="_busy" OnClick="() => SubmitAsync(option.Id)">
-                <strong>@option.Label</strong>@if (option.Recommended) { <small>@L["IncidentResolutionChoices.Recommended"]</small> }
-                <div class="option-description">@option.Description</div>
-            </MudMenuItem>
+            <label>@L["IncidentResolutionChoices.YourDirection"]<textarea aria-label="@L["IncidentResolutionChoices.DirectionAriaLabel"]" rows="4" maxlength="4000" disabled="@_busy" @bind="_direction" @bind:event="oninput"></textarea></label>
         }
-        @if (Decision.AllowFreeText)
-        {
-            <MudDivider />
-            <MudMenuItem Disabled="_busy" OnClick="ShowCustom">@L["IncidentResolutionChoices.SomethingElse"]</MudMenuItem>
-        }
-    </MudMenu>
-    @if (_custom)
-    {
-        <label>@L["IncidentResolutionChoices.YourDirection"]<textarea aria-label="@L["IncidentResolutionChoices.DirectionAriaLabel"]" rows="4" maxlength="4000" disabled="@_busy" @bind="_direction" @bind:event="oninput"></textarea></label>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || string.IsNullOrWhiteSpace(_direction))"
-            OnClick="() => SubmitAsync(null)">@L["IncidentResolutionChoices.SendResponse"]</MudButton>
-    }
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+            Disabled="@(_busy || _selection is null || (_selection == DecisionChoices.Other && string.IsNullOrWhiteSpace(_direction)))"
+            OnClick="() => SubmitAsync(_selection == DecisionChoices.Other ? null : _selection)">@L["Communications.Decision.ConfirmChoice"]</MudButton>
+    </details>
+    <DecisionExplanation @key="Decision.Id" OrganizationId="OrganizationId" ConversationId="ConversationId" DecisionId="Decision.Id" />
 }
 @if (_error is not null) { <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert> }
 </div>
@@ -53,9 +44,9 @@ else
     [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public EventCallback Answered { get; set; }
     private readonly string _answerKey = Guid.NewGuid().ToString("N");
-    private bool _busy, _custom, _confirmed;
+    private bool _busy, _confirmed;
     private string? _direction, _error;
-    private void ShowCustom() { _custom = true; _error = null; }
+    private string? _selection;
     private async Task SubmitAsync(string? option)
     {
         if (_busy || _confirmed || ReadOnly || Decision.Status != "Pending" || (option is null && string.IsNullOrWhiteSpace(_direction))) return;

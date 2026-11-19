@@ -1,0 +1,8 @@
+{
+  "points": 13,
+  "availableSprintCapacity": 13,
+  "blockers": [
+    "If the Story target branch or immutable candidate commit is not confirmed as platform-provided, executable candidate verification and artifact evidence cannot proceed.",
+    "If a Chromium-capable browser automation environment or committed dev dependency is unavailable, the required machine-readable Chromium scenario evidence cannot be produced."
+  ]
+}

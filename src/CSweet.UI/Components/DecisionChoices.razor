@@ -1,0 +1,52 @@
+@using CSweet.Contracts.Communications
+@inject IAppLocalizer L
+
+<div class="decision-choices" role="radiogroup" aria-label="@L["AgentQuestionCard.YourResponse"]">
+    @foreach (var option in Decision.Options.Where(o => !Decision.AllowFreeText || o.Id != "provide-direction"))
+    {
+        <div @key="option.Id" class="choice">
+            <label>
+                <input type="radio" name="@_group" value="@option.Id" checked="@(Selected == option.Id)" disabled="@Disabled"
+                       @onchange="() => SelectedChanged.InvokeAsync(option.Id)" />
+                <span><strong>@option.Label</strong>
+                    @if (option.Recommended) { <small>@L["AgentQuestionCard.Recommended"]</small> }
+                    @if (!string.IsNullOrWhiteSpace(option.Description))
+                    { <span class="choice-summary @(string.IsNullOrWhiteSpace(option.Impact) ? "legacy-summary" : null)">@option.Description</span> }
+                </span>
+            </label>
+            @if (string.IsNullOrWhiteSpace(option.Impact))
+            {
+                <DecisionExplanation OrganizationId="OrganizationId" ConversationId="ConversationId" DecisionId="Decision.Id" Option="option" />
+            }
+            else
+            {
+                <details>
+                    <summary>@L["Communications.Decision.ShowImpact"]<span class="visually-hidden"> — @option.Label</span></summary>
+                    <p>@option.Impact</p>
+                </details>
+            }
+        </div>
+    }
+    @if (Decision.AllowFreeText && Decision.Options.Count > 0)
+    {
+        <div class="choice">
+            <label><input type="radio" name="@_group" value="@Other" checked="@(Selected == Other)"
+                disabled="@Disabled" @onchange="() => SelectedChanged.InvokeAsync(Other)" /><strong>@L["Communications.Decision.CustomAnswer"]</strong></label>
+            <details>
+                <summary>@L["Communications.Decision.ShowImpact"]<span class="visually-hidden"> — @L["Communications.Decision.CustomAnswer"]</span></summary>
+                <p>@L["Communications.Decision.CustomImpact"]</p>
+            </details>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid ConversationId { get; set; }
+    public const string Other = "__other__";
+    private readonly string _group = $"choices-{Guid.NewGuid():N}";
+    [Parameter, EditorRequired] public ExecutiveDecisionCardResponse Decision { get; set; } = default!;
+    [Parameter] public string? Selected { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback<string> SelectedChanged { get; set; }
+}
