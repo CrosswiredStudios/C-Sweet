@@ -64,27 +64,10 @@
         else
         {
             <div class="attention-list" aria-label="@L["PendingAgentQuestions.DecisionsApprovalsHiringAndCompute"]">
-                @if (Issues is not null) {
-                    @foreach (var issue in PendingIssues) { <AttentionNotificationCard @key="issue.Key" Notification="issue" OrganizationId="OrganizationId" Answered="OnAnsweredAsync" RefreshRequested="RefreshRequested" /> }
-                } else {
-                @foreach (var item in StandaloneBlockedWork.Take(_showAll ? StandaloneBlockedWork.Count : 5))
-                {
-                    <AttentionNotificationCard @key="item.ItemId" OrganizationId="OrganizationId" Notification="item" RefreshRequested="RefreshRequested" />
-                }
-                @foreach (var question in OverviewAttentionItems.StandaloneQuestions(_questions, ProjectIncidents))
-                {
-                    <AttentionNotificationCard @key="question.Decision.Id" OrganizationId="OrganizationId" Notification="question" Answered="OnAnsweredAsync" />
-                }
-                }
+                @foreach (var issue in PendingIssues) { <IssueAttentionCard @key="issue.Key" Item="issue" OrganizationId="OrganizationId" Answered="OnAnsweredAsync" RefreshRequested="RefreshRequested" /> }
                 @foreach (var approval in PendingApprovals.Take(_showAll ? PendingApprovals.Count : 5))
                 {
                     <AttentionNotificationCard @key="approval.Id" OrganizationId="OrganizationId" Notification="approval" DocumentOpened="DocumentOpened" ApprovalDecided="OnApprovalDecidedAsync" RefreshRequested="RefreshRequested" />
-                }
-                @if (Issues is null) {
-                @foreach (var incident in ActionableIncidents.Take(_showAll ? ActionableIncidents.Count : 5))
-                {
-                    <AttentionNotificationCard @key="incident.Id" OrganizationId="OrganizationId" Notification="incident" RefreshRequested="RefreshRequested" />
-                }
                 }
                 @foreach (var resource in ComputeResources.Take(_showAll ? ComputeResources.Count : 5))
                 {
@@ -105,10 +88,17 @@
                     <AttentionNotificationCard @key="recommendation.Id" OrganizationId="OrganizationId" Notification="recommendation" RefreshRequested="RefreshRequested" />
                 }
             </div>
-            @if (ActionableIncidents.Count > 5 || PendingApprovals.Count > 5 || Recommendations.Count > 5 || ComputeResources.Count > 5 || StandaloneBlockedWork.Count > 5)
+            @if (PendingApprovals.Count > 5 || Recommendations.Count > 5 || ComputeResources.Count > 5)
             {
                 <MudButton OnClick="() => _showAll = !_showAll" aria-expanded="@_showAll" Size="Size.Small">@(_showAll ? "Show fewer items" : $"Show all items ({PendingCount})")</MudButton>
             }
+        }
+        @if (WaitingIssues.Count > 0)
+        {
+            <section class="waiting-issues" aria-label="@L["LinkedCommitments.Waiting"]">
+                <h3>@L["LinkedCommitments.Waiting"]</h3>
+                @foreach (var issue in WaitingIssues) { <IssueAttentionCard @key="issue.Key" Item="issue" OrganizationId="OrganizationId" RefreshRequested="RefreshRequested" /> }
+            </section>
         }
     }
 </section>
@@ -136,12 +126,12 @@
     [Parameter] public EventCallback<DocumentApprovalSelection> DocumentOpened { get; set; }
     private IReadOnlyList<ApprovalDashboardItemResponse> PendingApprovals => Approvals
         .Where(x => !_completedApprovals.Contains(x.Id) && OverviewAttentionItems.IsActionable(x)).ToList();
-    private IReadOnlyList<ProjectIncidentAttentionResponse> ActionableIncidents => ProjectIncidents.Where(OverviewAttentionItems.IsActionable).ToArray();
-    private IReadOnlyList<BlockedWorkAttentionResponse> StandaloneBlockedWork => OverviewAttentionItems.StandaloneBlockedWork(BlockedWork, _questions, ProjectIncidents);
-    private IReadOnlyList<OverviewIssueCard> PendingIssues => (Issues?.UserActions ?? []).Where(item =>
-        item.IssueId is not null || item.Work.Count > 0 || item.Incidents.Count > 0 || item.RelatedIssues.Count > 0 ||
+    private OverviewIssueDirectory CurrentIssues => Issues ?? OverviewAttentionItems.FallbackIssues(BlockedWork, _questions, ProjectIncidents);
+    private IReadOnlyList<OverviewIssueCard> WaitingIssues => CurrentIssues.Team;
+    private IReadOnlyList<OverviewIssueCard> PendingIssues => CurrentIssues.UserActions.Where(item =>
+        item.IssueId is not null || item.Work.Count > 0 || item.Incidents.Count > 0 ||
         item.Questions.Count == 0 || item.Questions.Any(q => !_completedDecisions.Contains(q.Decision.Id))).ToArray();
-    private int PendingCount => Issues is not null ? PendingIssues.Count + PendingApprovals.Count + Recommendations.Count + ComputeResources.Count + SuggestionCount : OverviewAttentionItems.StandaloneQuestions(_questions, ProjectIncidents).Count + PendingApprovals.Count + Recommendations.Count + ActionableIncidents.Count + ComputeResources.Count + SuggestionCount + StandaloneBlockedWork.Count;
+    private int PendingCount => PendingIssues.Count + PendingApprovals.Count + Recommendations.Count + ComputeResources.Count + SuggestionCount;
     private bool _showAll;
     private readonly HashSet<Guid> _completedDecisions = [];
     private readonly HashSet<Guid> _completedApprovals = [];

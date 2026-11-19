@@ -43,9 +43,11 @@ public sealed partial class ExecutiveDecisionServiceTests
         var todos = DispatchProxy.Create<IPersonalTodoService, WorkIssuePostgresTests.TestProxy>();
         ((WorkIssuePostgresTests.TestProxy)(object)todos).InvokeMethod = (method, _) => method == "ListAsync"
             ? Task.FromResult(new Wire.PersonalTodoDirectory([])) : throw new NotSupportedException(method);
-        var reader = new OverviewIssueReader(db, todos, new(db, todos, TimeProvider.System), decisions,
+        var auth = new ScopedActionAuthorizationService(db);
+        var issues = new WorkIssueService(db, auth, TimeProvider.System);
+        var reader = new OverviewIssueReader(db, todos, new(db, todos, TimeProvider.System, new(db, todos, auth, issues)), decisions,
             new(db, new(db, TimeProvider.System), TimeProvider.System),
-            new(db, new ScopedActionAuthorizationService(db), TimeProvider.System));
+            issues);
 
         var directory = await reader.ReadAsync(setup.OrganizationId, new(setup.OwnerId, null), false, default);
         var question = Assert.Single(Assert.Single(directory.UserActions).Questions);

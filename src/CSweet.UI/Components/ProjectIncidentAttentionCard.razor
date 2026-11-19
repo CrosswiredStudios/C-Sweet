@@ -3,6 +3,13 @@
 @inject HttpClient Http
 @inject IAppLocalizer L
 
+@if (ActionsOnly)
+{
+    @Actions
+    @if (_notice is not null) { <p role="status">@_notice</p> }
+}
+else
+{
 <AttentionRequestCard Kind="@(Incident.IsStatusReport ? "Status" : "Input needed")" Embedded="Embedded"
     EmployeeId="@(Incident.ReporterOrganizationUserId ?? Incident.ReporterEmployeeId)"
     Name="@Incident.ReporterName" Context="@Incident.ProjectName" Prompt="@(Incident.IsStatusReport ? $"{Incident.ProjectName}: manager recovery status" : Incident.Reason)"
@@ -27,6 +34,14 @@
         }
     </BodyContent>
     <ChildContent>
+        @Actions
+    </ChildContent>
+</AttentionRequestCard>
+}
+
+@code {
+    [Parameter] public bool ActionsOnly { get; set; }
+    private RenderFragment Actions => @<div class="incident-actions">
     @if (Incident.Collaboration is { } collaboration)
     {
         @if (Incident.ResolutionDecision is null && (collaboration.CanRetry || collaboration.Status is "Active" or "Summarizing"))
@@ -34,20 +49,17 @@
             <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_retrying || Queued || !collaboration.CanRetry)"
                        OnClick="RetryAsync">@(_retrying ? L["ProjectIncidentAttentionCard.Retrying"] : Queued ? L["ProjectIncidentAttentionCard.RetryQueued"] : !collaboration.CanRetry ? L["ProjectIncidentAttentionCard.InProgress"] : L["Common.Retry"])</MudButton>
         }
-        <MudButton Href="@(Incident.InvestigateUri ?? collaboration.InvestigateUri)" Variant="Variant.Outlined" Color="Color.Primary">@(Incident.InvestigateLabel ?? L["ProjectIncidentAttentionCard.Investigate"])</MudButton>
+        @if (!ActionsOnly) { <MudButton Href="@(Incident.InvestigateUri ?? collaboration.InvestigateUri)" Variant="Variant.Outlined" Color="Color.Primary">@(Incident.InvestigateLabel ?? L["ProjectIncidentAttentionCard.Investigate"])</MudButton> }
     }
-    else if (!string.IsNullOrWhiteSpace(Incident.InvestigateUri))
+    else if (!ActionsOnly && !string.IsNullOrWhiteSpace(Incident.InvestigateUri))
     {
         <MudButton Href="@Incident.InvestigateUri" Variant="Variant.Filled" Color="Color.Primary">@(Incident.InvestigateLabel ?? L["ProjectIncidentAttentionCard.Investigate"])</MudButton>
     }
-    @if (!Incident.ReportDeliveryPending)
+    @if (!ActionsOnly && !Incident.ReportDeliveryPending)
     {
         <MudButton Href="@Incident.ActionUri" Variant="Variant.Outlined" Color="Color.Primary">@L["ProjectIncidentAttentionCard.ReadReport"]</MudButton>
     }
-    </ChildContent>
-</AttentionRequestCard>
-
-@code {
+    </div>;
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public bool Embedded { get; set; }
     [Parameter] public bool ShowDecision { get; set; } = true;

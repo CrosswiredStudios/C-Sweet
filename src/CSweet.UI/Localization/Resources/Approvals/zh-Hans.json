@@ -104,6 +104,8 @@
   "PendingAgentQuestions.LoadingHiringSuggestions": "正在加载雇用建议…",
   "PendingAgentQuestions.LoadingComputePermissions": "正在加载计算权限…",
   "PendingAgentQuestions.ShowingPermissionsForThe100": "显示最近 100 个计算实例的权限。",
+  "PendingAgentQuestions.ViewAffectedWork": "查看受影响的工作",
+  "PendingAgentQuestions.NoActionNeeded": "目前无需你采取行动。",
   "PendingAgentQuestions.NothingNeedsYourAttention": "没有需要您关注的事项。",
   "PendingAgentQuestions.ReviewApproval": "审阅审批",
   "PendingAgentQuestions.RefreshDecisions": "刷新决策",

@@ -104,6 +104,8 @@
   "PendingAgentQuestions.LoadingHiringSuggestions": "Einstellungsvorschläge werden geladen…",
   "PendingAgentQuestions.LoadingComputePermissions": "Berechtigungen für Rechenressourcen werden geladen…",
   "PendingAgentQuestions.ShowingPermissionsForThe100": "Berechtigungen für die 100 neuesten Recheninstanzen werden angezeigt.",
+  "PendingAgentQuestions.ViewAffectedWork": "Betroffene Aufgaben ansehen",
+  "PendingAgentQuestions.NoActionNeeded": "Sie müssen nichts tun.",
   "PendingAgentQuestions.NothingNeedsYourAttention": "Nichts erfordert Ihre Aufmerksamkeit.",
   "PendingAgentQuestions.ReviewApproval": "Genehmigung prüfen",
   "PendingAgentQuestions.RefreshDecisions": "Entscheidungen aktualisieren",

@@ -1,4 +1,8 @@
 using CSweet.Agent.SDK;
+using CSweet.Agent.Testing;
+using CSweet.Infrastructure.Security;
+using CSweet.Infrastructure.Communications;
+using CSweet.Infrastructure.Core;
 using CSweet.Application.WorkManagement;
 using CSweet.Domain.Core;
 using CSweet.Domain.WorkManagement;
@@ -10,7 +14,7 @@ namespace CSweet.UnitTests;
 
 public sealed partial class PersonalTodoServiceTests
 {
-    [Fact]
+    [Fact, Trait("Category", "AgentHarness")]
     public async Task SharedManagerRecoveryResumesRetainedNativeWorkWithoutRecreatingItOrHoldingUnrelatedWork()
     {
         await using var db = CreateDb(); var setup = Seed(db);
@@ -48,13 +52,25 @@ public sealed partial class PersonalTodoServiceTests
             });
         var context = runtime.CreateContext(setup.Organization.Id.ToString(), setup.FirstManager.AgentInstallationId.ToString()!,
             new(setup.FirstManager.Id.ToString(), "Manager", null, null, null, [], null, null, null));
-        await ManagerWorkRecovery.DiscoverAsync(context, default);
-        await ManagerWorkRecovery.DiscoverAsync(context, default);
+        var manager = new NativeRecoveryManager();
+        AgentTestHost Host() => new(manager, runtime, context.Identity, setup.Organization.Id.ToString(), setup.FirstManager.AgentInstallationId.ToString()!);
+        var delivery = Guid.NewGuid();
+        await Host().DeliverEventAsync(Wire.WorkRecoveryEvents.Changed, new { itemId = retained.Id }, delivery);
+        await Host().DeliverEventAsync(Wire.WorkRecoveryEvents.Changed, new { itemId = retained.Id }, delivery);
         var directory = await service.ListAsync(setup.Organization.Id, actor);
         var recovery = Assert.Single(directory.Boards.Single(b => b.OwnerOrganizationUserId == setup.FirstManager.Id).Items);
         Assert.Equal(retained.Id, recovery.WorkContext!.WorkItemId);
         Assert.Null(recovery.WorkContext.BoardId); // A native task is not a standard project board.
-        var manager = new NativeRecoveryManager();
+        var auth = new ScopedActionAuthorizationService(db);
+        var cases = new WorkIssueService(db, auth, TimeProvider.System);
+        var overview = new OverviewIssueReader(db, service, new(db, service, TimeProvider.System, new(db, service, auth, cases)),
+            new ExecutiveDecisionService(db, new ChatTurnService(db)), new(db, new(db, TimeProvider.System), TimeProvider.System), cases);
+        var cards = await overview.ReadAsync(setup.Organization.Id, actor, false, default);
+        Assert.Empty(cards.UserActions);
+        var blocker = Assert.Single(cards.Team);
+        Assert.Equal("work:" + retained.Id.ToString("N"), blocker.Key);
+        Assert.Equal(new[] { retained.Id, recovery.Id }.Order(), blocker.AffectedWork.Select(w => w.ItemId).Order());
+        Assert.False(Assert.Single(blocker.Work).CanRetry);
         await ManagerWorkRecovery.HandleAsync(manager, recovery, context, default);
         Assert.NotNull(await ManagerWorkRecovery.HandleAsync(manager, recovery, context, default));
         Assert.Equal(1, manager.Assessments);

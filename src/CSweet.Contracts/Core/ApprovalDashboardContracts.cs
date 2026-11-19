@@ -126,7 +126,12 @@ public sealed record ProjectIncidentAttentionResponse(Guid Id, Guid WorkstreamId
     public bool ReportDeliveryPending { get; init; }
     public string? InvestigateUri { get; init; }
     public string? InvestigateLabel { get; init; }
+    public Guid? AffectedWorkItemId { get; init; }
+    public Guid? BlockedCoordinationId { get; init; }
     public ProjectIncidentCollaborationResponse? Collaboration { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool HasUserAction => !IsStatusReport &&
+        (ResolutionDecision?.Status == "Pending" && ReportConversationId.HasValue || Collaboration?.CanRetry == true && ResolutionDecision is null);
 }
 
 public sealed record ProjectIncidentCollaborationResponse(Guid SessionId, Guid ConversationId, long Revision,

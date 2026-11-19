@@ -10,6 +10,8 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="Microsoft.Agents.AI" VersionOverride="1.15.0" />
     <PackageReference Include="xunit" />
+    <None Update="Fixtures/qwen-saved-capacity-hold.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures/qwen-adrian-21-zero.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures/qwen-adrian-estimate.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures/prism-break-recipe-review.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures/prism-breaker-stack.json" CopyToOutputDirectory="PreserveNewest" />

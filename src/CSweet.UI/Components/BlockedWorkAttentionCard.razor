@@ -2,21 +2,22 @@
 @using System.Net
 @using System.Net.Http.Json
 @inject HttpClient Http
+@inject IAppLocalizer L
 
 @if (ActionsOnly)
 {
-    @if (Item.CanRetry) { <MudButton OnClick="RetryAsync" Disabled="_retrying" Variant="Variant.Outlined">Retry affected work</MudButton> }
+    @if (Item.OffersRetry) { <span>@Item.RetryReason</span> <MudButton OnClick="RetryAsync" Disabled="_retrying" Variant="Variant.Outlined" aria-label="@($"Retry {Item.Title}")">@L["Common.Retry"]</MudButton> }
     @if (_error is not null) { <MudText role="alert" Color="Color.Error">@_error</MudText> }
 }
 else
 {
 <AttentionRequestCard Kind="Issue" EmployeeId="Item.OwnerOrganizationUserId" Name="@Item.OwnerName" Embedded="Embedded"
     Context="@Item.ManagerName" Prompt="@Item.Title" Description="@Item.Reason"
-    Status="Review the cause and recorded work before retrying. The assigned agent retains ownership.">
+    Status="@Item.RetryReason">
     <MudButton Href="@Item.ActionUri" Variant="Variant.Outlined">Open affected work</MudButton>
-    @if (Item.CanRetry)
+    @if (Item.OffersRetry)
     {
-        <MudButton OnClick="RetryAsync" Disabled="_retrying" Variant="Variant.Outlined" Color="Color.Primary">@(_retrying ? "Retrying…" : "Retry after review")</MudButton>
+        <MudButton OnClick="RetryAsync" Disabled="_retrying" Variant="Variant.Outlined" Color="Color.Primary">@(_retrying ? "Retrying…" : "Retry")</MudButton>
     }
     @if (_error is not null)
     {
@@ -37,14 +38,14 @@ else
 
     private async Task RetryAsync()
     {
-        if (_retrying || !Item.CanRetry) return;
+        if (_retrying || !Item.OffersRetry || Item.RetryKey is null) return;
         _retrying = true; _error = null;
         try
         {
             using var response = await Http.PostAsJsonAsync(
-                $"api/organizations/{OrganizationId:D}/work/personal-todos/items/requeue",
+                $"api/organizations/{OrganizationId:D}/work/personal-todos/attention/retry",
                 new CSweet.WorkManagement.Contracts.RequeuePersonalTodoItemRequest(Item.ItemId, Item.Revision,
-                    $"overview-retry:{Item.ItemId:N}:{Item.Revision}"));
+                    Item.RetryKey));
             if (response.StatusCode == HttpStatusCode.Conflict)
                 _error = "This work has changed. Refresh and review its current state before retrying.";
             else if (response.StatusCode == HttpStatusCode.Forbidden)

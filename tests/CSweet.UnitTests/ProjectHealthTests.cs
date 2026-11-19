@@ -642,7 +642,7 @@ public sealed partial class ProjectHealthTests
         Assert.Equal(canonical.Id, attention.Id);
         var collaboration = Assert.IsType<CSweet.Contracts.Core.ProjectIncidentCollaborationResponse>(attention.Collaboration);
         Assert.Equal(session.Id, collaboration.SessionId); Assert.Equal(session.ConversationId, collaboration.ConversationId);
-        Assert.Equal(session.Revision, collaboration.Revision); Assert.True(collaboration.CanRetry);
+        Assert.Equal(session.Revision, collaboration.Revision); Assert.False(collaboration.CanRetry); // The recorded failure explicitly disallows retry.
         Assert.Contains($"collaboration={session.Id}", collaboration.InvestigateUri);
         Assert.Contains($"perspective={session.InitiatorOrganizationUserId}", collaboration.InvestigateUri);
         f.Ceo.PermissionLevel = OrganizationPermissionLevel.Contributor; await f.Db.SaveChangesAsync();

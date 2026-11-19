@@ -8,7 +8,7 @@ namespace CSweet.Infrastructure.Core;
 
 public sealed partial class ProjectHealthService
 {
-    internal async Task<IReadOnlyList<ProjectIncidentAttentionResponse>> ReadAttentionAsync(Guid organization, Guid actor, CancellationToken token)
+    internal async Task<IReadOnlyList<ProjectIncidentAttentionResponse>> ReadAttentionAsync(Guid organization, Guid actor, CancellationToken token, bool groupPlanningReports = true)
     {
         // A delivered report is evidence of routing, never a permanent access grant.
         var incidents = await db.ProjectIncidents.AsNoTracking().Where(x => x.OrganizationId == organization &&
@@ -42,25 +42,38 @@ public sealed partial class ProjectHealthService
             var technical = failure?.Diagnostic;
             // Only collapse reports bound to the exact same planning cycle, after authorizing
             // each record. Similar prose or a shared project never establishes root identity.
-            if (failure?.SessionId is { } root && planningIssues.TryGetValue((project.Id, root), out var existingIndex))
+            if (groupPlanningReports && failure?.SessionId is { } root && planningIssues.TryGetValue((project.Id, root), out var existingIndex))
             {
                 result[existingIndex] = result[existingIndex] with { RelatedIncidentCount = result[existingIndex].RelatedIncidentCount + 1 };
                 continue;
             }
             ProjectIncidentCollaborationResponse? collaboration = null;
-            if ((failure?.SessionId ?? IncidentSource(incident.Fingerprint, "coordination")) is { } sessionId)
+            var blockedSession = failure?.SessionId ?? IncidentSource(incident.Fingerprint, "coordination");
+            if (blockedSession is { } sessionId)
             {
                 var session = await db.AgentCoordinationSessions.AsNoTracking().SingleOrDefaultAsync(x =>
                     x.Id == sessionId && x.OrganizationId == organization && x.WorkstreamId == project.Id, token);
                 if (session is not null)
+                {
+                    var retryable = false;
+                    if (canRetry && decision is null && technical is null && session.Status == AgentCoordinationStatus.Failed &&
+                        session.LastResumeIdempotencyKey is null)
+                    {
+                        var failureDelivery = await db.AgentWorkItems.AsNoTracking().Where(w => w.OrganizationId == organization.ToString() &&
+                            w.SourceType == "agent-coordination" && w.CorrelationId == session.Id.ToString("D"))
+                            .OrderByDescending(w => w.CreatedAt).Select(w => new { w.Status, w.LastError }).FirstOrDefaultAsync(token);
+                        retryable = failureDelivery is { Status: CSweet.Domain.Setup.AgentWorkStatus.DeadLetter } &&
+                            AgentCoordinationService.HasTransientFailure(failureDelivery.LastError);
+                    }
                     collaboration = new(session.Id, session.ConversationId, session.Revision, session.Status.ToString(),
-                        canRetry && technical is null && session.Status is (AgentCoordinationStatus.Failed or AgentCoordinationStatus.Blocked),
+                        retryable,
                         $"/organizations/{organization}/communications/{session.ConversationId}?perspective={session.InitiatorOrganizationUserId}&collaboration={session.Id}");
+                }
             }
             result.Add(new(incident.Id, project.Id, project.Name, reporter ?? "Project manager", presentation.Title,
                 presentation.Summary, presentation.NextStep, delivery.ConversationId is { } reportChat
                     ? $"/organizations/{organization}/communications/{reportChat}" : presentation.Link, incident.DetectedAt)
-                { Collaboration = collaboration, ReporterEmployeeId = delivery.SenderId,
+                { AffectedWorkItemId = incident.AffectedWorkItemId, BlockedCoordinationId = blockedSession, Collaboration = collaboration, ReporterEmployeeId = delivery.SenderId,
                     ReporterOrganizationUserId = incident.ReporterOrganizationUserId ?? delivery.SenderId,
                     IsStatusReport = statusReport, RecoveryStatus = presentation.Recovery, DiagnosticDetails = technical,
                     OwnerReport = presentation.Summary, ReportConversationId = delivery.ConversationId,

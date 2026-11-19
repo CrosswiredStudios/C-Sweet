@@ -19,6 +19,12 @@ public sealed class WorkRecoveryService(CSweetDbContext db, IPersonalTodoService
         var view = directory.Boards.SingleOrDefault(b => b.Items.Any(w => w.Id == request.ItemId))
             ?? throw new UnauthorizedAccessException("Recovery requires current access to the assigned work.");
         var item = view.Items.Single(w => w.Id == request.ItemId);
+        return (await AssessVisibleItemAsync(org, item, ct)).Facts;
+    }
+
+    internal async Task<(Wire.WorkRecoveryFacts Facts, bool UpdatedPackage)> AssessVisibleItemAsync(
+        Guid org, Wire.PersonalTodoItem item, CancellationToken ct)
+    {
         var owner = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(u => u.Id == item.OwnerOrganizationUserId && u.OrganizationId == org && u.IsActive && u.ArchivedAt == null, ct);
         var failure = await db.WorkItemActivities.AsNoTracking().Where(a => a.OrganizationId == org && a.WorkItemId == item.Id && a.EventType == "agent.ticket.failed")
             .OrderByDescending(a => a.OccurredAt).FirstOrDefaultAsync(ct);
@@ -53,6 +59,7 @@ public sealed class WorkRecoveryService(CSweetDbContext db, IPersonalTodoService
         string? continuation = null;
         var eligibility = "Unknown"; var explanation = "The failed operation needs an owned assessment; no retry authority is inferred.";
         string? operationBasis = null;
+        var updatedPackage = false;
         if (currentFailureStop && item.Status == Wire.PersonalTodoStatuses.Blocked && code?.EndsWith("denied", StringComparison.OrdinalIgnoreCase) == true && capability is not null)
         {
             var candidates = (policies ?? []).Append(new BoardPlanningRecoveryPolicy(db, authorization, issues)).Where(p => p.Handles(capability)).ToArray();
@@ -77,6 +84,7 @@ public sealed class WorkRecoveryService(CSweetDbContext db, IPersonalTodoService
                 .Select(v => new { v.Id, v.Version, v.ImportedAt }).SingleOrDefaultAsync(ct);
             if (replacement is not null)
             {
+                updatedPackage = true;
                 operationBasis = MutationContent.Digest(new { prior = operationBasis, replacement.Id, replacement.ImportedAt });
                 explanation += $" The owner's installed package {replacement.Version} was imported at {replacement.ImportedAt:O}, after this task's recorded failure at {failure.OccurredAt:O}. " +
                     "The reporting manager can assess a diagnostic retry against the changed implementation. The outcome on this version is unverified.";
@@ -85,6 +93,6 @@ public sealed class WorkRecoveryService(CSweetDbContext db, IPersonalTodoService
         var basis = MutationContent.Digest(new { policy = "work-recovery.v1", item.Id, owner = owner.Id, owner.AgentInstallationId, ownerBinding,
             fingerprint = Field("fingerprint"), code, capability, boardId, operationBasis, eligibility, continuation,
             item.WorkContext });
-        return new(item.Id, owner.Id, owner.AgentInstallationId, boardId, code ?? "unknown", capability, eligibility, basis, explanation) { FailureEventId = failure?.Id, ContinuationCapability = continuation };
+        return (new(item.Id, owner.Id, owner.AgentInstallationId, boardId, code ?? "unknown", capability, eligibility, basis, explanation) { FailureEventId = failure?.Id, ContinuationCapability = continuation }, updatedPackage);
     }
 }

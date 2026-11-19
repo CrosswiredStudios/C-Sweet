@@ -104,6 +104,8 @@
   "PendingAgentQuestions.LoadingHiringSuggestions": "Загрузка предложений по найму…",
   "PendingAgentQuestions.LoadingComputePermissions": "Загрузка разрешений на вычисления…",
   "PendingAgentQuestions.ShowingPermissionsForThe100": "Показаны разрешения для 100 последних вычислительных экземпляров.",
+  "PendingAgentQuestions.ViewAffectedWork": "Посмотреть затронутые задачи",
+  "PendingAgentQuestions.NoActionNeeded": "Сейчас от вас ничего не требуется.",
   "PendingAgentQuestions.NothingNeedsYourAttention": "Ничто не требует вашего внимания.",
   "PendingAgentQuestions.ReviewApproval": "Рассмотреть утверждение",
   "PendingAgentQuestions.RefreshDecisions": "Обновить решения",

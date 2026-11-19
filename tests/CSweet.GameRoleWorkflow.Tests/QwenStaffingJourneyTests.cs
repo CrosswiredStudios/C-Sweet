@@ -68,6 +68,27 @@ public sealed partial class FreshTeamSprintJourneyTests
 
     internal sealed partial class PlanningTeam
     {
+        private async Task<string[]> SetQwenOwnerEstimateAsync(bool confirmedBlock)
+        {
+            var fixture = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures", "qwen-adrian-estimate.json")))!;
+            string[] notes = confirmedBlock ? ["The required environment has been checked and is unavailable. No executable work on this ticket can begin."]
+                : fixture["blockers"]!.Deserialize<string[]>()!;
+            SetModel(platform.Engineer, "recorded-owner", (_, _) => Task.FromResult<object>(new {
+                text = JsonSerializer.Serialize(new { estimates = new[] { new { points = (int)fixture["points"]!, confidence = "high", rationale = "Size of the setup spike" } },
+                    capacityAssessment = new { offeredPoints = (int)fixture["availableSprintCapacity"]!, rationale = "Available for the setup spike." },
+                    assumptions = Array.Empty<string>(), blockers = notes }) }));
+            // Adrian's installed SDK in the incident sent the legacy numeric projection only.
+            platforms[platform.Engineer.OrganizationUserId].RegisterCapability<RespondToAgentCoordinationRequest, AgentCoordinationSession>(
+                CommunicationCapabilities.CoordinationRespond, (r, _) => {
+                    var payload = JsonNode.Parse(r.Artifact!.Payload.GetRawText())!.AsObject();
+                    Assert.Equal(13, (int)payload["AvailableSprintCapacity"]!);
+                    payload.Remove("CapacityAssessment");
+                    payload.Remove("AssessmentStateKey");
+                    return Task.FromResult(Respond(platform.Engineer, r with { Artifact = r.Artifact with { Payload = JsonSerializer.SerializeToElement(payload) } }));
+                });
+            return notes;
+        }
+
         public async Task ReplayQwenEstimateAsync(FirstSprintModel model, AgentCoordinationParticipant manager,
             bool lateQa, bool hireBeforeDefer, bool confirmedBlock)
         {
@@ -103,22 +124,7 @@ public sealed partial class FreshTeamSprintJourneyTests
                     (_, _) => Task.FromResult(new ResourceChangeReadResponse([approved])));
             }
 
-            var fixture = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "Fixtures", "qwen-adrian-estimate.json")))!;
-            string[] notes = confirmedBlock ? ["The required environment has been checked and is unavailable. No executable work on this ticket can begin."]
-                : fixture["blockers"]!.Deserialize<string[]>()!;
-            SetModel(platform.Engineer, "recorded-owner", (_, _) => Task.FromResult<object>(new {
-                text = JsonSerializer.Serialize(new { estimates = new[] { new { points = (int)fixture["points"]!, confidence = "high", rationale = "Size of the setup spike" } },
-                    capacityAssessment = new { offeredPoints = (int)fixture["availableSprintCapacity"]!, rationale = "Available for the setup spike." },
-                    assumptions = Array.Empty<string>(), blockers = notes }) }));
-            // Adrian's installed SDK in the incident sent the legacy numeric projection only.
-            platforms[platform.Engineer.OrganizationUserId].RegisterCapability<RespondToAgentCoordinationRequest, AgentCoordinationSession>(
-                CommunicationCapabilities.CoordinationRespond, (r, _) => {
-                    var payload = JsonNode.Parse(r.Artifact!.Payload.GetRawText())!.AsObject();
-                    Assert.Equal(13, (int)payload["AvailableSprintCapacity"]!);
-                    payload.Remove("CapacityAssessment");
-                    payload.Remove("AssessmentStateKey");
-                    return Task.FromResult(Respond(platform.Engineer, r with { Artifact = r.Artifact with { Payload = JsonSerializer.SerializeToElement(payload) } }));
-                });
+            var notes = await SetQwenOwnerEstimateAsync(confirmedBlock);
             var endpoint = Environment.GetEnvironmentVariable("CSWEET_RISK_CHECKPOINT_URL") is { Length: > 0 }
                 ? await CheckpointModelEndpoint.OpenAsync(db, platform.Gabriel, platform.Organization, ProviderId, "CSWEET_RISK_CHECKPOINT")
                 : null;
@@ -152,7 +158,7 @@ public sealed partial class FreshTeamSprintJourneyTests
             var hireWakeCount = 0;
             queue.OnDefer = async (request, simulated) => {
                 var staffing = request.Reason.StartsWith("Sprint staffing:");
-                var capacity = request.Reason.Contains("source-bound capacity decision");
+                var capacity = request.Reason.Contains("source-bound planning decision");
                 if (!staffing && !capacity) return simulated;
                 Assert.True(request.NextReviewAt > DateTimeOffset.UtcNow.AddMinutes(5));
                 var row = await db.CoreWorkTasks.SingleAsync(t => t.Id == request.ItemId);

@@ -7,3 +7,5 @@ p { color: var(--mud-palette-text-secondary); font-size: .875rem; margin: 0; }
 .decisions-empty { display: flex; align-items: center; gap: .6rem; padding: 1rem 0; color: var(--mud-palette-text-secondary); font-size: .9rem; }
 .decision-list { display: grid; gap: .65rem; }
 .attention-list { display: grid; gap: 14px; }
+.waiting-issues { border-top: 1px solid var(--mud-palette-divider); margin-top: 1rem; padding-top: 1rem; display: grid; gap: .65rem; }
+.waiting-issues h3 { margin: 0; font-size: 1rem; font-weight: 600; }

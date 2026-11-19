@@ -103,6 +103,8 @@
   "PendingAgentQuestions.LoadingHiringSuggestions": "63b53e48f90c",
   "PendingAgentQuestions.LoadingComputePermissions": "0fae2199dde4",
   "PendingAgentQuestions.ShowingPermissionsForThe100": "5ecc8ccfe888",
+  "PendingAgentQuestions.ViewAffectedWork": "85bb801f9abd",
+  "PendingAgentQuestions.NoActionNeeded": "1400bc02edef",
   "PendingAgentQuestions.NothingNeedsYourAttention": "b533ce82d825",
   "PendingAgentQuestions.ReviewApproval": "2ee7925c05d1",
   "PendingAgentQuestions.RefreshDecisions": "62075953330f",

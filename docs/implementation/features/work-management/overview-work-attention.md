@@ -2,24 +2,13 @@
 
 ## State and authority
 
-`BlockedWorkAttentionReader.ReadAsync` projects canonical blocked work visible through
-`IPersonalTodoService.ListAsync`. It does not infer a failure from a timer, normal dependency wait,
-or model prose. Archived work is excluded; children of a displayed blocked plan are grouped under
-their root. Each card retains the assigned employee and manager.
+The **Waiting** section shows one card for each open blocker the current user can see. **View affected work** opens its linked tasks and manager reports. Pending questions and useful, authorized retries move the same blocker into **Needs your attention**. The navigation badge counts that blocker once.
 
-`BlockedWorkAttentionResponse.CanRetry` requires an executable, independently resumable item and
-a current scoped `PersonalTodoActions.Requeue` grant. `BlockedWorkAttentionCard` submits the
-existing revision-checked requeue command. The server remains authoritative and a stale or denied
-command leaves an explanation; visibility is never a grant to retry. Opening the affected work
-remains available when retry is not authorized. A retry does not approve staffing, spend, scope,
-QA acceptance, or fulfillment of another dependency.
+`OverviewIssueReader.ReadAsync` groups records by their case, decision, collaboration, explicit dependency or source task. It follows manager recovery tasks back to their source, including earlier recovery tasks. Independent blockers in the same project retain separate cards. Only work from authorized personal views and case boards appears in the disclosure. The overview re-reads on work, incident and decision changes and reconnect.
 
-`OverviewAttentionItems.StandaloneBlockedWork` avoids a second card when the same native decision
-already has a question or incident card. `PendingAgentQuestions` and `OverviewAttentionState`
-share the eligibility/counting rules. Both reload on canonical `WorkBoardChanged` notifications;
-reconnect discovery repairs missed notifications. A failed work-attention read prevents the empty
-state from claiming that nothing needs attention. Existing approval and incident cards retain
-their specific decision options.
+`BlockedWorkAttentionReader` uses `WorkRecoveryService` to check the failed operation against current facts. Restored access, a supported alternative or an agent update after the failure can justify a retry. The assigned user or reporting manager also needs a current requeue grant on the work item's board. A missing input, a management review or an unknown failure stays in Waiting. A pending decision takes precedence over retry controls on the same card.
+
+`BlockedWorkAttentionReader.RetryAsync` rechecks the current revision and evidence before requeuing. The accepted retry and its evidence key are recorded together. If the same attempt fails again on the same facts, the overview waits for something to change.
 
 ## Owner pause
 

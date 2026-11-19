@@ -59,7 +59,7 @@ public sealed class PendingAgentQuestionsTests
         }
     }
     [Fact]
-    public async Task OverviewCountsStallReportsAndLinksTheManagerReportWithoutApprovalControls()
+    public async Task OverviewKeepsAnInformationalStallReportUnderWaiting()
     {
         var org = Guid.NewGuid();
         var incident = new CSweet.Contracts.Core.ProjectIncidentAttentionResponse(Guid.NewGuid(), Guid.NewGuid(), "Prismatic Break",
@@ -73,9 +73,9 @@ public sealed class PendingAgentQuestionsTests
         var html = await renderer.Dispatcher.InvokeAsync(async () =>
             (await renderer.RenderComponentAsync<PendingAgentQuestions>(ParameterView.FromDictionary(new Dictionary<string, object?>
             { ["OrganizationId"] = org, ["SummaryOnly"] = true, ["ProjectIncidents"] = new[] { incident } }))).ToHtmlString());
-        Assert.Contains("1 pending", html); Assert.Contains("Prismatic Break", html); Assert.Contains("Gabriel Reyes", html);
+        Assert.Contains("0 pending", html); Assert.Contains("aria-label=\"Waiting\"", html); Assert.Contains("Prismatic Break", html); Assert.Contains("Gabriel Reyes", html);
         Assert.Contains("Delivery scope changed", html); Assert.Contains("Read manager report", html); Assert.Contains(incident.ActionUri, html);
-        Assert.DoesNotContain("Nothing needs your attention", html); Assert.DoesNotContain("Review approval", html);
+        Assert.Contains("Nothing needs your attention", html); Assert.DoesNotContain("Review approval", html);
     }
 
     private sealed class TestNavigation : NavigationManager

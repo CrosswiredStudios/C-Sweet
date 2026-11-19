@@ -36,12 +36,15 @@ public sealed partial class PersonalTodoServiceTests
         }
         var auth = new ScopedActionAuthorizationService(db);
         var recovery = new WorkRecoveryService(db, native, auth, new WorkIssueService(db, auth, TimeProvider.System));
+        var overview = new BlockedWorkAttentionReader(db, native, TimeProvider.System, recovery);
+        Assert.False(Assert.Single(await overview.ReadAsync(setup.Organization.Id, manager)).CanRetry);
         var before = await recovery.ReadAsync(setup.Organization.Id, manager, new(task.Id), default);
         Assert.DoesNotContain(package.Version, before.Explanation);
         package.ImportedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync();
         var changed = await recovery.ReadAsync(setup.Organization.Id, manager, new(task.Id), default);
         Assert.Contains(package.Version, changed.Explanation);
+        Assert.True(Assert.Single(await overview.ReadAsync(setup.Organization.Id, manager)).CanRetry);
         Assert.Equal("Unknown", changed.Eligibility);
         Assert.NotEqual(before.Basis, changed.Basis);
         var selfResume = await native.RequeueAsync(setup.Organization.Id, new(setup.Agent.Id, installation.Id), new(task.Id, task.Revision, "owner-observed-draft"));
@@ -88,11 +91,17 @@ public sealed partial class PersonalTodoServiceTests
         Assert.Equal(allowed.Basis, (await facts.ReadAsync(setup.Organization.Id, manager, new(task.Id), default)).Basis);
         var ownerAttempt = await native.RequeueAsync(setup.Organization.Id, new(setup.Agent.Id, installation.Id), new(task.Id, task.Revision, "owner-no-op"));
         Assert.Equal(Wire.PersonalTodoStatuses.Blocked, ownerAttempt.Status);
-        var resumed = await native.RequeueAsync(setup.Organization.Id, manager, new(task.Id, task.Revision, "reviewed-recovery"));
+        var overview = new BlockedWorkAttentionReader(db, native, TimeProvider.System, facts);
+        var retry = Assert.Single(await overview.ReadAsync(setup.Organization.Id, manager));
+        Assert.True(retry.CanRetry);
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => overview.RetryAsync(setup.Organization.Id, manager, new(task.Id, task.Revision, "obsolete-basis"), default));
+        Assert.DoesNotContain(await db.WorkItemActivities.ToListAsync(), a => a.EventType == "overview.retried");
+        var resumed = await overview.RetryAsync(setup.Organization.Id, manager, new(task.Id, task.Revision, retry.RetryKey!), default);
         Assert.Equal(Wire.PersonalTodoStatuses.Ready, resumed.Status);
         // Same operation fails again: its causal authority basis stays unchanged, so the SDK's receipt prevents an infinite retry loop.
         await AgentTicketFeedback.RecordFailureAsync(db, task, installation.Id, "new-failure", diagnostic, false, DateTimeOffset.UtcNow.AddSeconds(1), default); await db.SaveChangesAsync();
         Assert.Equal(allowed.Basis, (await facts.ReadAsync(setup.Organization.Id, manager, new(task.Id), default)).Basis);
+        Assert.False(Assert.Single(await overview.ReadAsync(setup.Organization.Id, manager)).CanRetry);
         grant.RevokedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync();
         Assert.Equal("Denied", (await facts.ReadAsync(setup.Organization.Id, manager, new(task.Id), default)).Eligibility);
         task.BlockReason = "Awaiting a reserved owner decision"; task.Revision++; await db.SaveChangesAsync();

@@ -7,6 +7,7 @@ namespace CSweet.GameRoleWorkflow.Tests;
 // setup criterion, lockfile, ticket identity, sprint or assignee.
 internal sealed class FirstSprintModel(bool dependencies)
 {
+    public string SetupTitle { get; init; } = "Implement the opening scene";
     public bool ReplaysBreakout { get; init; }
     public int RecipeCorrections { get; private set; }
     public string Pitch { get; init; } = dependencies
@@ -122,7 +123,7 @@ internal sealed class FirstSprintModel(bool dependencies)
             3 => new { epics = new[] { new { title = "Playable interaction", outcome = Outcome, acceptanceCriteria = new[] { Outcome },
                 sourceIndexes = new[] { 0 }, prerequisiteIndexes = Array.Empty<int>() } }, feasibilityFindings = none, technicalConstraints = none, openFeasibilityDecisions = none },
             4 => new { stories = new[] { new { title = "Playable opening scene", outcome = Outcome, acceptanceCriteria = StoryCriteria, epicCriterionIndexes = new[] { 0 }, prerequisiteIndexes = Array.Empty<int>() } } },
-            5 => new { setupTaskIndex = 0, tasks = new[] { new { title = "Implement the opening scene", description = Brief, workItemTypeKey = ReplaysBreakout ? "video-game.research-spike.v1" : "video-game.task.v1",
+            5 => new { setupTaskIndex = 0, tasks = new[] { new { title = SetupTitle, description = Brief, workItemTypeKey = ReplaysBreakout ? "video-game.research-spike.v1" : "video-game.task.v1",
                 accountableRoleKey = "game-engineer", requiredSpecializationKeys = none, preferredSpecializationKeys = none, storyCriterionIndexes = Enumerable.Range(0, StoryCriteria.Length + 1).ToArray(),
                 additionalCriteria = SupersededCriterion is not null && RevisionRequests == 0 ? new[] { SupersededCriterion } : none,
                 browserVerification = "none", interactionCriteria = Array.Empty<int>(), earlierTaskIndexes = Array.Empty<int>(), priorTaskIndexes = Array.Empty<int>() } } },

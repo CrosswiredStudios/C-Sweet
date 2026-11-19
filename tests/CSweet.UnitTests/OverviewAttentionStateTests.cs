@@ -25,7 +25,7 @@ public sealed class OverviewAttentionStateTests
     {
         await using var fixture = new Fixture();
         fixture.Api.BlockedWork = [new(Guid.NewGuid(), Guid.NewGuid(), "Producer", "Director", "Resolve evidence",
-            "Accepted source is missing", 2, true, "/work")];
+            "Accepted source is missing", 2, true, "/work") { RetryKey = "overview-retry:verified" }];
         await fixture.State.InitializeAsync();
         Assert.Equal(6, fixture.State.PendingCount);
         fixture.Api.BlockedWork = [];
@@ -33,7 +33,7 @@ public sealed class OverviewAttentionStateTests
         Assert.Equal(5, fixture.State.PendingCount);
         fixture.Api.BlockedWork = [new(Guid.NewGuid(), Guid.NewGuid(), "Engineer", "Producer", "Review execution",
             "Provider unavailable", 1, false, "/work")];
-        fixture.Reconnect(); Assert.Equal(6, fixture.State.PendingCount);
+        fixture.Reconnect(); Assert.Equal(5, fixture.State.PendingCount);
     }
 
     [Fact]
@@ -254,7 +254,8 @@ public sealed class OverviewAttentionStateTests
         public ApprovalDashboardResponse Approvals { get; set; } = new(Guid.NewGuid(), 99,
             [Approval("Pending", true), Approval("Pending", false), Approval("Approved", true)])
         {
-            ProjectIncidents = [new(Guid.NewGuid(), Guid.NewGuid(), "Project", "Lead", "Stall", "Facts", "Review", "/report", Now)]
+            ProjectIncidents = [new(Guid.NewGuid(), Guid.NewGuid(), "Project", "Lead", "Stall", "Facts", "Review", "/report", Now)
+                { ReportConversationId = Guid.NewGuid(), ResolutionDecision = Question("Pending").Decision }]
         };
         public HiringBacklogResponse Hiring { get; set; } = new([Hire("Pending", 1), Hire("Pending", 0), Hire("Completed", 1)]);
         public OverviewIssueDirectory? Issues { get; set; }

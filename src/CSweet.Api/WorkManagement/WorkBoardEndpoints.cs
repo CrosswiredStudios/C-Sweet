@@ -62,6 +62,17 @@ public static class WorkBoardEndpoints
             catch (UnauthorizedAccessException) { return Results.Forbid(); }
         });
 
+        personalTodoGroup.MapPost("/attention/retry", async (Guid organizationId, Wire.RequeuePersonalTodoItemRequest request,
+            HttpContext http, CSweetDbContext db, BlockedWorkAttentionReader reader, CancellationToken ct) =>
+        {
+            var actor = await ResolvePersonalTodoActorAsync(organizationId, http, db, ct);
+            if (actor is null) return Results.Unauthorized();
+            try { return Results.Ok(await reader.RetryAsync(organizationId, actor, request, ct)); }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (KeyNotFoundException) { return Results.NotFound(); }
+            catch (Exception e) when (e is DbUpdateConcurrencyException or InvalidOperationException) { return Results.Conflict(); }
+        });
+
         personalTodoGroup.MapGet("/issues", async (Guid organizationId, bool? history, HttpContext http, CSweetDbContext db,
             OverviewIssueReader reader, CancellationToken ct) => {
             var actor = await ResolvePersonalTodoActorAsync(organizationId, http, db, ct);

@@ -69,11 +69,12 @@ public sealed class AttentionNotificationCardTests
     public async Task RecoveryUsesItsOwnPresentationAndStatusNeverAddsRetryAuthority(bool actionable)
     {
         await using var fixture = new Fixture();
-        var work = new BlockedWorkAttentionResponse(Guid.NewGuid(), Agent, "Evelyn Brooks", "Manager", "Resume the retained request", "Current access needs review", 3, true, "/work");
+        var work = new BlockedWorkAttentionResponse(Guid.NewGuid(), Agent, "Evelyn Brooks", "Manager", "Resume the retained request", "Current access needs review", 3, true, "/work") { RetryKey = "overview-retry:verified" };
         var item = Group() with { IssueId = null, Work = [work], RequiresUserAction = actionable };
         var html = await fixture.RenderAsync(item);
-        Assert.Equal(actionable, html.Contains("Retry after review", StringComparison.Ordinal));
-        Assert.Equal(actionable, html.Contains("Open affected work", StringComparison.Ordinal));
+        Assert.Equal(actionable, html.Contains(">Retry<", StringComparison.Ordinal));
+        Assert.Contains("View affected work", html);
+        Assert.DoesNotContain(">" + work.Title + "<", html[..html.IndexOf("<details class=\"issue-details\"", StringComparison.Ordinal)]);
         Assert.Contains("_content/CSweet.UI/images/agents/chief-of-staff-v1.jpg", html);
         if (!actionable) Assert.Contains("No action needed from you.", html);
     }

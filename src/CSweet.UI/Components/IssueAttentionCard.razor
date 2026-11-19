@@ -1,49 +1,61 @@
 @using CSweet.Contracts.Core
+@inject IAppLocalizer L
 
-@if (StandaloneNotification is { } notification)
+@if (Item.IssueId is null && Item.Work.Count == 0 && Item.AffectedWork.Count == 0 && Item.Incidents.Count == 0 && Item.Questions.Count == 1)
 {
-    <AttentionNotificationCard Notification="notification" OrganizationId="OrganizationId" Answered="AnsweredAsync" RefreshRequested="RefreshRequested" />
+    <AgentQuestionCard OrganizationId="OrganizationId" Question="Item.Questions[0]" Overview="true" Answered="AnsweredAsync" />
 }
 else
 {
-<AttentionRequestCard Kind="@(Item.RequiresUserAction ? "Issue" : "Status")" Name="@Item.OwnerName" EmployeeId="Item.OwnerOrganizationUserId"
-    Context="@Item.ProjectName" Prompt="@Item.Title" Description="@Item.Summary" Status="@Item.NextAction">
-    <BodyContent>
-        @if (Item.Unclassified) { <p>The accountable manager is checking the remaining responsibility and next actor.</p> }
-        @if (!Item.RequiresUserAction) { <p>No action needed from you.</p> }
-        @if (Item.RequiresUserAction)
-        {
-            <div class="issue-requests">
+    <AttentionRequestCard Kind="@(Item.RequiresUserAction ? "Issue" : "Status")" Name="@Item.OwnerName" EmployeeId="Item.OwnerOrganizationUserId"
+        Context="@Item.ProjectName" Prompt="@Item.Title">
+        <BodyContent>
+            @if (!string.IsNullOrWhiteSpace(Summary)) { <p class="blocker-summary">@Summary</p> }
+            @if (!Item.RequiresUserAction) { <p>@L["PendingAgentQuestions.NoActionNeeded"]</p> }
+            else
+            {
                 @foreach (var question in Item.Questions.DistinctBy(q => q.Decision.Id))
                 {
-                    <AttentionNotificationCard @key="question.Decision.Id" Notification="question" OrganizationId="OrganizationId" Embedded="true" Answered="AnsweredAsync" RefreshRequested="RefreshRequested" />
+                    <AgentQuestionCard @key="question.Decision.Id" OrganizationId="OrganizationId" Question="question" Overview="true" Embedded="true" Answered="AnsweredAsync" />
                 }
-                @foreach (var incident in Item.Incidents.DistinctBy(i => i.Id))
+                @foreach (var incident in Item.Incidents.Where(i => i.HasUserAction))
                 {
-                    <AttentionNotificationCard @key="incident.Id" Notification="incident" OrganizationId="OrganizationId" Embedded="true"
-                        ShowIncidentDecision="@(!Item.Questions.Any(q => q.Decision.Id == incident.ResolutionDecision?.Id))" RefreshRequested="RefreshRequested" />
+                    @if (incident.ResolutionDecision is { } decision && incident.ReportConversationId is { } chat)
+                    {
+                        @if (!Item.Questions.Any(q => q.Decision.Id == decision.Id))
+                        {
+                            <DecisionPrompt Content="@decision.Prompt" />
+                            <IncidentResolutionChoices @key="decision.Id" OrganizationId="OrganizationId" ConversationId="chat" Decision="decision" Answered="RefreshRequested" />
+                        }
+                    }
+                    else
+                    {
+                        <ProjectIncidentAttentionCard @key="incident.Id" Incident="incident" OrganizationId="OrganizationId" ActionsOnly="true" RefreshRequested="RefreshRequested" />
+                    }
                 }
-                @foreach (var work in OverviewAttentionItems.StandaloneBlockedWork(Item.Work, Item.Questions, Item.Incidents).Where(w => w.CanRetry).DistinctBy(w => w.ItemId))
+                @if (Item.Questions.Count == 0 && !Item.Incidents.Any(i => i.HasUserAction))
                 {
-                    <AttentionNotificationCard @key="work.ItemId" Notification="work" OrganizationId="OrganizationId" Embedded="true" RefreshRequested="RefreshRequested" />
+                    @foreach (var work in Item.Work.Where(w => w.OffersRetry))
+                    {
+                        <BlockedWorkAttentionCard @key="work.ItemId" OrganizationId="OrganizationId" Item="work" ActionsOnly="true" RefreshRequested="RefreshRequested" />
+                    }
                 }
-            </div>
-        }
-        <details class="issue-details">
-            <summary>Details and supporting evidence</summary>
-            @if (!string.IsNullOrWhiteSpace(Item.Detail)) { <ChatMarkdown Content="@Item.Detail" /> }
-            @foreach (var work in Item.Work) { <p><a href="@work.ActionUri">Open @work.Title</a></p> }
-            @foreach (var question in Item.Questions) { <p><a href="@($"/organizations/{OrganizationId}/communications/{question.ConversationId}?decision={question.Decision.Id}")">Read the recorded question and evidence</a></p> }
-            @foreach (var incident in Item.Incidents) { <p><a href="@incident.ActionUri">Read the manager report</a></p> }
-            <div class="related-issues">
-                @foreach (var related in Item.RelatedIssues) { <IssueAttentionCard @key="related.Key" Item="related" OrganizationId="OrganizationId" Answered="Answered" RefreshRequested="RefreshRequested" /> }
-            </div>
-        </details>
-    </BodyContent>
-    <ChildContent>
-        @* Action controls belong beside their typed request above, never in an unlabeled shared footer. *@
-    </ChildContent>
-</AttentionRequestCard>
+            }
+            <details class="issue-details">
+                <summary>@L["PendingAgentQuestions.ViewAffectedWork"]</summary>
+                @foreach (var work in AffectedWork) { <p><a href="@work.ActionUri">@work.Title</a></p> }
+                @foreach (var incident in Item.Incidents)
+                {
+                    <p><a href="@incident.ActionUri">@L["ProjectIncidentAttentionCard.ReadReport"] · @incident.ReporterName</a></p>
+                    @if (incident.InvestigateUri is { } uri && uri != incident.ActionUri) { <p><a href="@uri">@incident.InvestigateLabel</a></p> }
+                    <ChatMarkdown Content="@(incident.OwnerReport ?? incident.Facts)" />
+                }
+                @foreach (var question in Item.Questions) { <p><a href="@($"/organizations/{OrganizationId}/communications/{question.ConversationId}?decision={question.Decision.Id}")">@question.Decision.Prompt</a></p> }
+                @if (!string.IsNullOrWhiteSpace(Item.Detail)) { <ChatMarkdown Content="@Item.Detail" /> }
+                @if (!string.IsNullOrWhiteSpace(Item.NextAction)) { <p>@Item.NextAction</p> }
+            </details>
+        </BodyContent>
+    </AttentionRequestCard>
 }
 
 @code {
@@ -51,13 +63,9 @@ else
     [Parameter, EditorRequired] public OverviewIssueCard Item { get; set; } = default!;
     [Parameter] public EventCallback RefreshRequested { get; set; }
     [Parameter] public EventCallback<Guid> Answered { get; set; }
-    private object? StandaloneNotification => Item.IssueId is null && Item.RelatedIssues.Count == 0 ? Item switch
-    {
-        { RequiresUserAction: true, Questions.Count: 1, Work.Count: 0, Incidents.Count: 0 } => Item.Questions[0],
-        { RequiresUserAction: true, Questions.Count: 0, Work.Count: 1, Incidents.Count: 0 } => Item.Work[0],
-        { RequiresUserAction: true, Questions.Count: 0, Work.Count: 0, Incidents.Count: 1 } => Item.Incidents[0],
-        _ => null
-    } : null;
+    private string? Summary => !string.IsNullOrWhiteSpace(Item.Summary) ? Item.Summary : Item.Incidents.FirstOrDefault()?.OwnerReport ?? Item.Work.FirstOrDefault()?.Reason;
+    private IEnumerable<OverviewAffectedWork> AffectedWork => Item.Work.Select(w => new OverviewAffectedWork(w.ItemId, w.Title, w.ActionUri))
+        .Concat(Item.AffectedWork).DistinctBy(w => w.ItemId);
     private async Task AnsweredAsync(Guid decisionId)
     {
         await Answered.InvokeAsync(decisionId);

@@ -104,6 +104,8 @@
   "PendingAgentQuestions.LoadingHiringSuggestions": "جارٍ تحميل اقتراحات التوظيف…",
   "PendingAgentQuestions.LoadingComputePermissions": "جارٍ تحميل أذونات الحوسبة…",
   "PendingAgentQuestions.ShowingPermissionsForThe100": "يتم عرض الأذونات لأحدث 100 مثيل حوسبة.",
+  "PendingAgentQuestions.ViewAffectedWork": "عرض المهام المتأثرة",
+  "PendingAgentQuestions.NoActionNeeded": "لا يلزمك اتخاذ أي إجراء.",
   "PendingAgentQuestions.NothingNeedsYourAttention": "لا شيء يحتاج إلى انتباهك.",
   "PendingAgentQuestions.ReviewApproval": "مراجعة الموافقة",
   "PendingAgentQuestions.RefreshDecisions": "تحديث القرارات",

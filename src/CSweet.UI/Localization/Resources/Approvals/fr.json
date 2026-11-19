@@ -104,6 +104,8 @@
   "PendingAgentQuestions.LoadingHiringSuggestions": "Chargement des suggestions de recrutement…",
   "PendingAgentQuestions.LoadingComputePermissions": "Chargement des autorisations de calcul…",
   "PendingAgentQuestions.ShowingPermissionsForThe100": "Affichage des autorisations pour les 100 instances de calcul les plus récentes.",
+  "PendingAgentQuestions.ViewAffectedWork": "Voir les tâches concernées",
+  "PendingAgentQuestions.NoActionNeeded": "Aucune action de votre part n’est nécessaire.",
   "PendingAgentQuestions.NothingNeedsYourAttention": "Rien ne requiert votre attention.",
   "PendingAgentQuestions.ReviewApproval": "Examiner l’approbation",
   "PendingAgentQuestions.RefreshDecisions": "Actualiser les décisions",

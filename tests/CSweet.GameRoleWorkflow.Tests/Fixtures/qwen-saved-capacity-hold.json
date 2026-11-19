@@ -1,0 +1,61 @@
+{
+  "ticket": {
+    "identifier": "VG704BEFB7B8-12",
+    "title": "Spike Chromium WebGL2/Web Audio Feasibility and Publish Technical Findings",
+    "estimate": 13,
+    "typeKey": "video-game.task.v1",
+    "planningRevision": 4,
+    "description": "Outcome: Deliver one dependency-closed TypeScript/Vite Chromium desktop-web feasibility spike on the platform-assigned Story target branch, plus a versioned technical-findings platform artifact. The observable deliverable is a Chromium-runnable spike candidate that evaluates PixiJS as the primary WebGL2 renderer/particle baseline, evaluates Phaser 3 only as a fallback workflow alternative or documents material incompatibility, implements placeholder paddle, ball, brick, glass/crystal/metal material or particle variants, additive particles, bloom, screen-shake and hit-stop hooks, an effect-quality toggle, and a user-gesture-started 120-140 BPM beat-grid Web Audio placeholder. It records a primary stack recommendation for Technical Director review and declares project-use rights and hash-bound provenance for any committed generated placeholder assets. Out of scope: final engine lock, full Breakout content, H1-H3 acceptance evidence, production hosting, mobile or touch, 3D, rhythm timing inputs, cross-browser certification, real-device certification, performance profiling, stress testing, new material styles, and separate human lockfile work.\nContext: Platform evidence says repository setup is Ready with default branch main, but I have not verified source files; treat all spike paths as proposed. Use the assignment Story target branch and platform-assigned immutable candidate commit for browser and review evidence; do not require a local .git directory or main checkout before Story integration. Proposed scaffold paths include package.json, package-lock.json, index.html, vite.config.ts, tsconfig.json, src/main.ts, src/spike/**, scripts/verify-lockfile.mjs, scripts/spike-chromium-harness.mjs, artifacts/technical-findings.md, and artifacts/spike-asset-provenance.json. No repository symbols are verified; key proposed members are RendererAdapter, PixiRendererAdapter, optional PhaserFallbackAdapter, FixedTimestepLoop, MaterialVariantRegistry, BeatGridPlaceholder, ScreenShake, Bloom, HitStop, QualityToggle, and Telemetry. Preserve repository baseline except spike additions. TypeScript and WebGL/WebGL2 plus Web Audio are the current Technical Director initial direction; engine remains unlocked pending Technical Director review.\nPseudocode: 1. Read current ticket comments and any Technical Director or Producer revisions; confirm authorized Story target branch and candidate commit. 2. From a clean restore, inspect committed package files. If none exist, bootstrap Vite plus TypeScript with npm as the package manager unless committed workspace evidence dictates another; if files exist, follow them and request revision only for material conflict. 3. Select exact dependency versions for Vite, TypeScript, PixiJS, optional Phaser, and browser-harness dev tooling needed for verification; commit package.json and one lockfile once. Add scripts/verify-lockfile.mjs to assert lockfile presence, package-manager integrity, and package/lock consistency, and expose it via npm run verify:lockfile and npm test where applicable. 4. Implement fixed-timestep loop with render interpolation hooks, but keep spike minimal. 5. Add a renderer adapter; implement PixiJS adapter as the runnable primary path. Implement a Phaser adapter only if it can be compared without changing approved PoC scope; otherwise document incompatibility and do not adopt Phaser. 6. Add placeholder fixed-screen Breakout primitives: keyboard paddle, ball launch hook, simple brick field, and material variant switching limited to glass, crystal, metal. Use built-in WebGL2 or small GLSL material definitions; no new material styles. 7. Wire effect hooks and toggles: additive particle burst, bloom on/off, screen-shake on/off, hit-stop hook, quality toggle. Quality toggle must reduce particle/bloom/shake intensity while leaving ball, paddle, and core state readable. 8. Implement direct Web Audio beat-grid placeholder: resume on user gesture, schedule oscillator or noise ticks at a chosen 120-140 BPM, expose measured beat timestamps; Howler.js only if a convenience wrapper is needed, never replacing low-level scheduling. No rhythm input or beat-matching. 9. Implement telemetry buffer exposing event names, timestamps, and measured values for user-gesture audio start, beat ticks, paddle/ball/brick hooks, material variant changes, additive particle bursts, bloom state, screen-shake state, hit-stop, and quality toggle. 10. Build the shared Chromium scenario harness and runner in the Story branch; npm run spike:chromium should open the built spike, drive or wait through the required interactions, assert emitted events, write machine-readable JSON report, and emit human-readable findings notes citing Story target branch and candidate commit. 11. Publish the technical-findings artifact revision from those reports and findings notes, covering engine recommendation, Web Audio scheduling feasibility, shader/particle readability, bloom behavior, screen-shake behavior, effect-quality toggle behavior, Chromium viability, toolchain/lockfile, asset provenance where generated placeholder assets are committed, and open decisions only where an implementation trade-off would require Director authority over approved scope. 12. Submit integrated candidate for review and QA; leave final engine selection open.\nAssumptions: The platform supplies the actual Story target branch and immutable candidate commit; all executable checks run against that candidate, not main. A clean restore can install committed dependencies with npm unless the workspace shows another package manager. Current TypeScript, Vite, PixiJS, Phaser, Web Audio, and Chromium APIs remain usable as selected in package.json; developer must recheck installed versions and runtime warnings during implementation, and findings revision is invalidated if installed package APIs or WebGL2 behavior differ materially. The harness may use a platform Chromium runner or a committed browser automation dev dependency; it must not introduce production runtime dependencies for testing. Phaser 3 is a fallback comparison only; absence or incompatibility is valid evidence. If a trade-off would change approved scope, budget, creative authority, or accepted non-goals, record it as an open decision and pause for Technical Director, Producer, or owner direction.\nVerification: Run clean restore plus npm ci, node scripts/verify-lockfile.mjs, npm run build, and npm run spike:chromium; all must exit zero. node scripts/verify-lockfile.mjs must fail on missing lockfile, package/lock mismatch, or uncommitted dependency selection. The Chromium harness JSON report must show audio-started after user gesture, beat timestamps measuring 120-140 BPM, paddle/ball/brick interaction events, material variant events covering three approved variants, additive particle burst event, bloom state changed, screen-shake toggle state, hit-stop hook event, and quality toggle event with core paddle/ball/brick readability maintained. The published technical-findings platform artifact revision must be reviewable and must cite the candidate commit and actual Story target branch. QA repeats the same Chromium run from the candidate and judges from the harness report, build output, source, and artifact; no cross-browser, mobile, performance profiling, stress testing, or H1-H3 acceptance evidence is required."
+  },
+  "decisionId": "0f767d68-bacd-48a0-92ca-b0f82e660172",
+  "revision": 2,
+  "question": "Can we schedule the spike using the offered engineering capacity after the prerequisite checks?",
+  "selectedOptionId": "choice-0",
+  "options": [
+    {
+      "id": "choice-0",
+      "label": "Approve with checks",
+      "description": "It approves the spike and its preflight using the offered capacity estimate, but completion still depends on the target branch, candidate commit, and browser environment being available."
+    },
+    {
+      "id": "choice-1",
+      "label": "Confirm prerequisites first",
+      "description": "It prevents committing capacity to a likely-blocked spike, but it adds a short investigation before scheduling."
+    },
+    {
+      "id": "choice-2",
+      "label": "Resolve ownership",
+      "description": "It avoids assigning the spike without clear technical ownership, but work pauses if ownership is not resolved quickly."
+    },
+    {
+      "id": "choice-3",
+      "label": "Narrow to advisory review",
+      "description": "It reduces capacity and environment risk by producing advisory findings, but it weakens executable evidence for later engine and audio trade-offs and may require rework."
+    },
+    {
+      "id": "provide-direction",
+      "label": "Give different direction",
+      "description": "Describe your intended outcome; the responsible agent will assess the next authorized work."
+    }
+  ],
+  "rationale": "Yes—you may schedule the Chromium/WebGL2/Web Audio feasibility spike now. The accepted plan already treats this spike as planned work, the approved staffing includes a game-engineer for this exact spike, the roster shows Victor Lin as Technical Director and Adrian Silva as engineer, and the build-toolchain resource is Ready. That evidence is enough to schedule a bounded spike, but not to treat the spike as completed, not to certify performance, and not to waive any acceptance requirement. Next owner: Victor Lin as accountable technical owner, with Adrian Silva executing using the offered capacity estimate. Next action: create or claim one bounded spike ticket and confirm the exact target branch, candidate commit or repository, and Chromium/toolchain preflight before implementation. Evidence to return: ticket ID, owner and capacity confirmation, branch/commit or repository confirmation, Chromium/toolchain preflight result, and the technical findings package covering engine recommendation, audio-API feasibility and fallback, particle/shader readability, bloom behavior, screen-shake behavior, effect-quality toggle behavior, Chromium packaging notes, and decomposition/estimates. No change to the accepted brief is required; any remaining capacity or environment gap is resolved through the normal resource workflow, not a new blanket approval.",
+  "followThrough": {
+    "Summary": "The authorized direction permits scheduling the bounded feasibility spike for prerequisite checks and capacity use, but completion and executable readiness still depend on confirmed target branch/candidate commit/repository, Chromium/toolchain capability, and technical ownership. The follow-through does not provide confirmed preflight or capacity evidence, and a failed deferred-work state change remains pending manager reconciliation, so executable implementation is held while prerequisite verification may proceed.",
+    "InvokedTools": [
+      "read_work_board",
+      "list_work_sprints",
+      "read_scoped_team_roster",
+      "read_project_health",
+      "read_workstream",
+      "read_eligible_toolchains",
+      "list_team_repository_options",
+      "read_management_incidents",
+      "set_work_sprint_capacity",
+      "move_work_item",
+      "preflight_work_sprint",
+      "read_work_board",
+      "list_personal_todos"
+    ],
+    "HoldAffectedWork": true
+  }
+}

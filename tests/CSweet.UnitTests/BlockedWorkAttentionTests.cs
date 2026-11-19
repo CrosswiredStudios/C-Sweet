@@ -9,6 +9,40 @@ namespace CSweet.UnitTests;
 public sealed partial class PersonalTodoServiceTests
 {
     [Fact]
+    public async Task SharedPrerequisiteGroupsAffectedTasksAndIndependentBlockersStaySeparate()
+    {
+        await using var db = CreateDb();
+        var setup = Seed(db);
+        await db.SaveChangesAsync();
+        var org = setup.Organization.Id;
+        var actor = new PersonalTodoActor(setup.FirstManager.Id, null);
+        var service = new PersonalTodoService(db, TimeProvider.System);
+        var auth = new CSweet.Infrastructure.Security.ScopedActionAuthorizationService(db);
+        var cases = new WorkIssueService(db, auth, TimeProvider.System);
+        var reader = new OverviewIssueReader(db, service, new(db, service, TimeProvider.System, new(db, service, auth, cases)),
+            new CSweet.Infrastructure.Communications.ExecutiveDecisionService(db, new CSweet.Infrastructure.Core.ChatTurnService(db)),
+            new(db, new(db, TimeProvider.System), TimeProvider.System), cases);
+        async Task<Guid> Create(string title) => (await service.AddAsync(org, actor, Add(title, title, setup.Agent.Id))).Id;
+        var source = await Create("Get specialist input");
+        var second = await Create("Get the missing artwork");
+        var firstTask = await Create("Prepare the layout");
+        var otherTask = await Create("Prepare the playtest");
+        foreach (var row in await db.CoreWorkTasks.Where(t => t.Id == firstTask || t.Id == otherTask).ToListAsync())
+            row.Status = WorkTaskStatus.Blocked;
+        db.WorkItemDependencies.AddRange(new CSweet.Domain.WorkManagement.WorkItemDependency { WorkItemId = firstTask, DependsOnWorkItemId = source },
+            new() { WorkItemId = otherTask, DependsOnWorkItemId = source }, new() { WorkItemId = otherTask, DependsOnWorkItemId = second });
+        await db.SaveChangesAsync();
+        var issues = await reader.ReadAsync(org, actor, false, default);
+        Assert.Empty(issues.UserActions);
+        Assert.Equal(2, issues.Team.Count);
+        var shared = Assert.Single(issues.Team, c => c.Key == "work:" + source.ToString("N"));
+        Assert.Equal(new[] { firstTask, otherTask }.Order(), shared.Work.Select(w => w.ItemId).Order());
+        Assert.Contains(shared.AffectedWork, w => w.ItemId == source);
+        Assert.All(shared.Work, w => Assert.False(w.CanRetry));
+        Assert.Equal(otherTask, Assert.Single(Assert.Single(issues.Team, c => c.Key == "work:" + second.ToString("N")).Work).ItemId);
+    }
+
+    [Fact]
     public async Task BlockedWorkAttentionUsesActualStateAndAuthorizedRetryThenClearsAfterRecovery()
     {
         await using var db = CreateDb(); var setup = Seed(db); await db.SaveChangesAsync();
@@ -24,9 +58,11 @@ public sealed partial class PersonalTodoServiceTests
         var archiveRow = await db.CoreWorkTasks.SingleAsync(x => x.Id == archived.Id);
         archiveRow.Status = WorkTaskStatus.Blocked; archiveRow.ArchivedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync();
-        var reader = new BlockedWorkAttentionReader(db, service, TimeProvider.System);
+        var auth = new CSweet.Infrastructure.Security.ScopedActionAuthorizationService(db);
+        var reader = new BlockedWorkAttentionReader(db, service, TimeProvider.System, new(db, service, auth, new(db, auth, TimeProvider.System)));
         var issue = Assert.Single(await reader.ReadAsync(setup.Organization.Id, manager));
-        Assert.Equal(blocked.Id, issue.ItemId); Assert.True(issue.CanRetry);
+        Assert.Equal(blocked.Id, issue.ItemId); Assert.False(issue.CanRetry);
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => reader.RetryAsync(setup.Organization.Id, manager, new(issue.ItemId, issue.Revision, "unchanged"), default));
         Assert.Equal(blockedRow.BlockReason, issue.Reason);
         Assert.Contains($"item={blocked.Id:D}", issue.ActionUri);
         Assert.Empty(await reader.ReadAsync(setup.Organization.Id, new(setup.SecondManager.Id, null)));

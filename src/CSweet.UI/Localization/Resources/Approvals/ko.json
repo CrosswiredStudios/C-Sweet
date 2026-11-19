@@ -104,6 +104,8 @@
   "PendingAgentQuestions.LoadingHiringSuggestions": "채용 제안을 불러오는 중…",
   "PendingAgentQuestions.LoadingComputePermissions": "컴퓨팅 권한을 불러오는 중…",
   "PendingAgentQuestions.ShowingPermissionsForThe100": "가장 최근 컴퓨팅 인스턴스 100개의 권한을 표시합니다.",
+  "PendingAgentQuestions.ViewAffectedWork": "영향을 받는 작업 보기",
+  "PendingAgentQuestions.NoActionNeeded": "지금은 별도로 조치할 필요가 없습니다.",
   "PendingAgentQuestions.NothingNeedsYourAttention": "확인이 필요한 항목이 없습니다.",
   "PendingAgentQuestions.ReviewApproval": "승인 검토",
   "PendingAgentQuestions.RefreshDecisions": "결정 새로 고침",

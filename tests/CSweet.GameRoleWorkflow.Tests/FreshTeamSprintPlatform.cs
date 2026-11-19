@@ -203,8 +203,12 @@ internal sealed class FreshTeamSprintPlatform(bool useSoftwareDeveloper = false)
         }
     }
 
+    public Func<Task>? BeforePreflight { get; set; }
+    public List<(string Action, JsonElement Result)> SprintCommands { get; } = [];
+
     private async Task<JsonElement> InvokeAsync(AgentCoordinationParticipant actor, string action, JsonElement input)
     {
+        if (action == C.WorkOrchestrationActions.Preflight && BeforePreflight != null) await BeforePreflight();
         var session = new AgentSession("first-sprint", actor.Role, actor.AgentInstallationId.ToString(), Organization.ToString(),
             Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), new(new HashSet<string>(), new HashSet<string>(), new HashSet<string> { action }, 1));
         var request = new RequestCapability { RequestId = Guid.NewGuid().ToString(), Capability = action, Payload = JsonPayload.From(JsonSerializer.SerializeToUtf8Bytes(input)) };
@@ -212,7 +216,9 @@ internal sealed class FreshTeamSprintPlatform(bool useSoftwareDeveloper = false)
         await foreach (var response in handler.HandleAsync(session, request, default))
         {
             Assert.True(response.Succeeded, $"{actor.DisplayName} {action}: {response.Error}");
-            return JsonSerializer.Deserialize<JsonElement>(response.Payload.Span);
+            var result = JsonSerializer.Deserialize<JsonElement>(response.Payload.Span);
+            if (action is C.WorkOrchestrationActions.Preflight or C.WorkOrchestrationActions.Start) SprintCommands.Add((action, result));
+            return result;
         }
         throw new InvalidOperationException("Missing broker response to " + action);
     }

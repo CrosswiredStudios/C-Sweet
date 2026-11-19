@@ -687,6 +687,8 @@ public sealed class AgentCoordinationService(
         error.Split(';').Contains("retryable=true", StringComparer.Ordinal) &&
         error.Split(';').Contains("capability=platform.llm.chat-stream.v1", StringComparer.Ordinal);
 
+    internal static bool HasTransientFailure(string? error) => IsTransientDeliveryFailure(error) || IsRetryableProviderFailure(error);
+
     private static bool IsTransientDeliveryFailure(string? error)
     {
         if (error is null || !error.StartsWith("agent-failure:v1;", StringComparison.Ordinal)) return false;

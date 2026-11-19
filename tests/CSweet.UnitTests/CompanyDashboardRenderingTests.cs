@@ -43,13 +43,13 @@ public sealed class CompanyDashboardRenderingTests
     public async Task BlockedWorkHasAnOverviewCardWithOnlyAuthorizedRecoveryChoices(bool canRetry)
     {
         var item = new BlockedWorkAttentionResponse(Guid.NewGuid(), Guid.NewGuid(), "Gabriel", "Marcus",
-            "Reconcile planning evidence", "The accepted source is unavailable.", 3, canRetry, "/affected-work");
+            "Reconcile planning evidence", "The accepted source is unavailable.", 3, canRetry, "/affected-work") { RetryKey = canRetry ? "overview-retry:verified" : null };
         var html = await Render(false, blockedWork: [item]);
         Assert.Contains(item.Title, html); Assert.Contains(item.Reason, html);
-        Assert.Contains("Open affected work", html); Assert.Contains("/affected-work", html);
-        Assert.Equal(canRetry, html.Contains("Retry after review"));
-        Assert.DoesNotContain("Nothing needs your attention", html);
-        Assert.Contains("1 pending", html);
+        Assert.Contains("View affected work", html); Assert.Contains("/affected-work", html);
+        Assert.Equal(canRetry, html.Contains(">Retry<"));
+        Assert.Equal(!canRetry, html.Contains("aria-label=\"Waiting\""));
+        Assert.Equal(canRetry, html.Contains("1 pending"));
     }
 
     [Fact]
@@ -66,17 +66,18 @@ public sealed class CompanyDashboardRenderingTests
         var routine = new ProjectIncidentAttentionResponse(Guid.NewGuid(), Guid.NewGuid(), "Prism Break", "Naomi",
             "Prism Break: help needed", "QA is waiting for an assigned Bug fix.", "The manager will retry QA after integration.", "/report", DateTimeOffset.UtcNow)
             { IsStatusReport = true };
-        var decision = routine with { Id = Guid.NewGuid(), IsStatusReport = false, Reason = "Approve an external dependency", Facts = "An external dependency needs owner approval." };
+        var decision = routine with { Id = Guid.NewGuid(), IsStatusReport = false, Reason = "Approve an external dependency", Facts = "An external dependency needs owner approval.",
+            ReportConversationId = Guid.NewGuid(), ResolutionDecision = new(Guid.NewGuid(), "Approve this change?", "Pending", [], "", null, null, DateTimeOffset.UtcNow, null) };
         var html = await Render(false, incidents: [routine, decision]);
         var attention = html[html.IndexOf("aria-label=\"Pending attention items\"", StringComparison.Ordinal)..];
-        attention = attention[..attention.IndexOf("aria-label=\"Manager recovery reports\"", StringComparison.Ordinal)];
+        attention = attention[..attention.IndexOf("aria-label=\"Waiting\"", StringComparison.Ordinal)];
         Assert.Contains("1 pending", attention);
         Assert.Contains("Approve an external dependency", attention);
         Assert.DoesNotContain("QA is waiting", attention);
-        Assert.Contains("Prism Break: manager recovery status", html);
+        Assert.Contains("View affected work", html);
         Assert.Contains("QA is waiting for an assigned Bug fix.", html);
-        Assert.Contains("No response requested", html);
-        Assert.DoesNotContain("Prism Break: help needed", html);
+        Assert.Contains("No action needed from you.", html);
+        Assert.DoesNotContain("Prism Break: help needed", attention);
         Assert.Equal(1, OverviewAttentionItems.Count(new(Guid.NewGuid(), 0, []) { ProjectIncidents = [routine, decision] }, null, [], null));
 
         html = await Render(false, incidents: [routine]);

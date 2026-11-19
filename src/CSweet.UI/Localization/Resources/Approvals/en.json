@@ -104,6 +104,8 @@
   "PendingAgentQuestions.LoadingHiringSuggestions": "Loading hiring suggestions…",
   "PendingAgentQuestions.LoadingComputePermissions": "Loading compute permissions…",
   "PendingAgentQuestions.ShowingPermissionsForThe100": "Showing permissions for the 100 most recent compute instances.",
+  "PendingAgentQuestions.ViewAffectedWork": "View affected work",
+  "PendingAgentQuestions.NoActionNeeded": "No action needed from you.",
   "PendingAgentQuestions.NothingNeedsYourAttention": "Nothing needs your attention.",
   "PendingAgentQuestions.ReviewApproval": "Review approval",
   "PendingAgentQuestions.RefreshDecisions": "Refresh decisions",

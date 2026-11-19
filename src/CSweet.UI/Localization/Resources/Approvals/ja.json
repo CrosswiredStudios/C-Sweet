@@ -104,6 +104,8 @@
   "PendingAgentQuestions.LoadingHiringSuggestions": "採用の提案を読み込み中…",
   "PendingAgentQuestions.LoadingComputePermissions": "コンピューティングの権限を読み込み中…",
   "PendingAgentQuestions.ShowingPermissionsForThe100": "最新 100 件のコンピューティングインスタンスの権限を表示しています。",
+  "PendingAgentQuestions.ViewAffectedWork": "影響を受ける作業を表示",
+  "PendingAgentQuestions.NoActionNeeded": "現在、対応は不要です。",
   "PendingAgentQuestions.NothingNeedsYourAttention": "対応が必要な項目はありません。",
   "PendingAgentQuestions.ReviewApproval": "承認を確認",
   "PendingAgentQuestions.RefreshDecisions": "判断を更新",

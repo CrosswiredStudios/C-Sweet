@@ -20,11 +20,11 @@ public sealed class BlockedWorkAttentionCardTests
         var handler = new RetryHandler(status); using var http = new HttpClient(handler) { BaseAddress = new("http://localhost/") };
         var refreshes = 0;
         var card = new BlockedWorkAttentionCard { OrganizationId = org,
-            Item = new(item, Guid.NewGuid(), "Producer", "Director", "Resolve planning", "Missing evidence", 7, true, "/work"),
+            Item = new(item, Guid.NewGuid(), "Producer", "Director", "Resolve planning", "Missing evidence", 7, true, "/work") { RetryKey = "overview-retry:basis" },
             RefreshRequested = EventCallback.Factory.Create(new object(), () => refreshes++) };
         typeof(BlockedWorkAttentionCard).GetProperty("Http", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(card, http);
         await (Task)typeof(BlockedWorkAttentionCard).GetMethod("RetryAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(card, null)!;
-        Assert.Equal($"/api/organizations/{org:D}/work/personal-todos/items/requeue", handler.Path);
+        Assert.Equal($"/api/organizations/{org:D}/work/personal-todos/attention/retry", handler.Path);
         Assert.Equal(item, handler.Request!.ItemId); Assert.Equal(7, handler.Request.ExpectedRevision);
         Assert.Equal(accepted ? 1 : 0, refreshes);
         var error = typeof(BlockedWorkAttentionCard).GetField("_error", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(card);

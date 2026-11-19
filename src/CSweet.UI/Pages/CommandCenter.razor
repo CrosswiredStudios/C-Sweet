@@ -132,25 +132,6 @@
                 }
                 else if (widget == "projects" && _portfolio is not null)
                 {
-                    @if (_issues is not null && _issues.Team.Count > 0) {
-                        <section aria-label="Being handled by the team">
-                            <MudText Typo="Typo.h6">Being handled by the team</MudText>
-                            @foreach (var issue in _issues.Team) { <IssueAttentionCard @key="issue.Key" Item="issue" OrganizationId="OrganizationId" RefreshRequested="RefreshAsync" /> }
-                        </section>
-                    }
-                    @if (_issues is null && (_approvals?.ProjectIncidents ?? []).Any(x => x.IsStatusReport))
-                    {
-                        <section aria-label="Manager recovery reports" class="manager-recovery-reports">
-                            <MudText Typo="Typo.h6">Manager recovery reports</MudText>
-                            <MudText Color="Color.Secondary">No response requested. Managers continue to own these issues; any decision needed from you appears in Needs your attention.</MudText>
-                            @foreach (var incident in (_approvals?.ProjectIncidents ?? []).Where(x => x.IsStatusReport))
-                            {
-                                <EmployeePortraitScope OrganizationId="OrganizationId">
-                                    <ProjectIncidentAttentionCard @key="incident.Id" OrganizationId="OrganizationId" Incident="incident" RefreshRequested="RefreshAsync" />
-                                </EmployeePortraitScope>
-                            }
-                        </section>
-                    }
                     @if (_importedProjects.Any(x => x.ProfileStatus != "Accepted"))
                     {
                         <section aria-label="Project profile reviews"><h3>Project profiles to finish</h3>

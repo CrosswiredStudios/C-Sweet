@@ -301,8 +301,8 @@ public sealed partial class FreshTeamSprintJourneyTests
             for (var step = 0; step < 16; step++)
             {
                 var (wake, deliveryId) = nextWake is null ? (queue.NextWake(), Guid.NewGuid()) : await nextWake();
-                if (step == 0) firstWake = wake;
-                var result = await hosts[platform.Gabriel.OrganizationUserId].DeliverEventAsync(PersonalTodoEvents.Available, wake, step == 0 ? firstEvent : deliveryId);
+                if (firstWake is null) { firstWake = wake; deliveryId = firstEvent; }
+                var result = await hosts[platform.Gabriel.OrganizationUserId].DeliverEventAsync(PersonalTodoEvents.Available, wake, deliveryId);
                 Assert.True(result.Succeeded, result.Error);
                 foreach (var session in sessions.Values.Where(s => s.Status == "Active").ToArray())
                 {

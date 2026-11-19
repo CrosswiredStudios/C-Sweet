@@ -24,12 +24,13 @@ internal sealed class FreshTeamPlanningQueue(Guid owner, Guid? existingBoard = n
         return cards[card.Id] = card;
     }
 
-    public PersonalTodoAvailableEvent NextWake()
+    public PersonalTodoAvailableEvent NextWake(Func<PersonalTodoItem, bool>? inScope = null)
     {
-        var ready = cards.Values.FirstOrDefault(c => c.Status == PersonalTodoStatuses.Ready);
+        var scheduled = cards.Values.Where(c => inScope?.Invoke(c) != false);
+        var ready = scheduled.FirstOrDefault(c => c.Status == PersonalTodoStatuses.Ready);
         if (ready is null)
         {
-            var due = cards.Values.Where(c => c.Wait is not null).MinBy(c => c.Wait!.NextReviewAt)
+            var due = scheduled.Where(c => c.Wait is not null).MinBy(c => c.Wait!.NextReviewAt)
                 ?? throw new InvalidOperationException("No ready or scheduled planning work.");
             Assert.Null(due.Wait!.Dependency); // An exact dependency must be woken by its source.
             ready = cards[due.Id] = due with { Status = PersonalTodoStatuses.Ready, Wait = null, Revision = due.Revision + 1 };
