@@ -29,6 +29,13 @@ The Office `InitializeCombinedOffice` action then returned MSI error 1722. Burn 
 1603 and rolled Headquarters back. This run did not reach a post-install reboot.
 The isolated guest retains the install logs and a pre-install checkpoint.
 
+After rebooting a combined-install VM, run
+[`Test-UnattendedWindowsStartup.ps1`](../../../scripts/tests/Test-UnattendedWindowsStartup.ps1)
+from its Hyper-V host. Supply the VM ID, a PowerShell Direct guest credential, and the
+loopback Headquarters UI address. The probe checks the nine automatic services and their
+accounts, waits for HTTP 200 and checks the Windows Security log for interactive logons
+since boot. Record the returned boot time with V1b and exercise the hire separately.
+
 The Headquarters `Hired_agent_waits_for_office_capacity_across_restart_without_local_setup`
 regression reopens the platform state, queues the same hired installation, and redelivers
 the SDK callback. It observes one Office capacity request, one runtime queue entry, an

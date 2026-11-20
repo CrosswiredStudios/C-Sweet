@@ -22,6 +22,18 @@ internal static class ProbeVm
         }
         """;
 
+    internal const string Observe = """
+        Import-Module Hyper-V
+        $name = $env:CSWEET_PROBE_NAME
+        $matchesByName = @(Get-VM -Name $name -ErrorAction Stop)
+        if ($matchesByName.Count -ne 1) { throw 'Missing or ambiguous provision.' }
+        $vm = $matchesByName[0]
+        $disks = @(Get-VMHardDiskDrive -VM $vm)
+        if ($vm.Notes -cne $name -or $disks.Count -ne 1 -or $disks[0].Path -ine $env:CSWEET_PROBE_DISK -or
+            @(Get-VMNetworkAdapter -VM $vm).Count -ne 0) { throw 'Conflicting VM ownership or isolation evidence.' }
+        $vm.Id.ToString('D')
+        """;
+
     internal const string Remove = """
         Import-Module Hyper-V
         $name = $env:CSWEET_PROBE_NAME

@@ -16,13 +16,20 @@ if (args is ["observe", var retainedId] && Guid.TryParseExact(retainedId, "N", o
     var path = ProbeRoot(retained);
     WindowsComputeProtectedPaths.Verify(path);
     var state = JsonSerializer.Deserialize<ReplayState>(File.ReadAllText(Path.Combine(path, "redelivery.json")), ComputeProtocol.Json)!;
-    var result = await Journal(path, state.Enrollment).RunPhysicalAsync(Verifier(state.Enrollment, state.Template).Verify(state.Packet),
-        (decision, resource, _) =>
+    var verified = Verifier(state.Enrollment, state.Template).Verify(state.Packet);
+    if (verified.Authorization.EnvironmentId != retained) throw new InvalidDataException("Unexpected environment.");
+    var result = await Journal(path, state.Enrollment).RunPhysicalAsync(verified,
+        async (decision, resource, token) =>
         {
-            if (decision != ComputeJournalDecision.Observe || resource != state.Vm.ToString("D"))
-                throw new InvalidOperationException("Redelivery was admitted for execution or lost its resource binding.");
-            return Task.FromResult(new ComputePhysicalOutcome<bool>(true, resource,
-                new(ComputeLifecycleState.Ready, Workload: new(ErrorCode: "outcome-unknown"))));
+            if (decision != ComputeJournalDecision.Observe) throw new InvalidOperationException("Duplicate execution.");
+            if (verified.Authorization.Action == InfrastructureActions.Provision && resource is null)
+            {
+                var observed = await new HyperVCommandRunner().RunAsync(ProbeVm.Observe, VmParameters(retained), token);
+                return new ComputePhysicalOutcome<bool>(true, Guid.Parse(observed).ToString("D"), new(ComputeLifecycleState.Bootstrapping));
+            }
+            if (verified.Authorization.Action != InfrastructureActions.Execute || resource is null || resource != verified.Authorization.ResourceId)
+                throw new InvalidOperationException("Unexpected action or guest identity on redelivery.");
+            return new ComputePhysicalOutcome<bool>(true, resource, new(ComputeLifecycleState.Ready, Workload: new(ErrorCode: "outcome-unknown")));
         }, default);
     return result ? 0 : 1;
 }
@@ -32,12 +39,8 @@ var root = ProbeRoot(runId);
 var report = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), $"CSweet-Transport-{runId:N}.txt");
 using var log = new StreamWriter(new FileStream(report, FileMode.CreateNew, FileAccess.Write, FileShare.Read)) { AutoFlush = true };
 var runner = new HyperVCommandRunner();
-var parameters = new Dictionary<string, string>
-{
-    ["CSWEET_PROBE_NAME"] = $"CSweet-Transport-{runId:N}",
-    ["CSWEET_PROBE_IMAGE"] = Path.GetFullPath(image),
-    ["CSWEET_PROBE_DISK"] = Path.Combine(root, "vm", "test.vhdx")
-};
+var parameters = VmParameters(runId);
+parameters["CSWEET_PROBE_IMAGE"] = Path.GetFullPath(image);
 var success = false;
 var ownsRoot = false;
 try
@@ -77,18 +80,20 @@ try
             spec, command is null ? template : null, workload);
     }
     var create = Issue(1);
-    var vm = await journal.RunPhysicalAsync(verifier.Verify(create), async (decision, _, token) =>
+    try
     {
-        if (decision != ComputeJournalDecision.Execute) throw new InvalidOperationException("First provision did not acquire its reservation.");
-        var id = Guid.Parse(await runner.RunAsync(ProbeVm.Create, parameters, token));
-        return new ComputePhysicalOutcome<Guid>(id, id.ToString("D"), new(ComputeLifecycleState.Bootstrapping));
-    }, default);
-    log.WriteLine($"Provisioned {vm:D} from sha256:{digest} with zero network adapters.");
-    await journal.RunPhysicalAsync(verifier.Verify(create), (decision, resource, _) =>
-    {
-        if (decision != ComputeJournalDecision.Observe || resource != vm.ToString("D")) throw new InvalidOperationException("Duplicate provision.");
-        return Task.FromResult(new ComputePhysicalOutcome<bool>(true, resource));
-    }, default);
+        await journal.RunPhysicalAsync<bool>(verifier.Verify(create), async (decision, _, token) =>
+        {
+            if (decision != ComputeJournalDecision.Execute) throw new InvalidOperationException("First provision did not acquire its reservation.");
+            await runner.RunAsync(ProbeVm.Create, parameters, token);
+            throw new LostAcknowledgment();
+        }, default);
+    }
+    catch (LostAcknowledgment) { log.WriteLine("Dropped the create response before recording the VM identity."); }
+    await ReplayAsync(runId, new(enrollment, template, create));
+    var reservation = (await journal.ListReservationsAsync(null, 2, default)).Single();
+    var vm = Guid.Parse(reservation.ResourceId ?? throw new InvalidOperationException("The restarted receiver could not recover the owned VM."));
+    log.WriteLine($"Recovered {vm:D} from sha256:{digest} with zero network adapters.");
     var transport = new WindowsHyperVSocketTransport(new() { LinuxVsockPort = ComputeGuestWire.Port, ConnectTimeoutSeconds = 120 });
     using var readyDeadline = new CancellationTokenSource(TimeSpan.FromMinutes(3));
     while (!await ComputeGuestReadiness.ProbeAsync(ct => transport.ConnectAsync(vm, ct), "linux", "x64", readyDeadline.Token))
@@ -109,13 +114,7 @@ try
         }, default);
     }
     catch (LostAcknowledgment) { log.WriteLine("Dropped the guest response before committing the result."); }
-    File.WriteAllText(Path.Combine(root, "redelivery.json"), JsonSerializer.Serialize(new ReplayState(enrollment, template, append, vm), ComputeProtocol.Json));
-    var child = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
-    child.ArgumentList.Add("observe");
-    child.ArgumentList.Add(runId.ToString("N"));
-    using var observer = Process.Start(child) ?? throw new IOException("Restart failed.");
-    await observer.WaitForExitAsync(readyDeadline.Token);
-    if (observer.ExitCode != 0) throw new InvalidOperationException("Restarted receiver failed.");
+    await ReplayAsync(runId, new(enrollment, template, append));
     var evidence = await journal.ListResultsAsync(100, default);
     if (evidence.Single(x => x.Result.OperationId == verified.Authorization.OperationId).Result.Workload?.ErrorCode != "outcome-unknown")
         throw new InvalidOperationException("Missing unknown-outcome receipt.");
@@ -148,6 +147,23 @@ finally
 return success ? 0 : 1;
 
 static string ProbeRoot(Guid id) => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), $"CSweet-TransportProbe-{id:N}");
+static Dictionary<string, string> VmParameters(Guid id) => new()
+{
+    ["CSWEET_PROBE_NAME"] = $"CSweet-Transport-{id:N}",
+    ["CSWEET_PROBE_DISK"] = Path.Combine(ProbeRoot(id), "vm", "test.vhdx")
+};
+static async Task ReplayAsync(Guid id, ReplayState state)
+{
+    File.WriteAllText(Path.Combine(ProbeRoot(id), "redelivery.json"), JsonSerializer.Serialize(state, ComputeProtocol.Json));
+    var child = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
+    child.ArgumentList.Add("observe");
+    child.ArgumentList.Add(id.ToString("N"));
+    using var observer = Process.Start(child) ?? throw new IOException("Restart failed.");
+    using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+    try { await observer.WaitForExitAsync(deadline.Token); }
+    catch (OperationCanceledException) { if (!observer.HasExited) observer.Kill(true); await observer.WaitForExitAsync(); throw; }
+    if (observer.ExitCode != 0) throw new InvalidOperationException("Restarted receiver failed.");
+}
 static string Digest<T>(T value) => ComputeProtocol.Digest(JsonSerializer.Serialize(value, ComputeProtocol.Json));
 static ComputeReplayJournal Journal(string root, ComputeProviderEnrollment enrollment) =>
     new(Path.Combine(root, "journal"), enrollment, new(1, new(1, 2048, 65536)), TimeProvider.System);
@@ -155,5 +171,5 @@ static ComputeDispatchVerifier Verifier(ComputeProviderEnrollment enrollment, Co
     new(enrollment.ProviderId, [template.Id], [InfrastructureActions.Provision, InfrastructureActions.Execute], [ComputeNetworkMode.None], false, false),
     new(1, 2048, 65536), new Dictionary<string, ComputeTemplate> { [template.Id] = template }, TimeProvider.System);
 
-record ReplayState(ComputeProviderEnrollment Enrollment, ComputeTemplate Template, ComputeDispatchPacket Packet, Guid Vm);
+record ReplayState(ComputeProviderEnrollment Enrollment, ComputeTemplate Template, ComputeDispatchPacket Packet);
 sealed class LostAcknowledgment : Exception;
