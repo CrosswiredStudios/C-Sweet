@@ -14,6 +14,14 @@ namespace CSweet.Infrastructure.Setup;
 public sealed partial class ExecutionFleetService
 {
     private const string UpdateInterrupted = "office-update-interrupted";
+    private static readonly Version SignedUpdateMinimumVersion = new(0, 16, 0);
+
+    private async Task<bool> SupportsSignedUpdateAsync(Guid? officeId, CancellationToken ct)
+    {
+        var version = await dbContext.ExecutionNodes.Where(x => x.Id == officeId)
+            .Select(x => x.NodeVersion).SingleOrDefaultAsync(ct);
+        return Version.TryParse(version, out var installed) && installed >= SignedUpdateMinimumVersion;
+    }
 
     private async Task<bool> CanStartAutomaticUpdateAsync(Guid officeId, CreateLocalOfficeSetupSessionRequest request, CancellationToken ct)
     {
@@ -25,17 +33,13 @@ public sealed partial class ExecutionFleetService
             office.Status is not (ExecutionNodeStatus.Ready or ExecutionNodeStatus.Draining) ||
             office.CertificateExpiresAt <= now || office.CertificateExpiresAt is null || office.LastHeartbeatAt < now.AddSeconds(-30) ||
             office.LastHeartbeatAt is null || !Version.TryParse(office.NodeVersion, out var installed) || target <= installed) return false;
-        var local = DevelopmentLauncherConfigured && MachineMatchesHost(office);
-        // Older remote configurators can only reinstall their own payload. Never stop jobs for that path.
-        if (!local && installed < new Version(0, 12, 0)) return false;
-        if (request.UseLocalSource && (!local || request.TargetVersion != LocalOfficeDevelopmentSource.ReadVersion(FleetPolicy))) return false;
+        // Automatic updates run through installed Maintenance even when HQ is on the same machine.
+        // Source checkouts and older configurators cannot supply an unattended update payload.
+        if (installed < SignedUpdateMinimumVersion) return false;
         return !await dbContext.ExecutionWorkloadAssignments.AnyAsync(x => x.ExecutionNodeId == officeId &&
             x.StopEvidenceVersion != 1 && (x.Status == ExecutionAssignmentStatus.Assigned || x.Status == ExecutionAssignmentStatus.Starting ||
                 x.Status == ExecutionAssignmentStatus.Running || x.Status == ExecutionAssignmentStatus.Stopping), ct);
     }
-
-    private static bool MachineMatchesHost(ExecutionNode office) => LocalOfficeDevelopmentSource.MatchesHost(
-        office.MachineName, office.OperatingSystem, office.Architecture);
 
     public async Task<OfficeUpdatePreparationResponse> BeginOfficeUpdatePreparationAsync(BeginOfficeUpdatePreparationRequest request, CancellationToken cancellationToken = default)
     {
@@ -49,6 +53,9 @@ public sealed partial class ExecutionFleetService
             session.ExpiresAt <= now || session.CancellationRequestedAt is not null ||
             !MachineMatches(session, request.MachineName, request.OperatingSystem, request.Architecture))
             return new(false, "invalid_handoff", "failed");
+        if (session.UseLocalUpdateSource) return new(false, "published_update_required", "failed");
+        if (!await SupportsSignedUpdateAsync(session.UpgradeOfficeId, cancellationToken))
+            return new(false, "signed_update_unsupported", "failed");
         var receipt = Base64Url(RandomNumberGenerator.GetBytes(32));
         // Consume the browser handoff now. A bounded, machine-bound receipt keeps a slow download
         // independent of the five-minute handoff and never authorizes installation on its own.
@@ -87,6 +94,8 @@ public sealed partial class ExecutionFleetService
         }
         if (request.PackagePrepared && session.PreparationReadyAt is null && session.Status == LocalOfficeSetupSessionStatus.Created)
         {
+            if (session.UseLocalUpdateSource || !await SupportsSignedUpdateAsync(session.UpgradeOfficeId, cancellationToken))
+                return new(false, "signed_update_unsupported", "failed");
             await StopOfficeUpdateJobsAsync(session, cancellationToken);
             await dbContext.SaveChangesAsync(cancellationToken);
         }
@@ -216,6 +225,15 @@ public sealed partial class ExecutionFleetService
         var session = await dbContext.LocalOfficeSetupSessions.Include(x => x.UpdateJobs).SingleAsync(x => x.Id == id, ct);
         var now = timeProvider.GetUtcNow();
         session.LastUpdateCheckAt = now;
+        if (session.Status == LocalOfficeSetupSessionStatus.Created && session.StopStartedAt is null &&
+            (session.UseLocalUpdateSource || !await SupportsSignedUpdateAsync(session.UpgradeOfficeId, ct)))
+        {
+            session.Status = LocalOfficeSetupSessionStatus.Failed;
+            session.ErrorCode = session.UseLocalUpdateSource ? "published_update_required" : "signed_update_unsupported";
+            session.ErrorMessage = session.UseLocalUpdateSource ? "Select a published Office release for this update."
+                : "This Office needs a Maintenance version that verifies publisher-signed updates.";
+            UpdateChanged(session, "failed");
+        }
         await dbContext.SaveChangesAsync(ct);
         if (session.Status == LocalOfficeSetupSessionStatus.Created && session.AdministratorApprovalRequestedAt is null &&
             session.CancellationRequestedAt is null && session.ExpiresAt > now)

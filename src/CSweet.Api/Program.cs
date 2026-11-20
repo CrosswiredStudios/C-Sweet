@@ -183,6 +183,23 @@ builder.Services.AddHttpClient("ComputeDownloadMetadata", client => client.Timeo
 builder.Services.AddSingleton<CSweet.Api.Compute.ComputeDownloadProgress>();
 
 var app = builder.Build();
+if (OperatingSystem.IsWindows() && Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService())
+{
+    var assets = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
+        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "web")));
+    app.Lifetime.ApplicationStopped.Register(assets.Dispose);
+    app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = assets });
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = assets,
+        ContentTypeProvider = CSweet.Api.Auth.MobileWebAssets.CreateTypes()
+    });
+    app.MapFallback((HttpRequest request) =>
+        HttpMethods.IsGet(request.Method) && !request.Path.StartsWithSegments("/api") &&
+        !request.Path.StartsWithSegments("/internal") && !request.Path.StartsWithSegments("/hubs") &&
+        request.GetTypedHeaders().Accept?.Any(media => media.MediaType.Equals("text/html", StringComparison.OrdinalIgnoreCase)) == true
+            ? Results.File(Path.Combine(assets.Root, "index.html"), "text/html") : Results.NotFound()).AllowAnonymous();
+}
 // Phone requests (H4) enter here, in process, and run through the whole pipeline below. Routing is explicit so the
 // captured pipeline includes it; WebApplication would otherwise add routing ahead of this middleware.
 app.Use(next =>

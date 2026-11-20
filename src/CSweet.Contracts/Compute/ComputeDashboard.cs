@@ -1,7 +1,8 @@
 namespace CSweet.Contracts.Compute;
 
 public sealed record ComputeDashboard(DateTimeOffset CheckedAt, ComputeSetupStatus? Setup,
-    IReadOnlyList<ComputeResourceStatus> Resources, bool HasMore, bool CanManageNetwork = false);
+    IReadOnlyList<ComputeResourceStatus> Resources, bool HasMore, bool CanManageNetwork = false,
+    bool LegacyLocalSetupEnabled = false);
 
 public sealed record ComputeSetupStatus(string State, string Stage, DateTimeOffset? LastProgressAt,
     long? DownloadedBytes, string? FailureCode, long? TotalDownloadBytes = null,

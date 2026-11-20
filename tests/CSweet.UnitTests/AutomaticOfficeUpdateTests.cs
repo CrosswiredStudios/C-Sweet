@@ -17,6 +17,49 @@ public sealed class AutomaticOfficeUpdateTests
     private static readonly DateTimeOffset Now = new(2026, 10, 21, 20, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public async Task LocalSourceUpdateCannotDrainJobsOrReachMaintenanceAfterHeadquartersUpgrades()
+    {
+        await using var f = await Fixture.Create();
+        var job = await f.AddJob();
+        var rejected = await f.Fleet.CreateLocalSetupSessionAsync(
+            new("custom", 4, 8192, 20480, f.Office.Id, AutomaticUpdate: true, TargetVersion: "0.17.0", UseLocalSource: true), f.UserId);
+        Assert.Equal("published_update_required", rejected.ErrorCode);
+        Assert.Empty(await f.Db.LocalOfficeSetupSessions.ToListAsync());
+
+        var created = await f.Start();
+        var retained = await f.Db.LocalOfficeSetupSessions.SingleAsync();
+        retained.UseLocalUpdateSource = true;
+        f.Office.CertificateSerialNumber = "1234";
+        await f.Db.SaveChangesAsync();
+        Assert.Equal("published_update_required", (await f.Begin(created)).ErrorCode);
+        await f.Fleet.ReconcileOfficeUpdatesAsync();
+        Assert.Null(await f.Fleet.ClaimOfficeMaintenanceAsync(f.Office.Id, "ABCD", "1234"));
+        Assert.Equal(LocalOfficeSetupSessionStatus.Failed, retained.Status);
+        Assert.Equal("published_update_required", retained.ErrorCode);
+        Assert.Equal(ExecutionAssignmentStatus.Running, job.Status);
+        Assert.Null(f.Office.DrainingAt);
+    }
+
+    [Fact]
+    public async Task RetainedUpdateForOlderMaintenanceCannotClaimOrDrain()
+    {
+        await using var f = await Fixture.Create();
+        var job = await f.AddJob();
+        var created = await f.Start();
+        var retained = await f.Db.LocalOfficeSetupSessions.SingleAsync();
+        retained.AdministratorApprovalRequestedAt = Now;
+        f.Office.CertificateSerialNumber = "1234";
+        f.Office.NodeVersion = "0.15.3";
+        await f.Db.SaveChangesAsync();
+        Assert.Null(await f.Fleet.ClaimOfficeMaintenanceAsync(f.Office.Id, "ABCD", "1234"));
+        Assert.Equal("signed_update_unsupported", (await f.Begin(created)).ErrorCode);
+        await f.Fleet.ReconcileOfficeUpdatesAsync();
+        Assert.Equal(LocalOfficeSetupSessionStatus.Failed, retained.Status);
+        Assert.Equal(ExecutionAssignmentStatus.Running, job.Status);
+        Assert.Null(f.Office.DrainingAt);
+    }
+
+    [Fact]
     public async Task PreparationDoesNotDrainOrStopJobsAndConsumesTheHandoffOnce()
     {
         await using var f = await Fixture.Create();
@@ -24,7 +67,7 @@ public sealed class AutomaticOfficeUpdateTests
         var created = await f.Start();
         var prepared = await f.Begin(created);
         Assert.True(prepared.Succeeded);
-        Assert.Equal("0.13.0", prepared.TargetVersion);
+        Assert.Equal("0.17.0", prepared.TargetVersion);
         Assert.Equal(ExecutionNodeStatus.Ready, f.Office.Status);
         Assert.Equal(ExecutionAssignmentStatus.Running, assignment.Status);
         Assert.False((await f.Begin(created)).Succeeded);
@@ -84,7 +127,7 @@ public sealed class AutomaticOfficeUpdateTests
         session.Status = LocalOfficeSetupSessionStatus.Connected;
         session.CompletedAt = Now.AddSeconds(-2);
         session.AdministratorApprovalRequestedAt = Now;
-        f.Office.NodeVersion = "0.13.0";
+        f.Office.NodeVersion = "0.17.0";
         f.Office.LastHeartbeatAt = Now;
         await f.Db.SaveChangesAsync();
         await f.Fleet.ReconcileOfficeUpdatesAsync();
@@ -98,9 +141,9 @@ public sealed class AutomaticOfficeUpdateTests
     }
 
     [Theory]
-    [InlineData("0.12.0", false, true)]
-    [InlineData("0.13.0", true, true)]
-    [InlineData("0.13.0", false, false)]
+    [InlineData("0.16.0", false, true)]
+    [InlineData("0.17.0", true, true)]
+    [InlineData("0.17.0", false, false)]
     public async Task WrongVersionStaleHeartbeatOrUnhealthyProviderCannotCompleteUpdate(string reported, bool stale, bool healthy)
     {
         await using var f = await Fixture.Create();
@@ -130,7 +173,7 @@ public sealed class AutomaticOfficeUpdateTests
         var session = await f.Db.LocalOfficeSetupSessions.SingleAsync();
         session.Status = LocalOfficeSetupSessionStatus.Connected;
         session.CompletedAt = Now.AddSeconds(-1);
-        f.Office.NodeVersion = "0.13.0";
+        f.Office.NodeVersion = "0.17.0";
         await f.Db.SaveChangesAsync();
         await f.Fleet.ReconcileOfficeUpdatesAsync();
         Assert.Equal(shouldResume ? ExecutionNodeStatus.Ready : ExecutionNodeStatus.Draining, f.Office.Status);
@@ -146,7 +189,7 @@ public sealed class AutomaticOfficeUpdateTests
         var session = await f.Db.LocalOfficeSetupSessions.SingleAsync();
         session.Status = LocalOfficeSetupSessionStatus.Connected;
         session.CompletedAt = Now.AddSeconds(-1);
-        f.Office.NodeVersion = "0.13.0";
+        f.Office.NodeVersion = "0.17.0";
         await f.Db.SaveChangesAsync();
         await f.Fleet.ReconcileOfficeUpdatesAsync();
         Assert.Contains("currently paused", (await f.Fleet.GetLocalSetupSessionAsync(f.SessionId, f.UserId)).Session!.Message);
@@ -182,7 +225,7 @@ public sealed class AutomaticOfficeUpdateTests
         Assert.Equal(ExecutionNodeStatus.Draining, f.Office.Status);
         var attempt = await f.Db.ExecutionAssignmentAttempts.SingleAsync(); attempt.StoppedAt = Now;
         await f.Db.SaveChangesAsync(); await f.Fleet.ReconcileOfficeUpdatesAsync();
-        Assert.Equal(ExecutionNodeStatus.Ready, f.Office.Status); Assert.Equal("0.12.0", f.Office.NodeVersion);
+        Assert.Equal(ExecutionNodeStatus.Ready, f.Office.Status); Assert.Equal("0.16.0", f.Office.NodeVersion);
         Assert.Equal(LocalOfficeSetupSessionStatus.Revoked, (await f.Db.LocalOfficeSetupSessions.SingleAsync()).Status);
     }
 
@@ -213,7 +256,7 @@ public sealed class AutomaticOfficeUpdateTests
         await using var f = await Fixture.Create(paused: true);
         var created = await f.Start();
         var secret = Uri.UnescapeDataString(new Uri(created.Session!.LaunchUri!).Fragment["#handoff=".Length..]);
-        var result = await f.Fleet.RedeemLocalSetupSessionAsync(new(secret, f.Office.MachineName, "windows", "x64", "0.13.0"));
+        var result = await f.Fleet.RedeemLocalSetupSessionAsync(new(secret, f.Office.MachineName, "windows", "x64", "0.17.0"));
         Assert.False(result.Succeeded); Assert.Equal("upgrade_not_safe", result.ErrorCode);
         Assert.Null((await f.Db.LocalOfficeSetupSessions.SingleAsync()).RedeemedAt);
     }
@@ -224,11 +267,11 @@ public sealed class AutomaticOfficeUpdateTests
         await using var f = await Fixture.Create();
         var prep = await f.Begin(await f.Start()); var install = await f.Progress(prep, true);
         var secret = Uri.UnescapeDataString(new Uri(install.LaunchUri!).Fragment["#handoff=".Length..]);
-        var redeemed = await f.Fleet.RedeemLocalSetupSessionAsync(new(secret, f.Office.MachineName, "windows", "x64", "0.13.0"));
+        var redeemed = await f.Fleet.RedeemLocalSetupSessionAsync(new(secret, f.Office.MachineName, "windows", "x64", "0.17.0"));
         Assert.True(redeemed.Succeeded);
-        Assert.False((await f.Fleet.RedeemLocalSetupSessionAsync(new(secret, f.Office.MachineName, "windows", "x64", "0.13.0"))).Succeeded);
+        Assert.False((await f.Fleet.RedeemLocalSetupSessionAsync(new(secret, f.Office.MachineName, "windows", "x64", "0.17.0"))).Succeeded);
         Assert.True(await f.Fleet.ReportLocalSetupResultAsync(new(f.SessionId, redeemed.SetupReceipt!, "office_upgrade_completed", f.Office.MachineName, "windows", "x64")));
-        f.Office.NodeVersion = "0.13.0"; f.Office.LastHeartbeatAt = Now.AddSeconds(1); await f.Db.SaveChangesAsync();
+        f.Office.NodeVersion = "0.17.0"; f.Office.LastHeartbeatAt = Now.AddSeconds(1); await f.Db.SaveChangesAsync();
         await f.Fleet.ReconcileOfficeUpdatesAsync();
         var result = await f.Fleet.GetLocalSetupSessionAsync(f.SessionId, f.UserId);
         Assert.Equal("ready", result.Session!.State); Assert.Null(f.Office.DrainingAt);
@@ -285,7 +328,7 @@ public sealed class AutomaticOfficeUpdateTests
         var prep = await f.Begin(await f.Start());
         var install = await f.Progress(prep, true);
         var secret = Uri.UnescapeDataString(new Uri(install.LaunchUri!).Fragment["#handoff=".Length..]);
-        var result = await f.Fleet.RedeemLocalSetupSessionAsync(new(secret, f.Office.MachineName, "windows", "x64", "0.14.0"));
+        var result = await f.Fleet.RedeemLocalSetupSessionAsync(new(secret, f.Office.MachineName, "windows", "x64", "0.18.0"));
         Assert.False(result.Succeeded);
         Assert.Equal("update_version_mismatch", result.ErrorCode);
         Assert.Null((await f.Db.LocalOfficeSetupSessions.SingleAsync()).RedeemedAt);
@@ -336,7 +379,7 @@ public sealed class AutomaticOfficeUpdateTests
         await f.Fleet.ReconcileOfficeUpdatesAsync();
         Assert.NotNull(update.WorkRestoredAt);
         Assert.Equal(LocalOfficeSetupSessionStatus.Failed, update.Status);
-        Assert.Equal("0.12.0", f.Office.NodeVersion);
+        Assert.Equal("0.16.0", f.Office.NodeVersion);
         Assert.Equal(originallyPaused ? ExecutionNodeStatus.Draining : ExecutionNodeStatus.Ready, f.Office.Status);
     }
 
@@ -360,7 +403,7 @@ public sealed class AutomaticOfficeUpdateTests
         var execution = await f.Db.ExecutionAssignmentAttempts.SingleAsync(); execution.StoppedAt = Now;
         runtime.TransitionTo(AgentRuntimeStatus.Cancelled, Now);
         var session = await f.Db.LocalOfficeSetupSessions.SingleAsync(); session.Status = LocalOfficeSetupSessionStatus.Connected;
-        session.CompletedAt = Now.AddSeconds(-1); f.Office.NodeVersion = "0.13.0";
+        session.CompletedAt = Now.AddSeconds(-1); f.Office.NodeVersion = "0.17.0";
         await f.Db.SaveChangesAsync();
         await f.Fleet.ReconcileOfficeUpdatesAsync();
         Assert.Equal(AgentWorkStatus.Pending, work.Status);
@@ -394,7 +437,7 @@ public sealed class AutomaticOfficeUpdateTests
         {
             var f = new Fixture(); await new SetupService(f.Db).EnsureSeededAsync(); await f.Fleet.EnsureDefaultPoolAsync();
             f.Office = new() { Id = Guid.NewGuid(), ExecutionPoolId = (await f.Db.ExecutionPools.FirstAsync()).Id,
-                Name = "Studio", MachineName = "office-machine", OperatingSystem = "windows", Architecture = "x64", NodeVersion = "0.12.0",
+                Name = "Studio", MachineName = "office-machine", OperatingSystem = "windows", Architecture = "x64", NodeVersion = "0.16.0",
                 ApprovedAt = Now, Status = paused ? ExecutionNodeStatus.Draining : ExecutionNodeStatus.Ready, DrainingAt = paused ? Now : null,
                 WorkPauseReason = paused ? OfficeWorkPauseReason.User : null,
                 CertificateThumbprint = "ABCD", CertificateExpiresAt = Now.AddDays(1), LastHeartbeatAt = Now,
@@ -415,7 +458,7 @@ public sealed class AutomaticOfficeUpdateTests
         }
         public async Task<LocalOfficeSetupActionResponse> Start()
         {
-            var result = await Fleet.CreateLocalSetupSessionAsync(new("custom", 4, 8192, 20480, Office.Id, AutomaticUpdate: true, TargetVersion: "0.13.0"), UserId);
+            var result = await Fleet.CreateLocalSetupSessionAsync(new("custom", 4, 8192, 20480, Office.Id, AutomaticUpdate: true, TargetVersion: "0.17.0"), UserId);
             Assert.True(result.Succeeded, result.Message); SessionId = result.Session!.Id; return result;
         }
         public Task<OfficeUpdatePreparationResponse> Begin(LocalOfficeSetupActionResponse created)

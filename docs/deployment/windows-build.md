@@ -1,8 +1,8 @@
 # Windows build artifacts
 
 The **Windows build** GitHub Actions workflow builds a Windows x64 ZIP of C-Sweet
-Headquarters. This is the first packaging milestone: unsigned application binaries
-and browser assets. It is not yet an MSI or a configured, one-click installation.
+Headquarters. Release engineering can turn its staging directory into a per-machine
+MSI and chain that MSI with an independently signed Windows Office package.
 
 ## Create and download a build
 
@@ -57,10 +57,46 @@ Running the complete system still requires deployment configuration:
   or configure the frontend's `CSweet:ApiBaseUrl` and the corresponding API origin policy.
 - Install and enroll Office separately to enable untrusted agent execution.
 
-The authoritative development wiring is `src/CSweet.AppHost/Program.cs`; its
-environment and service-reference configuration is not automatically applied to
-these executables. A packaged launcher, configuration wizard, Windows service
-registration, signing, and clean-machine startup tests remain subsequent work.
+The development wiring lives in `src/CSweet.AppHost/Program.cs`. An installed API
+serves the packaged web client on the API origin. Each of the six long-running programs
+uses its own non-administrator Windows virtual service account. The installer also
+starts `CSweet.Migrator` on demand under its own account to prepare PostgreSQL before
+the other services start.
+
+## Per-machine installer
+
+Use WiX 4 with its matching Bal extension and the Windows SDK signing tools.
+Run `New-HeadquartersMsi.ps1` on the directory containing `build-info.json`.
+Sign the resulting MSI. Place the Office MSI beside all its original signed cabinets.
+
+```powershell
+./scripts/release/New-HeadquartersMsi.ps1 -DistributionRoot $distribution -ProductVersion $version -OutputPath $hqMsi
+signtool sign /s My /sha1 $publisher /fd SHA256 /tr $timestampUrl /td SHA256 $hqMsi
+./scripts/release/New-CombinedWindowsInstaller.ps1 -HeadquartersMsi $hqMsi -OfficeMsi $officeMsi `
+    -OutputDirectory $layout -ProductVersion $version -CertificateThumbprint $publisher
+```
+
+Distribute the complete layout. The signed `C-Sweet-Setup.exe` contains the Headquarters
+MSI and identifies every external Office payload by hash. The cached Burn engine also
+carries a signature. A different Office publisher can be selected with
+`-OfficeCertificateThumbprint`. For local tests, pass `-LocalTestSignatureVerifier`
+with the path to `osslsigncode` to the Office MSI and bundle build scripts. They
+verify the artifact digest and signer against the specific self-signed certificate.
+The test bundle has a distinct name and upgrade code. Keep its signing key out of the layout.
+
+Before installation on a provisioned machine, provide an administrator-controlled
+`%ProgramFiles%\CSweet\Provisioning` directory containing one JSON settings file named
+after each service and the Migrator, for example `CSweet.Api.json`. Restrict secret
+files to SYSTEM and Administrators when creating them. Setup grants each virtual
+account read access to its own settings. Supply a PostgreSQL connection available
+before sign-in, service URLs, storage directories with appropriate service access,
+gateway TLS and its assignment-signing key. For combined enrollment, `office.json`
+must contain the gateway HTTPS `controlPlaneUrl`, its lowercase
+`controlPlaneCertificateSha256`, and positive integer `allocatableCpuCount`,
+`allocatableMemoryMb`, `allocatableDiskMb` and `maximumConcurrentWorkloads`.
+The Migrator issues a normal one-use enrollment through Headquarters. The Office
+installer consumes it from protected machine storage. Office approval in Headquarters
+and machine consent to compute are separate from those general Office allocations.
 
 ## Build dependencies and verification
 

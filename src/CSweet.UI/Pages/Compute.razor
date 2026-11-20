@@ -36,7 +36,7 @@
             <MudText Typo="Typo.h6">@L["Compute.ComputeTypes"]</MudText>
             <span class="compute-secondary">@L["Compute.SetUpOnceReuseAcross"]</span>
         </div>
-        <ComputePreparation @key="OrganizationId" Setup="dashboard.Setup" CheckedAt="dashboard.CheckedAt" CanManage="dashboard.CanManageNetwork"
+        <ComputePreparation @key="OrganizationId" Setup="dashboard.Setup" CheckedAt="dashboard.CheckedAt" CanManage="dashboard.CanManageNetwork" LegacyLocalSetupEnabled="dashboard.LegacyLocalSetupEnabled"
                             Busy="@(_repairingSetup || _loading)" OnSetup="StartSetupAsync" OnRetry="RepairSetupAsync" OnUpdate="UpdateServiceAsync" OnRefresh="LoadAsync" OnCreate="OpenCreateAsync" />
         @if (_showCreate && dashboard.CanManageNetwork && dashboard.Setup?.State == "Ready")
         {

@@ -1,0 +1,30 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="C-Sweet Headquarters" Manufacturer="C-Sweet" Version="$(var.ProductVersion)"
+           UpgradeCode="86C72456-3BCE-4B15-878C-2B9FA33DB04E" Scope="perMachine" InstallerVersion="500">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of C-Sweet Headquarters is installed."
+                  Schedule="afterInstallInitialize" />
+    <MediaTemplate EmbedCab="yes" />
+    <Property Id="CSWEET_COMBINED_INSTALL" Secure="yes" />
+    <CustomAction Id="PrepareHeadquarters" Directory="System64Folder" Execute="deferred" Impersonate="no"
+        ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NoLogo -NonInteractive -File &quot;[ProgramFiles64Folder]CSweet\Headquarters\Initialize-Headquarters.ps1&quot;" Return="check" />
+    <CustomAction Id="PrepareCombinedHeadquarters" Directory="System64Folder" Execute="deferred" Impersonate="no"
+        ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NoLogo -NonInteractive -File &quot;[ProgramFiles64Folder]CSweet\Headquarters\Initialize-Headquarters.ps1&quot; -EnrollOffice" Return="check" />
+    <InstallExecuteSequence>
+      <Custom Action="PrepareHeadquarters" After="InstallServices" Condition="NOT REMOVE AND (CSWEET_COMBINED_INSTALL&lt;&gt;&quot;1&quot; OR Installed OR WIX_UPGRADE_DETECTED)" />
+      <Custom Action="PrepareCombinedHeadquarters" After="PrepareHeadquarters" Condition="NOT REMOVE AND CSWEET_COMBINED_INSTALL=&quot;1&quot; AND NOT Installed AND NOT WIX_UPGRADE_DETECTED" />
+    </InstallExecuteSequence>
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="CSweetVendor" Name="CSweet">
+        <Directory Id="HeadquartersFolder" Name="Headquarters">
+          <Component Id="HqConfigurationScript" Guid="*">
+            <File Source="$(var.ScriptRoot)\Initialize-Headquarters.ps1" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="Headquarters" Title="C-Sweet Headquarters">
+      <ComponentGroupRef Id="HeadquartersPayload" />
+      <ComponentRef Id="HqConfigurationScript" />
+    </Feature>
+  </Package>
+</Wix>

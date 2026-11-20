@@ -120,7 +120,7 @@ public sealed class MobileWebAssets(IOptions<MobileShellOptions> options, ILogge
     private sealed record Endpoint(string Route, string AssetFile, List<NameValue>? Selectors, List<NameValue>? ResponseHeaders);
     private sealed record NameValue(string Name, string Value);
 
-    private static FileExtensionContentTypeProvider CreateTypes()
+    internal static FileExtensionContentTypeProvider CreateTypes()
     {
         var provider = new FileExtensionContentTypeProvider();
         provider.Mappings[".wasm"] = "application/wasm";

@@ -1323,7 +1323,7 @@ public sealed partial class ExecutionFleetServiceTests
         var owner = Guid.NewGuid();
         var created = await fleet.CreateLocalSetupSessionAsync(new("custom", 1, 1, 1, node.Id, Repair: true), owner);
         Assert.True(created.Succeeded, created.Message);
-        Assert.Equal("protocol", created.Session!.LaunchMethod);
+        Assert.Equal("agent", created.Session!.LaunchMethod);
         Assert.Equal(ExecutionNodeStatus.Draining, node.Status);
         var handoff = Uri.UnescapeDataString(new Uri(created.Session.LaunchUri!).Fragment["#handoff=".Length..]);
         Assert.False((await fleet.PreflightLocalSetupSessionAsync(new(handoff, "wrong-computer", "windows", node.Architecture, "0.5.0", "clean"))).Succeeded);
@@ -1491,24 +1491,39 @@ public sealed partial class ExecutionFleetServiceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task LocalMaintenanceUsesConfiguredLauncherWithoutDependingOnItsBrokenConnection(bool repair)
+    public async Task LocalMaintenanceUsesInstalledServiceWhenDevelopmentLauncherIsConfigured(bool repair)
     {
-        if (!OperatingSystem.IsWindows()) return;
         await using var db = CreateDb();
         var fleet = UpgradeFleet(db, new MutableTimeProvider(Now));
         await new SetupService(db).EnsureSeededAsync();
         await fleet.EnsureDefaultPoolAsync();
         var node = UpgradeNode((await db.ExecutionPools.SingleAsync()).Id);
         node.NodeVersion = "0.5.0";
+        node.CertificateThumbprint = "ABCD";
+        node.CertificateSerialNumber = "1234";
         if (repair) node.LastHeartbeatAt = Now.AddHours(-1);
         db.ExecutionNodes.Add(node);
         await db.SaveChangesAsync();
-        var created = await fleet.CreateLocalSetupSessionAsync(new("custom", 1, 1, 1, node.Id, Repair: repair), Guid.NewGuid());
+        var owner = Guid.NewGuid();
+        var created = await fleet.CreateLocalSetupSessionAsync(new("custom", 1, 1, 1, node.Id, Repair: repair), owner);
         Assert.True(created.Succeeded, created.Message);
-        Assert.Equal("server", created.Session!.LaunchMethod);
+        Assert.Equal("agent", created.Session!.LaunchMethod);
         Assert.Equal(repair ? "repair" : "upgrade", created.Session.RecoveryAction);
         Assert.Equal(node.Id, created.Session.UpgradeOfficeId);
         Assert.Null(node.RevokedAt);
+        Assert.Null(await fleet.ClaimOfficeMaintenanceAsync(node.Id, "ABCD", "1234"));
+        var launch = await fleet.LaunchLocalSetupSessionAsync(created.Session.Id, owner, new(created.Session.LaunchUri!));
+        Assert.True(launch.Succeeded, launch.Message);
+        Assert.Null(await fleet.ClaimOfficeMaintenanceAsync(node.Id, "FFFF", "1234"));
+        var claimed = await fleet.ClaimOfficeMaintenanceAsync(node.Id, "ABCD", "1234");
+        Assert.NotNull(claimed);
+        var uri = new Uri(claimed);
+        Assert.Contains("origin=https%3A%2F%2Foffice.example.test", uri.Query);
+        var handoff = Uri.UnescapeDataString(uri.Fragment["#handoff=".Length..]);
+        var redeemed = await fleet.RedeemLocalSetupSessionAsync(new(handoff, node.MachineName, "windows", node.Architecture, node.NodeVersion));
+        Assert.True(redeemed.Succeeded, redeemed.Message);
+        Assert.Null(redeemed.EnrollmentToken);
+        Assert.Null(await fleet.ClaimOfficeMaintenanceAsync(node.Id, "ABCD", "1234"));
     }
     [Theory]
     [InlineData(false)]

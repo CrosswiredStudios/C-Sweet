@@ -8,7 +8,7 @@
         <div class="type-icon"><MudIcon Icon="@Icons.Material.Outlined.Terminal" /></div>
         <div class="type-identity">
             <h3 id="linux-compute-title">@L["ComputePreparation.Linux"]</h3>
-            <p>@L["ComputePreparation.UbuntuLocalComputeHyperV"]</p>
+            <p>@(LegacyLocalSetupEnabled ? L["ComputePreparation.UbuntuLocalComputeHyperV"] : "Linux compute capacity")</p>
         </div>
         <span class="setup-badge @BadgeClass" role="status">@StatusLabel</span>
         @if (Setup?.State == "Ready" && CanManage)
@@ -22,6 +22,13 @@
         </button>
     </div>
     <div id="linux-preparation-details" hidden="@_collapsed">
+        @if (WaitingForOffice)
+        {
+            <h4>Waiting for Office compute capacity</h4>
+            <p>This business needs an enrolled Office with approved compute capacity.</p>
+        }
+        else
+        {
         <div class="preparation-layout">
             <ol class="preparation-steps" aria-label="@L["ComputePreparation.LinuxPreparationMilestones"]">
                 @for (var index = 0; index < Milestones.Length; index++)
@@ -72,16 +79,16 @@
                     <div class="preparation-notice @BadgeClass">@Notice</div>
                 }
                 <div class="preparation-actions">
-                    @if (CanManage && Setup is null)
+                    @if (CanManage && LegacyLocalSetupEnabled && Setup is null)
                     {
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="Busy" OnClick="OnSetup">@(Busy ? "Requesting setup…" : "Set up Linux")</MudButton>
                     }
-                    else if (CanManage && Setup?.State == "Ready")
+                    else if (CanManage && LegacyLocalSetupEnabled && Setup?.State == "Ready")
                     {
                         <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="Busy" OnClick="OnUpdate">Update compute service</MudButton>
                         <span class="preparation-secondary">Existing instances are retained. Administrator approval may be requested.</span>
                     }
-                    else if (CanManage && Setup?.CanRetry == true)
+                    else if (CanManage && LegacyLocalSetupEnabled && Setup?.CanRetry == true)
                     {
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="Busy" OnClick="OnRetry">@(Busy ? "Requesting preparation…" : Setup.Health == "NeedsPermission" ? "Continue setup" : "Retry preparation")</MudButton>
                     }
@@ -109,6 +116,7 @@
                 }
             </div>
         </div>
+        }
     </div>
     <div class="preparation-footer">@Footer</div>
 </section>
@@ -117,6 +125,7 @@
     [Parameter] public ComputeSetupStatus? Setup { get; set; }
     [Parameter] public DateTimeOffset CheckedAt { get; set; }
     [Parameter] public bool CanManage { get; set; }
+    [Parameter] public bool LegacyLocalSetupEnabled { get; set; }
     [Parameter] public bool Busy { get; set; }
     [Parameter] public EventCallback OnSetup { get; set; }
     [Parameter] public EventCallback OnRetry { get; set; }
@@ -130,9 +139,11 @@
     private bool _collapsed;
     private bool _disposed;
     private int _collapseVersion;
+    private bool WaitingForOffice => !LegacyLocalSetupEnabled && (Setup is null || Setup.State == "Pending");
     private int Milestone => Setup?.Milestone > 0 ? Setup.Milestone : Setup?.PreparationStep switch { 1 => 2, 2 => 3, 3 => 5, _ => 0 };
     private string StatusLabel => Setup switch
     {
+        _ when WaitingForOffice => "Waiting for Office",
         null => "Not configured",
         { State: "Ready" } => "Ready",
         { Health: "NeedsPermission" } => "Needs permission",
@@ -210,6 +221,7 @@
     private string Footer => Setup?.State switch
     {
         "Ready" => "Set up once · Reuse across instances · Subject to host capacity and approved permissions",
+        _ when WaitingForOffice => "",
         "Failed" => "Waiting agents remain queued until Linux preparation recovers.",
         "Running" or "Pending" => "You can leave this page. Agents waiting for compute continue automatically when preparation finishes.",
         _ => CanManage ? "Setup is managed here. No terminal commands or image paths required." : "A business owner can set up Linux compute."

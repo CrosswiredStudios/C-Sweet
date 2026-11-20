@@ -18,6 +18,12 @@ namespace CSweet.Api.Compute;
 public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfiguration configuration,
     IWebHostEnvironment environment, ILogger<ComputeLocalSetupWorker> logger) : BackgroundService
 {
+    internal const string WaitingForOffice = "office_compute_capacity_unavailable";
+    internal static bool InteractiveSetupEnabled(IHostEnvironment environment, IConfiguration configuration) =>
+        OperatingSystem.IsWindows() && environment.IsDevelopment() && Environment.UserInteractive &&
+        !Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService() &&
+        configuration.GetValue<bool>("CSweet:Compute:EnableLegacyInteractiveSetup");
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
@@ -57,19 +63,28 @@ public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfig
                 .SetProperty(x => x.HandoffHash, (string?)null).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow)
                 .SetProperty(x => x.Revision, x => x.Revision + 1), token);
         var defaults = scope.ServiceProvider.GetRequiredService<ComputeDefaultsService>();
+        var allowInteractiveSetup = InteractiveSetupEnabled(environment, configuration);
         foreach (var ready in await db.Set<ComputeLocalSetup>().Where(x => x.State == "Ready").Take(100).ToListAsync(token))
         {
             await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, token);
             await defaults.ActivateAccessAsync(ready, token);
-            await RequestDockerUpgradeAsync(db, ready, token);
+            if (allowInteractiveSetup) await RequestDockerUpgradeAsync(db, ready, token);
             await transaction.CommitAsync(token);
+        }
+        // Keep running handoffs and installed providers observable. Only a developer who
+        // explicitly opted in on this HQ machine can launch a new elevated installer.
+        if (!allowInteractiveSetup)
+        {
+            await db.Set<ComputeLocalSetup>().Where(x => x.State == "Pending" && x.ErrorCode != WaitingForOffice)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.ErrorCode, WaitingForOffice)
+                    .SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.Revision, x => x.Revision + 1), token);
+            return;
         }
         var setup = await db.Set<ComputeLocalSetup>().AsNoTracking().Where(x => x.State == "Pending" &&
             !db.CoreOrganizations.Any(b => b.Id == x.OrganizationId &&
                 (b.Status == CSweet.Domain.Core.OrganizationStatus.Deleting || b.Status == CSweet.Domain.Core.OrganizationStatus.DeletionFailed)))
             .OrderBy(x => x.CreatedAt).FirstOrDefaultAsync(token);
         if (setup is null) return;
-        if (!OperatingSystem.IsWindows()) { await FailAsync(db, setup, "local_provider_unavailable", token); return; }
         var root = configuration["CSweet:Compute:RepositoryRoot"] ?? Path.GetFullPath(Path.Combine(environment.ContentRootPath, "..", ".."));
         var script = Path.Combine(root, "scripts", "Install-ComputeLocalProvider.ps1");
         var origin = configuration["CSweet:ExecutionGateway:PublicUrl"];
@@ -84,7 +99,7 @@ public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfig
         var firstPrivilegedAttempt = setup.PreparationAttemptId is null;
         await using var preparationAdmission = await CSweet.Infrastructure.Core.BusinessStorageAdmission.EnterAsync(db, setup.OrganizationId, token);
         if (await db.Set<ComputeLocalSetup>().Where(x => x.Id == setup.Id && x.State == "Pending").ExecuteUpdateAsync(s =>
-                s.SetProperty(x => x.State, "Running").SetProperty(x => x.HandoffHash, hash)
+                s.SetProperty(x => x.State, "Running").SetProperty(x => x.ErrorCode, (string?)null).SetProperty(x => x.HandoffHash, hash)
                 .SetProperty(x => x.PreparationAttemptId, attemptId)
                 .SetProperty(x => x.HandoffExpiresAt, now.AddHours(2)).SetProperty(x => x.UpdatedAt, now)
                 .SetProperty(x => x.Revision, x => x.Revision + 1), token) != 1) return;

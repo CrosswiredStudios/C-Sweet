@@ -260,7 +260,7 @@
 
     private async Task LaunchLocalConfiguratorAsync()
     {
-        if (_localSession?.LaunchUri is not { Length: > 0 } uri) return;
+        if (_localSession?.LaunchMethod != "protocol" || _localSession.LaunchUri is not { Length: > 0 } uri) return;
         _localLaunchAttemptedAt = DateTimeOffset.UtcNow;
         _localLaunchAttempts++;
         await (await ModuleAsync()).InvokeVoidAsync("launchExternalUri", uri);
@@ -283,7 +283,7 @@
             _localApprovalRequested = true;
             _localLaunchAttemptedAt = DateTimeOffset.UtcNow;
             _localLaunchAttempts++;
-            if (_localSession.LaunchMethod != "server")
+            if (_localSession.LaunchMethod == "protocol")
                 await LaunchLocalConfiguratorAsync();
         }
         catch

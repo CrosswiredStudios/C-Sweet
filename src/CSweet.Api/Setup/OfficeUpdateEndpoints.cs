@@ -19,7 +19,7 @@ public static class OfficeUpdateEndpoints
             .Select(x => new OfficeUpdatePackageResponse(x.Id, null, localVersion, "local-setup")).ToArray();
         IResult Unavailable(string message) => localPackages.Length > 0
             ? Results.Ok(new OfficeUpdateCheckResponse(localVersion!, clock.GetUtcNow(), localPackages, "local-setup",
-                "Published Office releases are unavailable. Updates for this computer use the same local source as initial setup."))
+                "Published Office releases are unavailable. Unattended updates require a published Office package."))
             : Results.Problem(message, statusCode: 503);
 
         if (!Uri.TryCreate(options.Value.ReleaseManifestUrl, UriKind.Absolute, out var uri) ||

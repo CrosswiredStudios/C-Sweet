@@ -25,11 +25,7 @@
             <div class="update-impact"><MudIcon Icon="@Icons.Material.Outlined.Inventory2" /><div><strong>Prepare the update first</strong><p>We’ll download and verify the package before interrupting work.</p></div></div>
             <div class="update-impact"><MudIcon Icon="@Icons.Material.Outlined.PauseCircle" /><div><strong>@(ActiveWork is 0 ? "No jobs need to stop" : ActiveWork is { } count ? $"Stop {count} running job{(count == 1 ? "" : "s")}" : "Stop running jobs")</strong><p>New work will pause. Running jobs will receive stop requests. Interrupted work restarts from its last saved progress.</p></div></div>
             <div class="update-impact"><MudIcon Icon="@Icons.Material.Outlined.Sync" /><div><strong>Install, reconnect, and @(PreviouslyPaused ? "keep work paused" : "resume work")</strong><p>Your Office identity and settings stay in place. @(PreviouslyPaused ? "This Office is already paused, so it will stay paused." : "Work resumes after the selected version and connection are verified.")</p></div></div>
-            @if (UseLocalSource)
-            {
-                <div class="update-notice"><MudIcon Icon="@Icons.Material.Outlined.Code" Size="Size.Small" /><div><strong>Build from the configured development source</strong><p>Published releases are unavailable. This update will prepare version @TargetVersion from the configured local checkout before stopping jobs.</p></div></div>
-            }
-            <div class="update-notice"><MudIcon Icon="@Icons.Material.Outlined.Info" Size="Size.Small" /><div><strong>Keep @Office.MachineName on</strong><p>Allow the Windows administrator prompt if one appears. You can leave this page once the update starts.</p></div></div>
+            <div class="update-notice"><MudIcon Icon="@Icons.Material.Outlined.Info" Size="Size.Small" /><div><strong>Keep @Office.MachineName on</strong><p>The installed Office maintenance service performs the update. You can leave this page once it starts.</p></div></div>
             @if (!CanStart)
             {
                 <MudAlert Severity="Severity.Warning" Dense="true">@UnavailableReason</MudAlert>
@@ -116,12 +112,13 @@
     private bool InProgress => _busy || OfficeCareState.IsInProgress(_session?.State);
     private bool CanStart => Office.OperatingSystem == "windows" && Office.Status is "ready" or "draining" &&
         OfficePresentation.IsConnected(Office, DateTimeOffset.UtcNow) && OfficeUpdatePresentation.NeedsUpdate(Office.NodeVersion, TargetVersion ?? "") &&
-        (UseLocalSource || Version.TryParse(Office.NodeVersion, out var installed) && installed >= new Version(0, 12, 0) || Office.IsLocalMachine);
+        !UseLocalSource && Version.TryParse(Office.NodeVersion, out var installed) && installed >= new Version(0, 16, 0);
     private string UnavailableReason => !OfficePresentation.IsConnected(Office, DateTimeOffset.UtcNow)
         ? $"Connect {Office.MachineName} before updating. Its current state is unknown."
+        : UseLocalSource ? "Unattended updates require a published Office release."
         : string.IsNullOrWhiteSpace(TargetVersion) ? "Check for an available update first."
         : !OfficeUpdatePresentation.NeedsUpdate(Office.NodeVersion, TargetVersion) ? "This Office already reports the selected version. Use connection help to verify recovery if an earlier update failed."
-        : "Automatic remote updates require Office 0.12.0 or later. Use the current Office installer on that computer to enable future automatic updates.";
+        : "Unattended updates require an Office 0.16.0 or later installation with a trusted update publisher.";
     private int PhaseIndex => _session?.State == "ready" ? 5 : _session?.PhaseKey switch
         { "stopping" or "cancelling" => 1, "installing" => 2, "reconnecting" => 3, "resuming" => 4, _ => 0 };
     private static string WorkKind(string kind) => kind == "Runtime" ? "Agent runtime" : kind == "Builder" ? "Agent build" : "Build job";

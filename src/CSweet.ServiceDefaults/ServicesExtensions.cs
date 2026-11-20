@@ -15,6 +15,15 @@ public static class ServicesExtensions
 {
     public static IHostApplicationBuilder AddServiceDefaults(this IHostApplicationBuilder builder)
     {
+        // The extension activates only when the Service Control Manager starts the process.
+        builder.Services.AddWindowsService();
+        if (OperatingSystem.IsWindows() && WindowsServices.WindowsServiceHelpers.IsWindowsService())
+        {
+            var settings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "CSweet", "Provisioning", builder.Environment.ApplicationName + ".json");
+            builder.Configuration.AddJsonFile(settings, optional: true, reloadOnChange: false);
+        }
+
         // Configure health checks
         builder.Services.AddDefaultHealthChecks();
 

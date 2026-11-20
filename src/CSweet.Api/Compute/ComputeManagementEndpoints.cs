@@ -16,10 +16,17 @@ public static class ComputeManagementEndpoints
     public static IEndpointRouteBuilder MapComputeManagementEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/organizations/{organizationId:guid}/compute").RequireAuthorization();
-        group.MapPost("/setup", async (Guid organizationId, HttpContext http, CSweetDbContext db, CancellationToken token) =>
+        group.MapPost("/setup", async (Guid organizationId, HttpContext http, CSweetDbContext db,
+            IWebHostEnvironment environment, IConfiguration configuration, CancellationToken token) =>
         {
             if (http.User.GetApplicationUserId() is not { } user) return Results.Unauthorized();
-            try { await StartSetupAsync(db, organizationId, user, token); return Results.Accepted(); }
+            try
+            {
+                var enabled = ComputeLocalSetupWorker.InteractiveSetupEnabled(environment, configuration);
+                return await StartSetupAsync(db, organizationId, user, enabled, token)
+                    ? Results.Accepted()
+                    : Results.Conflict(new { error = "Local compute setup is disabled on this Headquarters." });
+            }
             catch (UnauthorizedAccessException) { return Results.Forbid(); }
         });
         group.MapGet("/creation-options", async (Guid organizationId, HttpContext http, CSweetDbContext db,
@@ -54,9 +61,11 @@ public static class ComputeManagementEndpoints
             member.IsActive && member.ArchivedAt == null, token)) throw new UnauthorizedAccessException();
     }
 
-    internal static async Task StartSetupAsync(CSweetDbContext db, Guid business, Guid user, CancellationToken token)
+    internal static async Task<bool> StartSetupAsync(CSweetDbContext db, Guid business, Guid user,
+        bool interactiveSetupEnabled, CancellationToken token)
     {
         await RequireOwnerAsync(db, business, user, token);
+        if (!interactiveSetupEnabled) return false;
         await using var transaction = db.Database.IsRelational()
             ? await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, token) : null;
         await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, TimeProvider.System).LockAsync(business, token);
@@ -69,6 +78,7 @@ public static class ComputeManagementEndpoints
             await db.SaveChangesAsync(token);
         }
         if (transaction is not null) await transaction.CommitAsync(token);
+        return true;
     }
 
     internal static async Task<ComputeEnvironmentView> CreateAsync(CSweetDbContext db, ComputeDefaultsService defaults,

@@ -149,11 +149,28 @@ public sealed class ComputeProgressRenderingTests
         protected override void OnInitialized() { Capture?.Invoke(this); base.OnInitialized(); }
     }
 
-    private static async Task<string> Render(ComputeSetupStatus? status, bool canManage = false)
+    [Fact]
+    public async Task UnattendedOwnerSeesOfficeWaitBeforeAndAfterWorkerObservation()
+    {
+        foreach (var status in new ComputeSetupStatus?[] { null, new("Pending", "Queued", null, null, null),
+                     new("Pending", "Office capacity", null, null, null) { Health = "WaitingForOffice" } })
+        {
+            var html = await Render(status, canManage: true, legacyLocalSetupEnabled: false);
+            Assert.Contains("Waiting for Office compute capacity", html);
+            Assert.DoesNotContain("Set up Linux", html);
+            Assert.DoesNotContain("permission prompt", html);
+            Assert.DoesNotContain("Download image", html);
+        }
+        var ready = await Render(new("Ready", "Ready", null, null, null), true, false);
+        Assert.Contains("Create instance", ready);
+        Assert.DoesNotContain("Update compute service", ready);
+    }
+
+    private static async Task<string> Render(ComputeSetupStatus? status, bool canManage = false, bool legacyLocalSetupEnabled = true)
     {
         var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
         services.AddSingleton<IJSRuntime, NoJavaScript>(); services.AddSingleton<NavigationManager, Navigation>();
-        services.AddSingleton(new HttpClient(new Handler(status, canManage)) { BaseAddress = new("http://localhost/") });
+        services.AddSingleton(new HttpClient(new Handler(status, canManage, legacyLocalSetupEnabled)) { BaseAddress = new("http://localhost/") });
         await using var provider = services.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
         return await renderer.Dispatcher.InvokeAsync(async () =>
@@ -163,10 +180,11 @@ public sealed class ComputeProgressRenderingTests
             return WebUtility.HtmlDecode(component.ToHtmlString());
         });
     }
-    private sealed class Handler(ComputeSetupStatus? status, bool canManage) : HttpMessageHandler
+    private sealed class Handler(ComputeSetupStatus? status, bool canManage, bool legacyLocalSetupEnabled) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new ComputeDashboard(DateTimeOffset.UtcNow, status, [], false, canManage)) });
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(
+                new ComputeDashboard(DateTimeOffset.UtcNow, status, [], false, canManage, LegacyLocalSetupEnabled: legacyLocalSetupEnabled)) });
     }
     private sealed class Navigation : NavigationManager
     {

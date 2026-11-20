@@ -217,7 +217,7 @@
     else if (_fleet is not null && SelectedOffice is { } node)
     {
         <LocalOfficeUpgrade @key="node.Id" @ref="_officeCare" Office="node" Disabled="ActionsDisabled" PackageUrl="@PackageUrl(node)"
-            ShowSummary="false" DevelopmentBuild="@CanBuildLocally(node)" ActiveWork="ActiveWork(node.Id)" InProgressChanged="CareProgressChanged"
+            ShowSummary="false" ActiveWork="ActiveWork(node.Id)" InProgressChanged="CareProgressChanged"
             OnSessionChanged="session => _careSession = session" ActionMessage="@_message" ActionSucceeded="_messageSucceeded"
             OnChanged="LoadAsync" OnUpdateRequested="OpenUpdateAsync" OnResume='@(() => NodeActionAsync(node.Id, "resume"))' OnPause='@(() => NodeActionAsync(node.Id, "drain"))' />
         <MudTabs @bind-ActivePanelIndex="_activeTab" KeepPanelsAlive="true" Elevation="0" Rounded="true" Class="office-tabs">
@@ -268,7 +268,7 @@
             }
             else if (HasUpdate(node) && !_careInProgress)
             {
-                <MudAlert Severity="Severity.Info" Class="mt-2">@(CanBuildLocally(node) ? "A local source fallback is available. C-Sweet will prefer the latest verified prebuilt Office bundle." : $"Office {OfficeUpdatePresentation.TargetVersion(node, _updates!)} is available.")</MudAlert>
+                <MudAlert Severity="Severity.Info" Class="mt-2">@(CanBuildLocally(node) ? "Unattended updates require a published Office package for this platform." : $"Office {OfficeUpdatePresentation.TargetVersion(node, _updates!)} is available.")</MudAlert>
                 <MudButton Class="mt-2" Variant="Variant.Filled" Color="Color.Primary" Disabled="@ActionsDisabled" OnClick="OpenUpdateAsync">@L["ExecutionFleet.UpdateOffice"]</MudButton>
             }
             @if (!OfficeUpdateRunning(node.Id)) { <MudText Class="mt-2">@(_careInProgress ? "You can check progress at any time." : "Connection help and recovery are available separately from software updates.")</MudText> }

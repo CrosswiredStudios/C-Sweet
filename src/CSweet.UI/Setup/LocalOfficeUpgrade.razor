@@ -85,8 +85,15 @@ else
         @if (_session.AdministratorApprovalRequestedAt is not null)
         {
             <MudProgressLinear Class="my-3" Indeterminate="true" />
-            <MudText>Waiting for @Office.MachineName. Allow the Windows prompt if one appears.</MudText>
-            <MudButton Class="mt-3" Disabled="@(_busy || Disabled)" OnClick="OpenHelperAsync">@L["LocalOfficeUpgrade.NeedHelpOpeningTheRecovery"]</MudButton>
+            @if (_session.LaunchMethod == "agent")
+            {
+                <MudText>Waiting for the Office maintenance service on @Office.MachineName to connect. You can leave this page.</MudText>
+            }
+            else
+            {
+                <MudText>Waiting for @Office.MachineName. Allow the Windows prompt if one appears.</MudText>
+                <MudButton Class="mt-3" Disabled="@(_busy || Disabled)" OnClick="OpenHelperAsync">@L["LocalOfficeUpgrade.NeedHelpOpeningTheRecovery"]</MudButton>
+            }
         }
         else if (_session.LaunchMethod == "agent")
         {
@@ -152,7 +159,6 @@ else
     [Parameter] public EventCallback OnUpdateRequested { get; set; }
     private Task RequestUpdateAsync() => OnUpdateRequested.InvokeAsync();
     [Parameter] public EventCallback<bool> InProgressChanged { get; set; }
-    [Parameter] public bool DevelopmentBuild { get; set; }
     [Parameter] public bool ShowSummary { get; set; } = true;
     [Parameter] public int? ActiveWork { get; set; }
     [Parameter] public EventCallback<LocalOfficeSetupSessionResponse> OnSessionChanged { get; set; }
@@ -200,7 +206,6 @@ else
         "redeemed" => "Keep the computer on. We'll take care of the services and connection.",
         "connected" => "The repair has finished. We're waiting for this Office to reconnect.",
         "ready" => "The connection has been verified. You can start work again when you're ready.",
-        _ when _operation == "upgrade" && DevelopmentBuild => "We'll prefer the latest verified prebuilt Office bundle. The configured local source is used only if release discovery is unavailable.",
         _ when _operation == "upgrade" => "We'll finish current work, install the available software, and check the connection.",
         _ => "We'll check the computer, repair its connection, and confirm it is working."
     };
@@ -280,17 +285,17 @@ else
                 await (await ModuleAsync()).InvokeVoidAsync("launchExternalUri", _session.LaunchUri);
         }
         catch (Exception ex) when (ex is HttpRequestException or ApiClientException or TaskCanceledException or JSException)
-        { Fail("The recovery app didn't open. Try again and allow the Windows prompt.", ex.Message); }
+        { Fail("The Office maintenance request could not continue. Check its status and retry.", ex.Message); }
         finally { _busy = false; await InProgressChanged.InvokeAsync(OperationInProgress); }
     }
     private async Task OpenHelperAsync()
     {
-        if (_busy || Disabled || _session is null) return;
+        if (_busy || Disabled || _session?.LaunchMethod != "protocol") return;
         _busy = true;
         try
         {
             Accept(await SetupApi.RefreshLocalOfficeSetupSessionHandoffAsync(_session.Id, _lifetime.Token));
-            if (_error is null && _session.LaunchUri is not null)
+            if (_error is null && _session.LaunchMethod == "protocol" && _session.LaunchUri is not null)
                 await (await ModuleAsync()).InvokeVoidAsync("launchExternalUri", _session.LaunchUri);
         }
         catch (Exception ex) when (ex is HttpRequestException or ApiClientException or JSException or TaskCanceledException)

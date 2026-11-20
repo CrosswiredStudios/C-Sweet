@@ -1,0 +1,16 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+  <Bundle Name="$(var.BundleName)" Manufacturer="C-Sweet" Version="$(var.ProductVersion)"
+          UpgradeCode="$(var.UpgradeCode)" Compressed="no">
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense" LicenseUrl="" SuppressOptionsUI="yes" />
+    </BootstrapperApplication>
+    <Chain>
+      <MsiPackage Id="Headquarters" SourceFile="$(var.HeadquartersMsi)" Name="Headquarters.msi" Compressed="yes" Vital="yes">
+        <MsiProperty Name="CSWEET_COMBINED_INSTALL" Value="1" />
+      </MsiPackage>
+      <MsiPackage Id="Office" SourceFile="$(var.OfficeMsi)" Name="office\Office.msi" Vital="yes">
+        <MsiProperty Name="CSWEET_COMBINED_INSTALL" Value="1" />
+      </MsiPackage>
+    </Chain>
+  </Bundle>
+</Wix>

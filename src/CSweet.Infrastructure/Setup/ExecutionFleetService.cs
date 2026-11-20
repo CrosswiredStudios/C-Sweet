@@ -239,6 +239,9 @@ public sealed partial class ExecutionFleetService(
         ArgumentNullException.ThrowIfNull(request);
         if (request.AutomaticUpdate && (request.UpgradeOfficeId is null || request.Repair))
             return await LocalFailureAsync("invalid_update", "Select an existing Office for an automatic update.", cancellationToken);
+        if (request.UseLocalSource)
+            return await LocalFailureAsync("published_update_required",
+                "A published Office package is required for unattended maintenance.", cancellationToken);
         if (request.UpgradeOfficeId is null && OperatingSystem.IsLinux())
             return await LocalFailureAsync("manual_setup_required",
                 "Linux Office setup uses the signed package and an explicit administrator command.", cancellationToken);
@@ -259,6 +262,9 @@ public sealed partial class ExecutionFleetService(
                 x.ExpiresAt > timeProvider.GetUtcNow(), cancellationToken))
                 return await LocalFailureAsync("upgrade_in_progress", "Another administrator is already upgrading this Office.", cancellationToken);
             upgradeOffice = await dbContext.ExecutionNodes.SingleAsync(x => x.Id == upgradeId, cancellationToken);
+            if (Version.TryParse(upgradeOffice.NodeVersion, out var installed) && installed < new Version(0, 5, 0))
+                return await LocalFailureAsync("office_maintenance_unavailable",
+                    "This Office version predates unattended maintenance. Install a supported Office package on that machine before requesting maintenance.", cancellationToken);
             request = new("custom", upgradeOffice.AllocatableCpuCount, upgradeOffice.AllocatableMemoryMb,
                 upgradeOffice.AllocatableDiskMb, upgradeId, request.Repair, request.AutomaticUpdate, request.TargetVersion, request.UseLocalSource);
         }
@@ -580,11 +586,12 @@ public sealed partial class ExecutionFleetService(
         session.AdministratorApprovalRequestedAt = now;
         session.UpdatedAt = now;
         await dbContext.SaveChangesAsync(cancellationToken);
+        var message = launchMethod == "agent" ? "Waiting for the installed Office maintenance service." :
+            "Windows administrator approval requested.";
         await auditWriter.WriteAsync("office.local-setup.launched", nameof(LocalOfficeSetupSession), session.Id,
-            "Requested administrator approval for assisted Windows Office setup.",
+            message,
             cancellationToken: cancellationToken);
-        return new LocalOfficeSetupActionResponse(true, null,
-            "Windows administrator approval requested.",
+        return new LocalOfficeSetupActionResponse(true, null, message,
             Map(session, fleetOptions?.Value.WindowsPackageOverrideUrl, launchUri, launchMethod),
             await GetOnboardingStatusAsync(cancellationToken));
     }
@@ -1952,6 +1959,13 @@ public sealed partial class ExecutionFleetService(
         if (expired.Count == 0) return;
         foreach (var session in expired)
         {
+            if (session.Status == LocalOfficeSetupSessionStatus.Created &&
+                session.RecoveryAction is "repair" or "upgrade" && session.AdministratorApprovalRequestedAt is not null &&
+                session.PreparationStartedAt is null)
+            {
+                session.ErrorCode = "office_maintenance_unavailable";
+                session.ErrorMessage = "The Office maintenance service did not begin the operation before the handoff expired. Check its service status and its connection to Headquarters, then retry.";
+            }
             session.Status = LocalOfficeSetupSessionStatus.Expired;
             session.UpdatedAt = now;
         }
@@ -2057,6 +2071,10 @@ public sealed partial class ExecutionFleetService(
         (string phaseKey, string phaseName, string message, int percent,
             int? minimumSeconds, int? maximumSeconds) = status switch
         {
+            LocalOfficeSetupSessionStatus.Created when session.RecoveryAction is "repair" or "upgrade" =>
+                ("maintenance", "Office maintenance", session.AdministratorApprovalRequestedAt is null
+                    ? "Review the Office maintenance request."
+                    : "Waiting for the installed Office maintenance service to connect to Headquarters.", 0, (int?)null, (int?)null),
             LocalOfficeSetupSessionStatus.Created => ("install", "Administrator approval required",
                 "Windows will ask for administrator approval so C-Sweet can create the secure VM runtime.", 0, (int?)null, (int?)null),
             LocalOfficeSetupSessionStatus.Redeemed => ("install", "Preparing your Office",
@@ -2075,7 +2093,7 @@ public sealed partial class ExecutionFleetService(
                 "The existing Office was removed. You can now install a fresh Office.",
                 100, (int?)0, (int?)0),
             LocalOfficeSetupSessionStatus.Expired => ("install", "Setup session expired",
-                "Start again to create a fresh secure setup handoff.", 0, (int?)null, (int?)null),
+                session.ErrorMessage ?? "Start again to create a fresh secure setup handoff.", 0, (int?)null, (int?)null),
             LocalOfficeSetupSessionStatus.Revoked => ("install", "Setup session replaced",
                 "A newer local setup session replaced this one.", 0, (int?)null, (int?)null),
             LocalOfficeSetupSessionStatus.Failed => ("install", "Setup needs attention",
@@ -2223,9 +2241,11 @@ public sealed partial class ExecutionFleetService(
             !string.Equals(NormalizeHex(node.CertificateSerialNumber), NormalizeHex(serialNumber), StringComparison.Ordinal)) return null;
         var session = await dbContext.LocalOfficeSetupSessions.Where(x => x.UpgradeOfficeId == officeId &&
             (x.RecoveryAction == "repair" || x.RecoveryAction == "upgrade") && x.Status == LocalOfficeSetupSessionStatus.Created &&
+            !x.UseLocalUpdateSource &&
             x.AdministratorApprovalRequestedAt != null && x.ExpiresAt > now).OrderBy(x => x.CreatedAt).FirstOrDefaultAsync(cancellationToken);
-        if (session is null || LocalSetupLaunchMethod(session) == "server") return null;
-        if (session.AutomaticUpdate && (session.PreparationStartedAt is not null || session.CancellationRequestedAt is not null)) return null;
+        if (session is null) return null;
+        if (session.AutomaticUpdate && (session.PreparationStartedAt is not null || session.CancellationRequestedAt is not null ||
+            !Version.TryParse(node.NodeVersion, out var installed) || installed < SignedUpdateMinimumVersion)) return null;
         var handoff = Base64Url(RandomNumberGenerator.GetBytes(32));
         session.HandoffSecretHash = Hash(handoff);
         session.UpdatedAt = now;
@@ -2238,17 +2258,8 @@ public sealed partial class ExecutionFleetService(
 
     private string LocalSetupLaunchMethod(LocalOfficeSetupSession session)
     {
-        // On this configured Windows host, use the same reviewed launcher as first setup.
-        // Repair must not depend on the Office maintenance connection it is repairing.
-        // Other machines continue through their certificate-authorized maintenance agent.
-        if (session.RecoveryAction is "repair" or "upgrade" && DevelopmentLauncherConfigured &&
-            MachineMatches(session, Environment.MachineName, "windows",
-                System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString())) return "server";
-        if (session.RecoveryAction is "repair" or "upgrade" && session.UpgradeOfficeId is { } officeId)
-        {
-            var version = dbContext.ExecutionNodes.AsNoTracking().Where(x => x.Id == officeId).Select(x => x.NodeVersion).FirstOrDefault();
-            if (Version.TryParse(version, out var installed) && installed >= new Version(0, 5, 0)) return "agent";
-        }
+        // Maintenance has its own certificate recovery channel, independent of the workload service.
+        if (session.RecoveryAction is "repair" or "upgrade") return "agent";
         return DevelopmentLauncherConfigured && MachineMatches(session, Environment.MachineName, "windows",
             System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString()) ? "server" : "protocol";
     }

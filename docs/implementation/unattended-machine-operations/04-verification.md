@@ -5,6 +5,23 @@
 Mocked tests prove logic, not a bootable machine. Each row needs a real run, recorded with the
 builds used. Record results in the last column when a scenario is run.
 
+### Windows transport and packaging evidence, 2026-11-20
+
+A signed create and a separately signed command ran against a real Hyper-V Linux guest
+with zero network adapters. The command appended a unique marker before its acknowledgment
+was discarded. A fresh receiver opened the retained journal, returned `outcome-unknown`
+and recorded one reservation. An independent signed guest read found the marker exactly
+once. The test removed its VM and differencing disk. The image SHA-256 was
+`56241f677edf6f71e7bdf811c9cfad1f0e8e73a702b02e9b8d642889b55adf70`.
+The receiver was the [transport probe](../../../tests/CSweet.Compute.TransportProbe/Program.cs).
+Restarting the installed Office and dropping a create acknowledgment remain open parts of V12.
+
+Windows Installer also extracted the signed Office development MSI and its fourteen external
+cabinets with `msiexec /a`. Reassembling the thirteen image parts produced 6,937,378,816 bytes
+with SHA-256 `134492eef35949020d61abb289087e40282d40333e9a179cdbc49fc617faadd4`,
+matching the installed Office release manifest. The test used a short-lived local signing key.
+Administrative extraction does not exercise enrollment, service startup or the interactive UAC count.
+
 | # | Scenario | Deployment shape | Pass when | Result |
 | --- | --- | --- | --- | --- |
 | V1a | Office team: bootstrap the Windows Office, reboot it to the sign-in screen and send an authorized compute request from an already running Headquarters | Private, separate Windows Office | Office services start and reconnect before login. One environment becomes ready without elevation. Record the Office build and boot evidence for Phase 2 | |

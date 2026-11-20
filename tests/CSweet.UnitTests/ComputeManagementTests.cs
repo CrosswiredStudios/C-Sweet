@@ -52,15 +52,17 @@ public sealed class ComputeManagementTests
     {
         await using var fixture = new ComputeBrokerTests.Fixture(); await fixture.SeedAsync();
         var user = await OwnerAsync(fixture);
-        await ComputeManagementEndpoints.StartSetupAsync(fixture.Db, fixture.Organization, user, default);
-        await ComputeManagementEndpoints.StartSetupAsync(fixture.Db, fixture.Organization, user, default);
+        Assert.False(await ComputeManagementEndpoints.StartSetupAsync(fixture.Db, fixture.Organization, user, false, default));
+        Assert.Empty(await fixture.Db.Set<ComputeLocalSetup>().ToListAsync());
+        Assert.True(await ComputeManagementEndpoints.StartSetupAsync(fixture.Db, fixture.Organization, user, true, default));
+        Assert.True(await ComputeManagementEndpoints.StartSetupAsync(fixture.Db, fixture.Organization, user, true, default));
         Assert.Equal("Pending", (await fixture.Db.Set<ComputeLocalSetup>().SingleAsync()).State);
         Assert.Single(await fixture.Db.AuditOutbox.Where(entry => entry.RequestJson.Contains("compute.workspace.preparation-requested.v1")).ToListAsync());
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => ComputeManagementEndpoints.StartSetupAsync(fixture.Db, Guid.NewGuid(), user, default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => ComputeManagementEndpoints.StartSetupAsync(fixture.Db, Guid.NewGuid(), user, true, default));
         var owner = await fixture.Db.CoreOrganizationUsers.SingleAsync(member => member.ApplicationUserId == user);
         owner.PermissionLevel = OrganizationPermissionLevel.Contributor;
         await fixture.Db.SaveChangesAsync();
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => ComputeManagementEndpoints.StartSetupAsync(fixture.Db, fixture.Organization, user, default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => ComputeManagementEndpoints.StartSetupAsync(fixture.Db, fixture.Organization, user, false, default));
     }
 
     [Fact]

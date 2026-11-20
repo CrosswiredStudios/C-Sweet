@@ -23,24 +23,36 @@ public static class ComputeDashboardEndpoints
             var root = configuration["CSweet:Compute:RepositoryRoot"] ?? Path.GetFullPath(Path.Combine(environment.ContentRootPath, "..", ".."));
             var result = await ReadAsync(db, organizationId, userId, root,
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), token, downloads);
-            return result is null ? Results.Forbid() : Results.Ok(result);
+            return result is null ? Results.Forbid() : Results.Ok(result with
+                { LegacyLocalSetupEnabled = ComputeLocalSetupWorker.InteractiveSetupEnabled(environment, configuration) });
         }).RequireAuthorization();
         endpoints.MapPost("/api/organizations/{organizationId:guid}/compute/setup/update", async (Guid organizationId,
-            HttpContext http, CSweetDbContext db, CancellationToken token) =>
+            HttpContext http, CSweetDbContext db, IWebHostEnvironment environment, IConfiguration configuration, CancellationToken token) =>
         {
             if (http.User.GetApplicationUserId() is not { } userId) return Results.Unauthorized();
-            try { await QueueRuntimeUpdateAsync(db, organizationId, userId, token); return Results.Accepted(); }
+            try
+            {
+                if (!ComputeLocalSetupWorker.InteractiveSetupEnabled(environment, configuration))
+                {
+                    await ComputeManagementEndpoints.RequireOwnerAsync(db, organizationId, userId, token);
+                    return Results.Conflict(new { error = "Local compute installer updates are disabled on this Headquarters." });
+                }
+                await QueueRuntimeUpdateAsync(db, organizationId, userId, token);
+                return Results.Accepted();
+            }
             catch (UnauthorizedAccessException) { return Results.Forbid(); }
             catch (InvalidOperationException) { return Results.Conflict(new { error = "Compute must be ready with no outstanding operation before updating its service." }); }
         }).RequireAuthorization();
         endpoints.MapPost("/api/organizations/{organizationId:guid}/compute/setup/repair", async (Guid organizationId,
-            HttpContext http, CSweetDbContext db, CancellationToken token) =>
+            HttpContext http, CSweetDbContext db, IWebHostEnvironment environment, IConfiguration configuration, CancellationToken token) =>
         {
             if (http.User.GetApplicationUserId() is not { } userId) return Results.Unauthorized();
             if (!await db.CoreOrganizationUsers.AnyAsync(x => x.OrganizationId == organizationId &&
                 x.ApplicationUserId == userId && x.EmployeeType == EmployeeType.Human && x.IsActive &&
                 x.ArchivedAt == null && x.PermissionLevel == OrganizationPermissionLevel.Owner, token))
                 return Results.Forbid();
+            if (!ComputeLocalSetupWorker.InteractiveSetupEnabled(environment, configuration))
+                return Results.Conflict(new { error = "Local compute installer repairs are disabled on this Headquarters." });
             var setup = await db.Set<ComputeLocalSetup>().SingleOrDefaultAsync(x => x.OrganizationId == organizationId, token);
             if (setup is null) return Results.NotFound();
             var setupDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -138,6 +150,9 @@ public static class ComputeDashboardEndpoints
 
     internal static ComputeSetupStatus ReadProgress(ComputeLocalSetup setup, string repositoryRoot, string localData, Action<string>? observeFile = null)
     {
+        if (setup.State == "Pending" && setup.ErrorCode == ComputeLocalSetupWorker.WaitingForOffice)
+            return new("Pending", "Waiting for an Office with compute capacity", setup.UpdatedAt, null, setup.ErrorCode)
+                { Phase = "office-capacity", Health = "WaitingForOffice" };
         var stage = setup.State switch { "Pending" => "Waiting to prepare Linux", "Running" => "Preparing Linux",
             "Ready" => "Ready for compute requests", "Failed" => "Preparation failed", _ => "Checking preparation" };
         DateTimeOffset? progressAt = setup.UpdatedAt;
