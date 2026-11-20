@@ -24,6 +24,10 @@ The first production goal is not the marketplace. The first production goal is a
 and agent changes, gives the recovery sequence for the retained PRISM BREAK proposal, and defines
 how a fresh team proves it can start a sprint and claim its first implementation task.
 
+[Unattended machine operations](unattended-machine-operations/README.md) is a review set for
+moving agent-provisioned compute from Headquarters into Offices, so that no administrator prompt
+appears after install in private or hosted deployments. Proposal only; nothing is implemented.
+
 [Standalone agent testing framework](agent-testing-framework.md) plans the shared SDK dispatcher,
 incident and new-flow scenarios, and the Codex and Claude Code development workflow from a local
 `dotnet test` run through pull-request and release verification.
