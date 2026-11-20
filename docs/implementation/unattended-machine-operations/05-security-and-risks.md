@@ -4,8 +4,9 @@
 
 ## Security review
 
-The change removes a privileged path from Headquarters and adds one workload kind to an existing,
-already-guarded one. The installer path is retired only after migration. The new guest commands,
+This assessment describes the workload-kind candidate for T1. If Phase 0 selects packet relay,
+review its verifier and replay state against the same invariants before Phase 1. The Headquarters
+installer path is retired only after migration. The new guest commands,
 archive transfers and remotely accessible publications each need their own authorization tests.
 
 | Component | Can do today | Can do after |
@@ -53,7 +54,7 @@ archive transfers and remotely accessible publications each need their own autho
 
 | Risk | Why it matters | Mitigation |
 | --- | --- | --- |
-| Compute semantics do not map cleanly onto Office assignments | Compute has start, stop, restart, generations and per-operation dispatch. Office workloads are created, leased and destroyed | Decide T1 first. Prototype provision, one command and destroy on Hyper-V in Phase 2 before porting the rest |
+| Compute semantics do not map cleanly onto Office assignments | Compute has start, stop, restart, generations and per-operation dispatch. Office workloads are created, leased and destroyed | Compare both transports in Phase 0 using the same lost-acknowledgment and restart test. Use its evidence to decide T1 before publishing a contract |
 | Docker and package installs through the tunnel instead of a NAT adapter | The guest sees a TUN device and a SOCKS5 bridge, not ordinary networking. Docker image pulls and some tools may behave differently | Test the Software Developer's Docker flow and `npm install` in Phase 2. Preload the browser-test image into the compute image, as today |
 | Browser tests with WebGL on Firecracker | Today's probe ran on Hyper-V only | Treat as a Phase 5 gate item. If it fails, restrict browser tests to Offices that pass the probe |
 | Three repositories must move together | Contracts, Office and Headquarters each need a released pin | Additive contract plus the inventory flag, so old and new versions can coexist during rollout (V14) |

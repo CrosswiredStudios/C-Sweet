@@ -4,7 +4,10 @@
 
 ## Target design
 
-Headquarters decides; the Office does the machine work.
+Headquarters authorizes each operation and the Office performs the machine work. The diagrams
+and contract details below illustrate the workload-kind proposal. The [Phase 0 transport spike](03-work-plan.md)
+determines whether to implement that proposal or carry existing signed compute packets over
+the Office channel.
 
 ```mermaid
 flowchart LR
@@ -65,7 +68,7 @@ integrating the live claim, result and receipt flow documented in [Current behav
 | Outbound internet | Grants it | The Node's tunnel enforces the grant and the blocked ranges |
 | Limits | Plan and CFO spend limits | RuntimeHost enforces the Office's own ceilings |
 
-## Contract (Office.Contracts 0.14.0, additive)
+## Candidate contract for an Office workload kind
 
 - `WorkloadKind.ComputeEnvironment` and a `ComputeEnvironmentWorkloadSpecification`: guest image,
   resource limits, features, optional `NetworkPolicy`, optional `PersistentDisk`, and the

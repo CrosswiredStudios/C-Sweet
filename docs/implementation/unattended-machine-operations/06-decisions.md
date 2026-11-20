@@ -26,7 +26,10 @@
 
 ## For the team to decide
 
-Record the outcome and date in the last column.
+Record the outcome and date in the last column. T4–T6 are product choices to confirm before
+implementing the affected defaults, guest selection and legacy routing. They do not block the
+independent Office maintenance fix or the transport experiment. Resolve T1 from Phase 0 evidence
+before publishing a contract. Confirm T2 and T3 before starting the Phase 2 backend and image work.
 
 | ID | Question | Recommendation | Outcome |
 | --- | --- | --- | --- |
@@ -34,15 +37,14 @@ Record the outcome and date in the last column.
 | T2 | Which backends ship first? | Hyper-V first for parity with today; Firecracker second as the gate for hosted Offices; Apple Virtualization later | |
 | T3 | Which prebuilt compute images do we commit to maintaining? | One Ubuntu 24.04 image with Python, Node, Docker and the browser-test runner, built per backend in the Office release pipeline | |
 | T4 | What does an Office allow when the installer or plan says nothing? | Compute off until explicitly allowed | |
-| T5 | Do we keep Windows guests? | Drop them from scope. The compute contracts allow a Windows guest; Office images are Linux only | |
-| T6 | What happens to compute on existing development installs during the transition? | Keep the old path behind a development switch until Phase 4 passes, then remove it | |
+| T5 | Do we keep Windows guests? | Ship Linux guests only in the first release, including on Windows Hyper-V hosts. Preserve the ability to read and clean up existing Windows guest records | |
+| T6 | What happens to compute on existing development installs during the transition? | Allow explicit opt-in on development installations through the Phase 4 gate. Default off, with no managed-host fallback. Retire legacy resources in Phase 6 after ownership and data checks | |
 
 ## Smaller questions for implementation
 
 - Does the compute guest program merge into the Office runtime guest, or ship beside it in the
   same image? The design assumes beside it.
 - Does an Office update wait for a live environment, or drain and recreate it?
-- Is Phase 0 worth doing now for development machines?
 
 ## Follow-up source review (2026-11-20)
 
@@ -97,3 +99,4 @@ hardware questions remain open.
 | 2026-11-19 | Re-evaluated against the latest code and the hosted and self-hosted shapes; plan updated |
 | 2026-11-20 | Written into the repository for team review |
 | 2026-11-20 | Follow-up verified current dispatch, launch routes and wire fields, and tightened policy, replay and migration gates. T1–T6 remain open |
+| 2026-11-20 | Moved the transport proof before contract publication, separated the maintenance fix for independent release and assigned the two cold-boot checks to Office and Headquarters Windows MSI |

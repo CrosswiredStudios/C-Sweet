@@ -62,7 +62,9 @@ For a product review read this page and 06. For a technical review read 01, 02, 
 
 ## Summary of what the team must decide
 
-Details and recommendations are in [06 Decisions](06-decisions.md).
+The product recommendations are T4–T6. The separate maintenance fix can ship against today's
+Office. For compute, decide T1 from the restart experiment before changing the wire contract,
+then settle T2 and T3 before backend implementation. [Decision record](06-decisions.md)
 
 - **T1** How a compute request reaches the Office.
 - **T2** Which Office backends ship first.

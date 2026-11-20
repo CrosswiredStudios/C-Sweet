@@ -4,44 +4,68 @@
 
 ## Phases and gates
 
-Each phase ends with a gate that can be tested before the next begins. Phase 0 is optional and
-only helps today's development setup.
+Two pieces of work can start independently. Headquarters can ship the repair and upgrade routing
+fix against an already installed Office. The compute team starts with the transport spike in
+Phase 0. Both can use the current Office.Contracts release and defer production image selection.
+
+**Independent Headquarters release.** Change `ExecutionFleetService.LocalSetupLaunchMethod`
+so an enrolled Windows Office receives authorized repair and upgrade handoffs through
+`ClaimOfficeMaintenanceAsync`, including when the development launcher is configured. Preserve
+drain, identity and certificate checks. If the installed Office cannot service the handoff,
+surface that state in Headquarters. Gate release on V11a using today's Office and workloads.
 
 | Phase | What | Gate |
 | --- | --- | --- |
-| 0 (optional) | Disable interactive compute setup in unattended mode and report the missing provider immediately | A hire in unattended mode reports the actionable state within a minute, with no Windows shell launch |
-| 1 | Office.Contracts 0.14.0: the new workload kind, its specification, the inventory flag, guest protocol additions | Package-only tests pass in Contracts, Office and Headquarters; frozen assignment vectors unchanged; new vector test added |
-| 2 | Office on Hyper-V: RuntimeHost runs the new kind; compute image profile in the release; operations, port relay and tunnel egress over the guest channel; compute policy and ceilings | On a Windows Office with nobody logged in, a signed assignment produces a ready environment; a command, a browser test and a published port work; a request over the ceiling is refused |
-| 3 | Office installers: compute step on Windows, flags on Linux, macOS option; Node reports compute support and capacity | A fresh install with compute allowed reports it; one without refuses the new kind |
-| 4 | Headquarters: Office-backed compute provider; scheduling onto Offices; no compute setup on hire; Compute page shows Office capacity; no-capacity notice | The Game Engineer is hired and gets an environment with no prompt anywhere. Breakout build and browser evidence pass end to end |
+| 0 | Prototype T1 with a disposable guest. Compare an Office workload assignment with relaying the existing signed compute packet. Exercise VM creation and a separately authorized guest command | Drop the acknowledgment after the command records a side effect, restart Office over retained state and redeliver the same operation. Verify one VM, one reservation and one command effect. Recover the receipt or report the outcome as unknown. Record the evidence and selected transport in T1 before Phase 1 |
+| 1 | Define and package only the wire changes required by the selected transport, including capability negotiation | Existing signing vectors and old-peer behavior pass. Pin vectors for new signed data, verify the package version, and test both consumers with sibling references disabled |
+| 2 | Implement the selected transport on the first agreed backend and image (T2/T3 recommend Hyper-V and a Linux guest). Add guest operations, port relay, egress and Office-side ceilings | V1a passes after reboot with a separately running Headquarters. A command, browser test and published port work, and an over-limit request is refused |
+| 3 | Add compute consent and capacity reporting to Office installers for supported backends | A fresh install advertises compute only when policy and backend certification allow it. An Office with compute disabled refuses a compute request |
+| 4 | Route live compute claims and results between Headquarters and eligible Offices. Reconcile receipts, remove the local setup trigger on hire and show capacity or a durable wait | The Game Engineer is hired and gets one environment on the selected Office with no prompt. The existing build and browser evidence flow passes end to end, including receipt recovery on redelivery |
 | 5 | Firecracker: compute image and operations on Linux Offices | The Phase 4 gate passes with Headquarters on a Linux server without virtualization and a Linux Office. This is the gate for offering compute on the hosted platform |
-| 6 | Retire Headquarters-local compute per machine after confirming ownership, drain, data disposition and cleanup receipts. Route Office repair and upgrade through unattended maintenance | V11 and V13 pass, including the unsuffixed service and legacy retirement tasks. No post-install route can reach an interactive launcher |
+| 6 | Retire Headquarters-local compute per machine after confirming ownership, drain, data disposition and cleanup receipts | V13 passes, including the unsuffixed service and legacy retirement tasks |
 | 7 | Documents and invariants | Docs describe only behavior that exists |
 
 Phases 2 and 3 can overlap. Phase 5 can start once Phase 2's guest work is stable, and does not
 block Phases 4 and 6 for private Windows installations.
 
-Until Phase 4 passes, the current compute path stays available behind a development switch so
-live runs are not blocked.
+Under the T6 recommendation, existing development installations can explicitly enable the legacy
+compute path until Phase 4 passes. Keep it off by default and unavailable in managed deployments.
+In unattended mode, report missing Office capacity promptly. Never fall back to the local
+installer when placement fails. After Phase 4, stop new legacy provisioning and retain observation
+and cleanup for existing resources until their Phase 6 retirement receipts arrive.
+
+The Office team owns V1a. The Headquarters Windows MSI team owns V1b, which also requires the
+installed Headquarters stack and its dependencies to start before Windows sign-in. V1b gates the
+same-machine Windows release. V11b gates unattended updates with **live compute** once Phase 4
+can place a real environment. [Verification scenarios](04-verification.md)
 
 ```mermaid
-flowchart LR
-    P1["1 Contracts 0.14.0"] --> P2["2 Office on Hyper-V"]
+flowchart TD
+    Fix["HQ maintenance routing"] --> V11a["V11a<br/>Release routing fix"]
+    P0["0 Transport spike<br/>Decide T1"] --> P1["1 Selected wire contract"]
+    P1 --> P2["2 First Office backend"]
     P1 --> P3["3 Office installers"]
     P2 --> P4["4 Headquarters"]
     P3 --> P4
     P2 --> P5["5 Firecracker"]
     P4 --> P6["6 Retire HQ compute"]
-    P4 --> Hosted["Compute on the hosted platform"]
+    P4 --> V11b["V11b<br/>Update with live compute"]
+    V11a --> V11b
+    P4 --> V1b["V1b<br/>Same-machine cold boot"]
+    MSI["HQ Windows service<br/>from MSI"] --> V1b
+    P4 --> Hosted["Hosted compute"]
     P5 --> Hosted
-    P4 --> P7["7 Docs and invariants"]
-    P6 --> P7
+    P6 --> P7["7 Docs and invariants"]
     P5 --> P7
 ```
 
 ## Work by repository
 
-### CSweet.Office.Contracts (0.13.0 to 0.14.0)
+### CSweet.Office.Contracts
+
+The following changes describe the workload-kind candidate. Phase 0 determines which fields and
+frames to publish. If T1 selects packet relay, document its transport and reuse the existing
+signed payloads. Apply the package versioning rules to the resulting public change.
 
 - `Workloads/WorkloadModels.cs`: `WorkloadKind.ComputeEnvironment`;
   `ComputeEnvironmentWorkloadSpecification` with `Validate()` bounds.
@@ -54,8 +78,8 @@ flowchart LR
 
 ### CSweet.Office
 
-- `Runtime.Core` and `RuntimeHost`: accept the new kind through the existing authorization gate
-  and attempt journal; compute policy and ceilings; reaper covers the new kind.
+- `Runtime.Core` and `RuntimeHost`: enforce Office compute policy and ceilings at execution.
+  Apply the verification and replay rules proven in Phase 0 and extend the reaper to compute.
 - `Runtime.HyperV.Helper`, then `Runtime.Firecracker.Helper`: create a compute environment from
   the compute image, with the persistent disk when the specification carries one. No network
   device.
@@ -73,7 +97,7 @@ flowchart LR
 
 - Trace one operation from `ComputeBroker` through `ComputeProviderWorkService.ClaimAsync` to
   `ComputeResultReconciler`. Map current claims, retries, observations, quota reservations and
-  receipts onto Office assignments before replacing the transport. Registering an
+  receipts onto the selected Office transport before replacing the existing route. Registering an
   `IComputeProvider` implementation alone cannot change the live path.
 - `ComputeDefaultsService`: stop creating `ComputeLocalSetup` on hire; resolve an Office instead.
 - `ComputeRegistry`: node and template records derive from enrolled Offices and released images.
@@ -113,7 +137,7 @@ flowchart LR
 
 | Plan | Effect |
 | --- | --- |
-| Windows MSI installer | The Headquarters MSI needs no Hyper-V, no compute payload and no compute image. The Office installer stays separate and carries the compute consent |
+| Windows MSI installer | The Headquarters MSI owns ordinary-privilege service registration and pre-login startup for V1b. The Office installer carries compute consent. The [Windows distribution guide](../../deployment/windows-build.md) lists service registration and clean-machine startup tests as pending |
 | Hosted platform / C-Sweet Cloud | Compute on hosted Offices depends on Phase 5. Hosted Office provisioning must write the compute policy |
 | Agent self-install (persistent disk) | Reuses the disk mechanism with independently owned compute disk identities |
 | Agent git access | Unaffected |
