@@ -100,3 +100,4 @@ hardware questions remain open.
 | 2026-11-20 | Written into the repository for team review |
 | 2026-11-20 | Follow-up verified current dispatch, launch routes and wire fields, and tightened policy, replay and migration gates. T1–T6 remain open |
 | 2026-11-20 | Moved the transport proof before contract publication, separated the maintenance fix for independent release and assigned the two cold-boot checks to Office and Headquarters Windows MSI |
+| 2026-11-20 | Exercised signed compute packets against a real NIC-less guest, debug-signed the combined Windows installer, and ran the hire callback across restart with capacity unavailable. See the [test results](04-verification.md) for the outstanding Office receiver and combined install gates |

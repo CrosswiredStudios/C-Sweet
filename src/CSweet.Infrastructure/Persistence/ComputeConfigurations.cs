@@ -9,6 +9,14 @@ internal static class ComputeConfigurations
 {
     internal static void Apply(ModelBuilder model)
     {
+        model.Entity<OfficeComputeCapacityRequest>(entity =>
+        {
+            entity.ToTable("OfficeComputeCapacityRequests");
+            entity.HasKey(x => x.InstallationId);
+            entity.HasIndex(x => new { x.OrganizationId, x.RequestedAt, x.InstallationId });
+            entity.HasOne<AgentInstallation>().WithMany().HasForeignKey(x => x.InstallationId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);
+        });
         model.Entity<ComputeLocalSetup>(entity =>
         {
             entity.ToTable("ComputeLocalSetups"); entity.HasKey(x => x.Id);

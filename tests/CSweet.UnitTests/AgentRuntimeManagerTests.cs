@@ -1201,14 +1201,15 @@ public sealed partial class AgentRuntimeManagerTests
     private static AgentRuntimeManager CreateManager(
         CSweetDbContext db,
         FakeRunner runner,
-        IAgentRuntimeEligibilityService? eligibility = null, bool artifactExists = true, AgentWorkInbox? workInbox = null)
+        IAgentRuntimeEligibilityService? eligibility = null, bool artifactExists = true, AgentWorkInbox? workInbox = null,
+        CSweet.Infrastructure.Compute.ComputeDefaultsService? computeDefaults = null)
     {
         runner.Db = db;
         return new(db, runner, new StaticGuestImageRegistry(), new TestAuditEventWriter(), Options.Create(new AgentRuntimeManagerOptions
         {
             RuntimeGuestImageVersion = "1.0",
             RuntimeGuestImageDigest = "sha256:" + new string('d', 64)
-        }), NullLogger<AgentRuntimeManager>.Instance, eligibility ?? new AllowAllRuntimeEligibility(), new TestArtifactStore(artifactExists), workInbox: workInbox);
+        }), NullLogger<AgentRuntimeManager>.Instance, eligibility ?? new AllowAllRuntimeEligibility(), new TestArtifactStore(artifactExists), computeDefaults, workInbox);
     }
 
     private sealed class AllowAllRuntimeEligibility : IAgentRuntimeEligibilityService

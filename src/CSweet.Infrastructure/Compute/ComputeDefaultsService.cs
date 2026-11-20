@@ -16,7 +16,7 @@ namespace CSweet.Infrastructure.Compute;
 
 /// <summary>Application policy for the local, ephemeral Linux workspace. Agents cannot select provider settings.</summary>
 public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider clock,
-    ComputeGrantAdministration grants, IConfiguration? configuration = null) : IComputeDefaults
+    ComputeGrantAdministration grants, IConfiguration? configuration = null, ComputePreparationMode? preparation = null) : IComputeDefaults
 {
     private static readonly string[] Actions = [InfrastructureActions.Provision, InfrastructureActions.Read,
         InfrastructureActions.List, InfrastructureActions.Execute, InfrastructureActions.Start, InfrastructureActions.Stop,
@@ -33,11 +33,26 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
             x.OrganizationId == organizationId && x.AgentInstallationId == installationId && x.IsActive &&
             x.ArchivedAt == null && x.EmployeeType == EmployeeType.Agent, token);
         if (actor is null) return;
-        await using var transaction = db.Database.IsRelational()
-            ? await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, token) : null;
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(token) : null;
         await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock).LockAsync(organizationId, token);
-        var setup = await db.Set<ComputeLocalSetup>().SingleOrDefaultAsync(x => x.OrganizationId == organizationId, token);
         var now = clock.GetUtcNow();
+        if (preparation?.LegacyInteractive != true)
+        {
+            if (!await db.Set<OfficeComputeCapacityRequest>().AnyAsync(x => x.InstallationId == installationId, token))
+            {
+                db.Add(new OfficeComputeCapacityRequest { OrganizationId = organizationId, InstallationId = installationId, RequestedAt = now });
+                var eventId = Guid.NewGuid();
+                db.AuditOutbox.Add(new() { Id = eventId, CreatedAt = now, RequestJson = JsonSerializer.Serialize(
+                    new AuditEventWriteRequest("compute.office.capacity-requested.v1", Category: "Infrastructure",
+                        Outcome: "Accepted", OrganizationId: organizationId, EntityType: "AgentInstallation", EntityId: installationId,
+                        Actor: new("Application", InstallationId: installationId), EventId: eventId, OccurredAt: now, UseAmbientOrganization: false)) });
+                await db.SaveChangesAsync(token);
+            }
+            if (transaction is not null) await transaction.CommitAsync(token);
+            return;
+        }
+        var setup = await db.Set<ComputeLocalSetup>().SingleOrDefaultAsync(x => x.OrganizationId == organizationId, token);
         var changed = setup is null || retryFailed && setup.State == "Failed";
         if (setup is null)
             db.Add(setup = new ComputeLocalSetup { Id = Guid.NewGuid(), OrganizationId = organizationId, CreatedAt = now, UpdatedAt = now });
@@ -93,6 +108,8 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
             x.SetupState == PluginSetupState.Ready, token) ?? throw new UnauthorizedAccessException();
         var approved = Approved(installation);
         if (!approved.Contains(InfrastructureActions.Read)) throw new UnauthorizedAccessException();
+        if (await db.Set<OfficeComputeCapacityRequest>().AnyAsync(x => x.OrganizationId == organizationId && x.InstallationId == installationId, token))
+            return new("Pending", projectId, null, OfficeComputeCapacityRequest.WaitingReason);
         var setup = await db.Set<ComputeLocalSetup>().SingleOrDefaultAsync(x => x.OrganizationId == organizationId, token);
         if (setup is not { State: "Ready", TemplateId: not null }) return new(setup?.State ?? "Pending", projectId, null, setup?.ErrorCode);
         var template = await db.ComputeTemplates.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId && x.TemplateId == setup.TemplateId, token);

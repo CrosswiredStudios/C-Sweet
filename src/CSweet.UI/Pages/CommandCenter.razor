@@ -72,7 +72,7 @@
                         <PendingAgentQuestions OrganizationId="OrganizationId" SummaryOnly="true" SuggestionCount="_suggestions.Count + _setupAttention"
                             ProjectIncidents="@(_approvals?.ProjectIncidents ?? [])" Approvals="ActionableApprovals.ToList()" Recommendations="PendingRecommendations.ToList()"
                             ApprovalsLoaded="@(_approvals is not null)" RecommendationsLoaded="@(_hiring is not null)"
-                            ComputeResources="ComputeAccessRequests" ComputeLoaded="@(_compute is not null)"
+                            ComputeResources="ComputeAccessRequests" WaitingForOfficeCapacity="@OverviewAttentionItems.WaitingForOfficeCapacity(_compute)" ComputeLoaded="@(_compute is not null)"
                             ComputeError="@_errors.GetValueOrDefault("compute")" ComputeHasMore="@(_compute is { CanManageNetwork: true, HasMore: true })"
                             ApprovalError="@_errors.GetValueOrDefault("approvals")" RecommendationError="@_errors.GetValueOrDefault("hiring")"
                             Issues="_issues" IssueError="@_errors.GetValueOrDefault("issues")" BlockedWork="@(_blockedWork ?? [])" BlockedWorkLoaded="@(_blockedWork is not null)" BlockedWorkError="@_errors.GetValueOrDefault("blocked-work")"

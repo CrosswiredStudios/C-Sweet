@@ -143,6 +143,14 @@ public static class ComputeDashboardEndpoints
         var progress = setup is null ? null : ReadProgress(setup, repositoryRoot, localData, file => downloadFile = file);
         if (setup is not null && progress is not null && downloads is not null)
             progress = await downloads.EnrichAsync(setup.Id, setup.UpdatedAt, downloadFile, progress, token);
+        var waitingSince = await db.Set<OfficeComputeCapacityRequest>().Where(x => x.OrganizationId == organizationId &&
+                db.AgentInstallations.Any(i => i.Id == x.InstallationId && i.IsEnabled) &&
+                db.CoreOrganizationUsers.Any(u => u.OrganizationId == organizationId && u.AgentInstallationId == x.InstallationId &&
+                    u.IsActive && u.ArchivedAt == null))
+            .OrderBy(x => x.RequestedAt).Select(x => (DateTimeOffset?)x.RequestedAt).FirstOrDefaultAsync(token);
+        if (waitingSince is not null)
+            progress = new("Pending", "Waiting for an Office with compute capacity", waitingSince.Value, null, OfficeComputeCapacityRequest.WaitingReason)
+                { Phase = "office-capacity", Health = "WaitingForOffice" };
         var canManage = await db.CoreOrganizationUsers.AnyAsync(x => x.OrganizationId == organizationId && x.ApplicationUserId == userId &&
             x.EmployeeType == EmployeeType.Human && x.IsActive && x.ArchivedAt == null && x.PermissionLevel == OrganizationPermissionLevel.Owner, token);
         return new(DateTimeOffset.UtcNow, progress, resources, environments.Count > 100, canManage);

@@ -21,7 +21,7 @@ public sealed class ComputeAutomaticSetupTests
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
             { ["CSweet:Compute:Defaults:MaximumLifetimeSeconds"] = "3600" }).Build();
         var legacy = new ComputeDefaultsService(f.Db, TimeProvider.System,
-            new(f.Db, TimeProvider.System, new CSweet.Infrastructure.Setup.AuditExecutionContextAccessor()), configuration);
+            new(f.Db, TimeProvider.System, new CSweet.Infrastructure.Setup.AuditExecutionContextAccessor()), configuration, new(true));
         await legacy.EnsureRequestedAsync(f.Installation, default);
         var setup = await f.Db.Set<ComputeLocalSetup>().SingleAsync(); setup.State = "Ready"; setup.TemplateId = "linux-local-test";
         await legacy.ActivateAccessAsync(setup, default);
@@ -122,7 +122,7 @@ public sealed class ComputeAutomaticSetupTests
     }
 
     private static ComputeDefaultsService Create(ComputeBrokerTests.Fixture f) => new(f.Db, TimeProvider.System,
-        new ComputeGrantAdministration(f.Db, TimeProvider.System, new CSweet.Infrastructure.Setup.AuditExecutionContextAccessor()));
+        new ComputeGrantAdministration(f.Db, TimeProvider.System, new CSweet.Infrastructure.Setup.AuditExecutionContextAccessor()), preparation: new(true));
 
     // Retained records from previous versions still support environment recovery and grant upgrades.
     // New setup must never create these records.

@@ -125,6 +125,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IExecutionBrokerSessionRunner, ExecutionBrokerSessionRunner>();
         builder.Services.AddSingleton<IAuditExecutionContextAccessor, AuditExecutionContextAccessor>();
         builder.Services.AddSingleton<IAuditEventWriter, AuditEventWriter>();
+        builder.Services.AddSingleton(CSweet.Infrastructure.Compute.ComputePreparationMode.FromHost(builder.Environment, builder.Configuration));
         builder.Services.AddScoped<CSweet.Infrastructure.Compute.ComputeDefaultsService>();
         builder.Services.AddScoped<CSweet.Application.Compute.IComputeDefaults>(sp => sp.GetRequiredService<CSweet.Infrastructure.Compute.ComputeDefaultsService>());
         builder.Services.AddScoped<CSweet.Infrastructure.Compute.ComputeRegistry>();

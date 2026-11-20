@@ -18,11 +18,10 @@ namespace CSweet.Api.Compute;
 public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfiguration configuration,
     IWebHostEnvironment environment, ILogger<ComputeLocalSetupWorker> logger) : BackgroundService
 {
-    internal const string WaitingForOffice = "office_compute_capacity_unavailable";
+    internal const string WaitingForOffice = OfficeComputeCapacityRequest.WaitingReason;
     internal static bool InteractiveSetupEnabled(IHostEnvironment environment, IConfiguration configuration) =>
-        OperatingSystem.IsWindows() && environment.IsDevelopment() && Environment.UserInteractive &&
-        !Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService() &&
-        configuration.GetValue<bool>("CSweet:Compute:EnableLegacyInteractiveSetup");
+        CSweet.Infrastructure.Compute.ComputePreparationMode.FromHost(environment, configuration).LegacyInteractive &&
+        !Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

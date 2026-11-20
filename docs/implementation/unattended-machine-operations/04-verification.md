@@ -22,6 +22,19 @@ with SHA-256 `134492eef35949020d61abb289087e40282d40333e9a179cdbc49fc617faadd4`,
 matching the installed Office release manifest. The test used a short-lived local signing key.
 Administrative extraction does not exercise enrollment, service startup or the interactive UAC count.
 
+The local combined `0.0.2` bundle passed Burn's layout operation with Office `0.16.0`.
+On a fresh generation 2 Windows Server 2025 VM, nested Hyper-V and PostgreSQL were
+available before interactive sign-in. A silent install applied the Headquarters MSI.
+The Office `InitializeCombinedOffice` action then returned MSI error 1722. Burn returned
+1603 and rolled Headquarters back. This run did not reach a post-install reboot.
+The isolated guest retains the install logs and a pre-install checkpoint.
+
+The Headquarters `Hired_agent_waits_for_office_capacity_across_restart_without_local_setup`
+regression reopens the platform state, queues the same hired installation, and redelivers
+the SDK callback. It observes one Office capacity request, one runtime queue entry, an
+authorized pending response, and zero local setup records. Dispatch to an eligible
+Office remains a separate gate.
+
 | # | Scenario | Deployment shape | Pass when | Result |
 | --- | --- | --- | --- | --- |
 | V1a | Office team: bootstrap the Windows Office, reboot it to the sign-in screen and send an authorized compute request from an already running Headquarters | Private, separate Windows Office | Office services start and reconnect before login. One environment becomes ready without elevation. Record the Office build and boot evidence for Phase 2 | |
