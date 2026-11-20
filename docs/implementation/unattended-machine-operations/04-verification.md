@@ -14,7 +14,16 @@ and recorded one reservation. An independent signed guest read found the marker 
 once. The test removed its VM and differencing disk. The image SHA-256 was
 `56241f677edf6f71e7bdf811c9cfad1f0e8e73a702b02e9b8d642889b55adf70`.
 The receiver was the [transport probe](../../../tests/CSweet.Compute.TransportProbe/Program.cs).
-Restarting the installed Office and dropping a create acknowledgment remain open parts of V12.
+A second physical run dropped the create acknowledgment before the receiver saved the VM
+ID. A fresh receiver recovered the same owned VM and disk, then the command replay again
+produced exactly one marker. Both restarts were of the probe process. V12 still requires
+the installed Office to survive these boundaries.
+
+Office commit `c60af38` adds a signed creation observation to its private Node–RuntimeHost
+protocol. The Windows named-pipe test loses a provider response, returns the original handle
+and counts one create. A separate test reopens the RuntimeHost journal and checks both
+lost-response boundaries. All 290 Office tests passed with the packaged Contracts dependency.
+The physical probe above and these tests do not yet exercise a hired agent on that transport.
 
 Windows Installer also extracted the signed Office development MSI and its fourteen external
 cabinets with `msiexec /a`. Reassembling the thirteen image parts produced 6,937,378,816 bytes
@@ -26,15 +35,42 @@ The local combined `0.0.2` bundle passed Burn's layout operation with Office `0.
 On a fresh generation 2 Windows Server 2025 VM, nested Hyper-V and PostgreSQL were
 available before interactive sign-in. A silent install applied the Headquarters MSI.
 The Office `InitializeCombinedOffice` action then returned MSI error 1722. Burn returned
-1603 and rolled Headquarters back. This run did not reach a post-install reboot.
-The isolated guest retains the install logs and a pre-install checkpoint.
+1603 and rolled Headquarters back. Running the exact signed packages separately identified
+the Office volume check. The 64 GiB OS disk had 46 GiB free against the 52 GiB minimum.
+The standalone Headquarters install started all six services and served the UI over HTTP.
+
+After restoring the checkpoint and adding a 96 GiB NTFS data disk, the same combined
+bundle installed both products with exit code 0. Before reboot, six Headquarters services
+and the Office Node and RuntimeHost ran under their own virtual accounts. Office Maintenance
+ran as LocalSystem. The demand-start Migrator had exited. The subsequent startup check
+timed out waiting for all nine automatic services. After the forced Hyper-V reset, Windows
+listed eight services and the UI returned HTTP 200. The Office Maintenance service was
+absent from the Service Control Manager. These installs ran through a pre-elevated
+deployment channel. Counting interactive UAC prompts requires a separate interactive launch.
+
+The debug-signed combined installer `0.0.4` (Headquarters `b60a5c97`, Office
+`0.16.0` at `192d469`) installed both products with exit code 0 and generated the
+installation's nonexportable Office certificate issuer. On a subsequent normal Windows
+shutdown and power-on, all nine automatic services ran under the expected accounts and
+Headquarters returned HTTP 200. The guest verified that successful logons were audited
+and found zero interactive user logons since startup. It reported the result through
+Hyper-V Data Exchange at 23:14 UTC, before the host opened a PowerShell Direct session.
+This verifies the service-startup part of V1b. A hire receiving a usable compute
+environment remains outstanding.
 
 After rebooting a combined-install VM, run
 [`Test-UnattendedWindowsStartup.ps1`](../../../scripts/tests/Test-UnattendedWindowsStartup.ps1)
 from its Hyper-V host. Supply the VM ID, a PowerShell Direct guest credential, and the
 loopback Headquarters UI address. The probe checks the nine automatic services and their
 accounts, waits for HTTP 200 and checks the Windows Security log for interactive logons
-since boot. Record the returned boot time with V1b and exercise the hire separately.
+since boot. Pass `-ColdBoot` to shut Windows down normally, power the VM back on and
+verify that the boot time changed. Record the result with V1b and exercise the hire separately.
+
+For V11a, [`Test-InstalledOfficeMaintenance.ps1`](../../../scripts/tests/Test-InstalledOfficeMaintenance.ps1)
+uses an authenticated Headquarters owner session to submit a repair for one Office. Supplying
+`-TargetVersion` submits an automatic update through the same public API. The check waits
+for a successful session and a fresh heartbeat from the original Office ID.
+On the combined 0.0.4 installation, Headquarters approved the Office, received its heartbeat and accepted the owner's repair request. Office 0.16.0 did not claim the handoff before it expired. Headquarters reported `office_maintenance_unavailable`. All nine services were running at expiry.
 
 The Headquarters `Hired_agent_waits_for_office_capacity_across_restart_without_local_setup`
 regression reopens the platform state, queues the same hired installation, and redelivers
@@ -45,7 +81,7 @@ Office remains a separate gate.
 | # | Scenario | Deployment shape | Pass when | Result |
 | --- | --- | --- | --- | --- |
 | V1a | Office team: bootstrap the Windows Office, reboot it to the sign-in screen and send an authorized compute request from an already running Headquarters | Private, separate Windows Office | Office services start and reconnect before login. One environment becomes ready without elevation. Record the Office build and boot evidence for Phase 2 | |
-| V1b | Headquarters Windows MSI team: install Headquarters and Office on one machine, reboot it to the sign-in screen, then hire the Game Engineer from another device | Private, Windows, same machine | The MSI-installed Headquarters services and dependencies start under their configured non-administrator identities, Office reconnects, and one environment becomes ready before anyone logs in. Requires the Windows service delivery and Phase 4 | |
+| V1b | Headquarters Windows MSI team: install Headquarters and Office on one machine, reboot it to the sign-in screen, then hire the Game Engineer from another device | Private, Windows, same machine | The MSI-installed Headquarters services and dependencies start under their configured non-administrator identities, Office reconnects, and one environment becomes ready before anyone logs in. Requires the Windows service delivery and Phase 4 | Startup passed on Windows Server 2025 with combined 0.0.4. Hire and placement pending. |
 | V2 | Hire the Game Engineer from a Headquarters machine with no Hyper-V and place the request on a second machine | Private, remote Office | One environment becomes ready on the selected Office and Headquarters makes no local setup attempt | |
 | V3 | Owner works only from the phone app | Hosted account | Hire and first build complete without touching the server | |
 | V4 | Headquarters on a Linux server without virtualization, Windows Office at the customer | Hosted platform, customer-owned Office | Environment ready on the customer's Office | |
@@ -55,9 +91,9 @@ Office remains a separate gate.
 | V8 | Command, browser evidence, build archive and published port | Windows and Linux Offices | Results match existing compute. Another tenant cannot open the URL, guest content cannot receive Headquarters cookies, and revocation closes an open stream | |
 | V9 | Outbound internet with and without the owner's grant | Windows and Linux Offices | Package installs work with the grant; private and blocked ranges are unreachable; nothing works without it | |
 | V10 | Stop and start a persistent environment, then cross the seven-day assignment limit with Headquarters reachable and disconnected | Windows and Linux Offices | Authorized successors see a marker on the same disk with one writer. Expiry offline stops work, closes streams and preserves the disk. An ephemeral environment ends at expiry | |
-| V11a | Headquarters team: request repair and automatic upgrade on an enrolled Windows Office with the development launcher configured. Exercise drain using an existing workload, then make Maintenance unavailable | Windows, existing Office release | The installed Maintenance service claims the targeted handoffs and completes eligible requests. Drain still protects active work. Headquarters reports the unavailable case. Every case records zero elevation launches | |
+| V11a | Headquarters team: request repair and automatic upgrade on an enrolled Windows Office with the development launcher configured. Exercise drain using an existing workload, then make Maintenance unavailable | Windows, existing Office release | The installed Maintenance service claims the targeted handoffs and completes eligible requests. Drain still protects active work. Headquarters reports the unavailable case. Every case records zero elevation launches | Office 0.16.0 repair expired with `office_maintenance_unavailable`. Automatic update pending. |
 | V11b | Office and Headquarters teams: repeat upgrade with a live persistent compute environment and exercise repair after compute enrollment | Windows, Office with compute | Drain prevents new starts, the data survives upgrade, repair preserves the installed compute ceiling and no UAC prompt appears | |
-| V12 | Restart after VM creation but before acknowledgment, then drop a guest command result after its side effect | All | Redelivery recovers one owned VM and one reservation. The guest command runs once or reports an unknown outcome without automatic re-execution | |
+| V12 | Restart after VM creation but before acknowledgment, then drop a guest command result after its side effect | All | Redelivery recovers one owned VM and one reservation. The guest command runs once or reports an unknown outcome without automatic re-execution | Hyper-V probe passed for VM and guest command. Installed Office recovery pending. |
 | V13 | Migrate a first-business unsuffixed service and a subsequent suffixed one, with data on a selected volume and a legacy host temporarily offline | Private, Windows | Ownership and drain are verified. Persistent data and shared images still in use survive. Exact-owned legacy services and SYSTEM retirement tasks are confirmed removed when online, and retries leave other businesses intact | |
 | V14 | An Office on 0.15.x connected to a new Headquarters | All | Runtimes keep working; compute is reported unavailable, not broken | |
 

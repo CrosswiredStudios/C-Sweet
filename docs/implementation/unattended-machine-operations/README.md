@@ -1,6 +1,9 @@
 # Unattended machine operations: review set
 
-**Status: proposed design. Implementation and hardware acceptance are pending.**
+**Implementation in progress.** Headquarters routes repair and upgrade to an enrolled Office
+and persists compute demand on hire. A managed hire currently waits for Office capacity.
+Placement and execution on an enrolled Office are still being implemented.
+See the [Windows installer and Hyper-V results](04-verification.md) for the hardware evidence.
 Initial source review on 2026-11-19, with a follow-up on 2026-11-20.
 
 Sources read: `csweet` at `c92a581f`, `CSweet.Office` 0.15.2 at `c5f3521`,
@@ -12,7 +15,7 @@ Office.Contracts revision.
 
 ## The problem
 
-Hiring an agent that can provision compute (for example the Game Engineer) makes the Headquarters
+Before these changes, hiring an agent that could provision compute (for example the Game Engineer) made the Headquarters
 API launch a PowerShell installer with `Verb = "runas"` on the Headquarters machine. Windows shows
 a UAC prompt in the middle of a project. If nobody answers, setup may remain blocked.
 The handoff expires after two hours, but the worker must run another pass
@@ -39,7 +42,7 @@ provisioning. In both cases Headquarters still checks each business's current gr
 unattended same-machine deployment also needs Headquarters to start at boot under an ordinary
 service identity so users can reach it after logoff or reboot.
 
-| Deployment shape | Today | After this change |
+| Deployment shape | At the initial review | Target behavior |
 | --- | --- | --- |
 | Private Headquarters on Windows, Office on the same machine | UAC prompt on first hire, on image upgrade, on repair, and for each new business | One approval when the Office is installed; none later |
 | Private Headquarters, Office on another machine | Compute still installs on the Headquarters machine, with the same prompts | Compute runs on the Office machine; the Headquarters machine needs no Hyper-V |
