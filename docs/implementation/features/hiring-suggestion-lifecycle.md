@@ -252,6 +252,14 @@ and `PendingAgentQuestions`. The badge is hidden at zero, caps its visible label
 and marks a truncated compute queue as a lower bound. `AppRealtimeCoordinator` no longer
 shows snackbars for `ResourceChangeApproval` notifications; their inbox records remain intact.
 
+For a delegated hire, **Current Activity** links to the Chief’s personal **Hire [role]**
+ticket and offers **Choose this role manually**. `CurrentActivityService` shows the ready
+ticket while pickup is pending and groups the delegated operation receipt with the same
+role on the same personal board. Backlog roles wait their turn. `OverviewAttentionItems`
+counts a hiring recommendation when the owner can choose the hire, take over an unmatched
+role, or resolve a review or setup problem. A scheduled dependency retry stays with the
+activity. Changes to the Chief’s policy or a plan’s delegation refresh the queue and badge.
+
 `CommandCenter` renders one **Needs your attention** queue through `PendingAgentQuestions`
 and `AttentionRequestCard`. Pending, decidable `ResourceChange` and `HiringWorkflow`
 items from `ApprovalDashboardService` use the **Hiring** card design; other actionable

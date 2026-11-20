@@ -87,6 +87,7 @@
             }
         </ul>
     }
+    @ItemActions?.Invoke(Item)
     @if (Item.Compute is null || Item.AttemptId.HasValue || Item.ModelRunId.HasValue)
     {
     <button type="button" class="activity-stream-toggle" data-current-activity-open="@Item.Key" aria-expanded="@(IsSelected ? "true" : "false")" @onclick="() => Inspect.InvokeAsync(Item)">
@@ -110,6 +111,7 @@
     [Parameter] public bool IsConnected { get; set; } = true;
     [Parameter] public EventCallback<CurrentActivityItem> Inspect { get; set; }
     [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment<CurrentActivityItem>? ItemActions { get; set; }
     private CurrentActivityGeneration? VisibleGeneration => IsConnected && Item.CanInspect && State == "Executing" && Item.Compute is null &&
         Item.Generation is { TokensPerSecond: > 0 } generation && double.IsFinite(generation.TokensPerSecond) &&
         generation.ObservedAt <= DateTimeOffset.UtcNow && DateTimeOffset.UtcNow - generation.ObservedAt < TimeSpan.FromSeconds(15) ? generation : null;

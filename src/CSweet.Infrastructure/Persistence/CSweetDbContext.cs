@@ -615,9 +615,16 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
     private void CaptureHiringRecommendationEvents()
     {
         ChangeTracker.DetectChanges();
-        var organizations = ChangeTracker.Entries<WorkforcePlan>()
+        var organizations = ChangeTracker.Entries()
             .Where(x => x.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
-            .Select(x => x.Entity.OrganizationId).Distinct().ToList();
+            .Select(x => x.Entity switch
+            {
+                WorkforcePlan plan => (Guid?)plan.OrganizationId,
+                ChiefHiringPolicy policy => policy.OrganizationId,
+                HiringPlanDelegation delegation => delegation.OrganizationId,
+                _ => null
+            })
+            .Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToList();
         foreach (var organizationId in organizations)
         {
             QueueApplicationRealtimeEvent(organizationId, null, null, AppRealtimeEvents.HiringRecommendationsChanged,

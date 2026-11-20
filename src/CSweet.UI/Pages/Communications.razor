@@ -550,28 +550,28 @@
                                         @if (decision.Status == "Pending" && !_hub.IsReadOnlyPerspective)
                                         {
                                             <div class="executive-decision-options">
-                                                @if (decision.Options.Count > 0)
+                                                <DecisionChoices @key="decision.Id" OrganizationId="OrganizationId" ConversationId="_selected!.Id" Decision="decision"
+                                                    Selected="@_decisionSelections.GetValueOrDefault(decision.Id)" Disabled="_decisionBusy.Contains(decision.Id)"
+                                                    SelectedChanged="@(id => SelectDecisionOption(decision.Id, id))">
+                                                    <DirectionInput>
+                                                        @if (decision.AllowFreeText && (decision.Options.Count == 0 || SelectedDecisionOption(decision.Id, SomethingElseKey)))
+                                                        {
+                                                            <textarea aria-label="@L["Communications.Decision.YourAnswer"]" placeholder="@L["Communications.Decision.YourAnswer"]" rows="4" maxlength="4000" disabled="@_decisionBusy.Contains(decision.Id)"
+                                                                      value="@DecisionOther(decision.Id)" @oninput="@(e => SetDecisionOther(decision.Id, e.Value?.ToString()))"></textarea>
+                                                        }
+                                                    </DirectionInput>
+                                                    <ConfirmButton>
+                                                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                                            Disabled="@(!CanSubmitDecision(decision) || _decisionBusy.Contains(decision.Id))" OnClick="@(() => SubmitDecisionAsync(message, decision))">
+                                                            @(decision.Options.Count == 0 || SelectedDecisionOption(decision.Id, SomethingElseKey) ? L["IncidentResolutionChoices.SendResponse"] : L["Communications.Decision.ConfirmChoice"])
+                                                        </MudButton>
+                                                    </ConfirmButton>
+                                                </DecisionChoices>
+                                                @if (_decisionErrors.TryGetValue(decision.Id, out var decisionError))
                                                 {
-                                                    <DecisionChoices OrganizationId="OrganizationId" ConversationId="_selected!.Id" Decision="decision" Selected="@_decisionSelections.GetValueOrDefault(decision.Id)"
-                                                        Disabled="_decisionBusy.Contains(decision.Id)" SelectedChanged="@(id => SelectDecisionOption(decision.Id, id))" />
-                                                }
-                                                @if (decision.AllowFreeText && (decision.Options.Count == 0 || SelectedDecisionOption(decision.Id, SomethingElseKey)))
-                                                {
-                                                    <textarea aria-label="@(decision.Options.Count == 0 ? "Your answer" : "Something else")" placeholder="@L["Communications.Decision.YourAnswer"]" rows="4" maxlength="4000" disabled="@_decisionBusy.Contains(decision.Id)"
-                                                              value="@DecisionOther(decision.Id)"
-                                                              @oninput="@(e => SetDecisionOther(decision.Id, e.Value?.ToString()))"></textarea>
+                                                    <div class="executive-decision-error" role="alert">@decisionError</div>
                                                 }
                                             </div>
-                                            <DecisionExplanation @key="decision.Id" OrganizationId="OrganizationId" ConversationId="_selected!.Id" DecisionId="decision.Id" />
-                                            @if (_decisionErrors.TryGetValue(decision.Id, out var decisionError))
-                                            {
-                                                <div class="executive-decision-error">@decisionError</div>
-                                            }
-                                            <footer>
-                                                <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                                                           Disabled="@(!CanSubmitDecision(decision) || _decisionBusy.Contains(decision.Id))"
-                                                           OnClick="@(() => SubmitDecisionAsync(message, decision))">@L["Communications.Decision.Submit"]</MudButton>
-                                            </footer>
                                         }
                                         else if (decision.Status == "Pending")
                                         {

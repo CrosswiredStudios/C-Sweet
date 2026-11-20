@@ -11,6 +11,21 @@ public static class ChiefWorkCards
 {
     public const string Prefix = "chief-work:";
 
+    internal sealed record HiringTicket(Guid TicketId, Guid RoleId, bool IsExecutable, WorkTaskStatus Status);
+
+    internal static IQueryable<HiringTicket> OpenHiringTickets(CSweetDbContext db, Guid organizationId) =>
+        from plan in db.WorkforcePlans
+        join ticket in db.CoreWorkTasks on plan.RequestingInstallationId equals ticket.AssignedAgentInstallationId
+        where plan.OrganizationId == organizationId && plan.Status == ProposalStatus.Pending && plan.FulfilledHeadcount < plan.Headcount &&
+            ticket.OrganizationId == organizationId && ticket.ArchivedAt == null && ticket.Board!.Kind == CSweet.Domain.WorkManagement.WorkBoardKind.Personal &&
+            ticket.Board.ArchivedAt == null && ticket.Board.OrganizationId == organizationId && ticket.Board.OwnerOrganizationUserId == ticket.AssignedEmployeeId &&
+            ticket.AssignedEmployee!.AgentInstallationId == plan.RequestingInstallationId && ticket.CreatedByOrganizationUserId == ticket.AssignedEmployeeId &&
+            (ticket.Status == WorkTaskStatus.Ready || ticket.Status == WorkTaskStatus.Running || ticket.Status == WorkTaskStatus.Blocked ||
+                ticket.Status == WorkTaskStatus.WaitingForApproval) &&
+            (ticket.IsExecutable || ticket.CreationIdempotencyKey == ticket.CorrelationId) &&
+            ticket.CorrelationId == (ticket.IsExecutable ? "hiring-recommendation:" : Prefix + "hire:") + plan.Id.ToString().Replace("-", "").ToLower()
+        select new HiringTicket(ticket.Id, plan.Id, ticket.IsExecutable, ticket.Status);
+
     public static Task<OrganizationUser?> ChiefAsync(CSweetDbContext db, Guid organization, Guid installation, CancellationToken ct) =>
         db.CoreOrganizationUsers.SingleOrDefaultAsync(x => x.OrganizationId == organization && x.IsActive &&
             x.AgentInstallationId == installation && db.LeadershipAssignments.Any(a =>

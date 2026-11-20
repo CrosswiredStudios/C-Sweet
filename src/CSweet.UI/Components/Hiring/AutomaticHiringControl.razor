@@ -6,10 +6,10 @@
 
 <div class="automatic-hiring-control" role="status" aria-live="polite">
     <div class="automatic-hiring-copy">
-        <strong>@L[Blocked ? "AutomaticHiringControl.Blocked" : "AutomaticHiringControl.Mode"]</strong>
+        <strong>@L[Blocked && RetryAt is null ? "AutomaticHiringControl.Blocked" : "AutomaticHiringControl.Mode"]</strong>
         @if (Blocked)
         {
-            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" role="alert">@BlockReason</MudAlert>
+            <MudAlert Severity="@(RetryAt is null ? Severity.Error : Severity.Info)" Variant="Variant.Outlined" role="@(RetryAt is null ? "alert" : "status")">@BlockReason</MudAlert>
             @if (RetryAt is { } retryAt)
             {
                 <span>Automatic retry after @retryAt.ToLocalTime().ToString("g").</span>

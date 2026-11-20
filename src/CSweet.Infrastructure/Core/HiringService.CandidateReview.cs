@@ -58,8 +58,7 @@ public sealed partial class HiringService
             eligible.Count == 1 ? $"{selected.Name} is the only eligible candidate for {plan.Title}." : saved.Reason!;
         if (eligible.Count > 1 && selected is null)
         {
-            rationale = saved.Question is not null && answer is null ? "Waiting for the hiring plan author." :
-                "The Chief of Staff is comparing eligible candidates.";
+            rationale = saved.Question is not null && answer is null ? WaitingForHiringAuthorRationale : ComparingCandidatesRationale;
             // A stale or concurrently replayed decision only reads the current state.
             if (decision?.Evidence == evidence && (saved.Question is null || answer is not null))
             {
@@ -74,7 +73,7 @@ public sealed partial class HiringService
                         throw new ArgumentException("A clarification requires a plan author and an answer that favors another eligible candidate.");
                     saved = new(null, null, decision.Question.Trim(), null, decision);
                     brief = brief with { Question = saved.Question, DispatchKey = questionKey };
-                    rationale = "Waiting for the hiring plan author.";
+                    rationale = WaitingForHiringAuthorRationale;
                 }
                 else
                 {

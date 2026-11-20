@@ -186,9 +186,13 @@ public sealed partial class CurrentActivityService(CSweetDbContext db, IScopedAc
             x.Value.Traversal == x.Value.ItemExecution.Traversal).ToDictionary(x => x.Key, x => x.Value!);
         var computeIds = computeStages.Keys.ToArray();
         var focusedIds = contexts.Select(x => x.WorkItemId ?? x.RootWorkItemId).Where(x => x.HasValue).Select(x => x!.Value).ToArray();
+        // The active hiring ticket can be ready before its personal-work wake reaches the inbox.
+        var hiringTickets = await ChiefWorkCards.OpenHiringTickets(db, organizationId).ToDictionaryAsync(x => x.TicketId, token);
+        var readyHireIds = hiringTickets.Values.Where(x => x.IsExecutable && x.Status == WorkTaskStatus.Ready).Select(x => x.TicketId).ToArray();
         var tickets = await db.CoreWorkTasks.AsNoTracking().Include(x => x.Board).Where(x => x.OrganizationId == organizationId &&
             x.ArchivedAt == null && x.Board != null && x.Board.ArchivedAt == null &&
-            (x.Status == WorkTaskStatus.Running || x.Status == WorkTaskStatus.WaitingForApproval || x.Status == WorkTaskStatus.Blocked || focusedIds.Contains(x.Id) || computeIds.Contains(x.Id)))
+            (x.Status == WorkTaskStatus.Running || x.Status == WorkTaskStatus.WaitingForApproval || x.Status == WorkTaskStatus.Blocked ||
+             readyHireIds.Contains(x.Id) || focusedIds.Contains(x.Id) || computeIds.Contains(x.Id)))
             .ToListAsync(token);
         var stageIds = works.Where(x => x.SourceType == "WorkStageExecution" && Guid.TryParse(x.SourceId, out _)).Select(x => Guid.Parse(x.SourceId!)).ToArray();
         var stageTasks = await db.WorkStageExecutions.AsNoTracking().Where(x => stageIds.Contains(x.Id) && x.ItemExecution!.SprintExecution!.OrganizationId == organizationId)
@@ -266,7 +270,8 @@ public sealed partial class CurrentActivityService(CSweetDbContext db, IScopedAc
             if (ticket?.Status is WorkTaskStatus.Completed or WorkTaskStatus.Cancelled) continue;
             candidates.Add(Create(ticket, employee, null, null) with { StandaloneRun = run, Compute = null });
         }
-        foreach (var ticket in tickets.Where(x => x.Status is WorkTaskStatus.Running or WorkTaskStatus.WaitingForApproval or WorkTaskStatus.Blocked || compute.ContainsKey(x.Id)))
+        foreach (var ticket in tickets.Where(x => x.Status is WorkTaskStatus.Running or WorkTaskStatus.WaitingForApproval or WorkTaskStatus.Blocked ||
+            readyHireIds.Contains(x.Id) || compute.ContainsKey(x.Id)))
         {
             if (!boardsAllowed.GetValueOrDefault(ticket.BoardId!.Value)) continue;
             stages.TryGetValue(ticket.Id, out var stage);
@@ -296,15 +301,24 @@ public sealed partial class CurrentActivityService(CSweetDbContext db, IScopedAc
                 try { context = JsonSerializer.Deserialize<PersonalTodoWorkContext>(raw, new JsonSerializerOptions(JsonSerializerDefaults.Web)); } catch (JsonException) { }
             var session = candidate.Coordination?.Id ?? context?.CoordinationSessionId;
             var commission = context?.IssueCommissionId ?? commissionRows.FirstOrDefault(c => c.SessionId == session)?.Id;
-            return commission is Guid c ? "commission:" + c.ToString("N") : session is Guid s ? "session:" + s.ToString("N") : candidate.Key;
+            if (commission is Guid c) return "commission:" + c.ToString("N");
+            if (session is Guid s) return "session:" + s.ToString("N");
+            // The Chief's role ticket and the operation receipt describe the same hire.
+            return HiringRole(candidate) is Guid role ? $"hire:{candidate.Ticket!.BoardId}:{role}" : candidate.Key;
         }
+        Guid? HiringRole(Candidate candidate) => candidate.Ticket is { } ticket && ticket.AssignedEmployeeId == candidate.Employee.Id &&
+            ticket.AssignedAgentInstallationId == candidate.Employee.AgentInstallationId ? hiringTickets.GetValueOrDefault(ticket.Id)?.RoleId : null;
         var grouped = ordered.GroupBy(GroupKey).ToArray();
         var rows = new List<CurrentActivityItem>();
         foreach (var group in grouped.Skip(Math.Max(0, offset)).Take(50))
         {
             var candidate = group.First();
             var item = await MapAsync(candidate, actor, people, now, token, execution.GetValueOrDefault(candidate.Key));
-            rows.Add(item with { RelatedWork = group.Skip(1).Select(c => new CurrentActivityRelatedWork(c.Key,
+            var hiringRole = HiringRole(candidate);
+            if (hiringRole.HasValue && candidate.Work is null && candidate.StandaloneRun is null &&
+                group.FirstOrDefault(c => c.Ticket?.IsExecutable == false && HiringRole(c) == hiringRole)?.Ticket?.ResultSummary is { Length: > 0 } phase)
+                item = item with { CurrentAction = Safe(phase)! };
+            rows.Add(item with { HiringRecommendationId = hiringRole, RelatedWork = group.Skip(1).Select(c => new CurrentActivityRelatedWork(c.Key,
                 c.Ticket?.Title ?? c.Coordination?.Subject ?? "Related team work", execution.GetValueOrDefault(c.Key)?.State ?? BaseState(c, now),
                 c.Employee.Id, c.Employee.DisplayName, c.Ticket?.BoardId, c.Ticket?.Id,
                 c.Ticket?.Board?.Kind == WorkBoardKind.Personal ? c.Ticket.Board.OwnerOrganizationUserId : null, c.Ticket?.Board?.WorkstreamId)).ToArray() });
@@ -490,6 +504,7 @@ public sealed partial class CurrentActivityService(CSweetDbContext db, IScopedAc
         c.Work is null && c.StandaloneRun is null && c.Ticket?.Status == WorkTaskStatus.Running &&
             c.Ticket.Board?.Kind == WorkBoardKind.Personal && c.Ticket.ClaimEventId is null && c.Ticket.ClaimExpiresAt is null ? "Waiting" :
         c.Work?.Status == AgentWorkStatus.Pending || c.StandaloneRun?.Status == "Queued" ? "Waiting" :
+        c.Work is null && c.StandaloneRun is null && c.Ticket?.Status == WorkTaskStatus.Ready ? "Waiting" :
         c.StandaloneRun is not null ? "Executing" :
         c.Attempt is { FinishedAt: null } && c.Attempt.LeaseExpiresAt > now ? "Executing" : "Recovering";
 

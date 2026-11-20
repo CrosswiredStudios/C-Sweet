@@ -43,6 +43,7 @@
   "Communications.SuggestedActions.AriaLabel": "Vorgeschlagene Aktionen",
   "Communications.Decision.AriaLabel": "Frage",
   "Communications.Decision.Overline": "FRAGE",
+  "Communications.Decision.ExplainOption": "Diese Option erklären",
   "Communications.Decision.ShowImpact": "Auswirkungen anzeigen",
   "Communications.Decision.OriginalWording": "Ursprünglicher Wortlaut",
   "Communications.Decision.CustomImpact": "Du kannst eine eigene Antwort schreiben. Wenn du sie sendest, ist die Entscheidung abgeschlossen und das Team erhält deine Anweisungen.",

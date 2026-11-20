@@ -32,7 +32,7 @@ public sealed class OverviewQuestionAnswerTests
         var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
         Assert.Contains("<textarea", html);
         Assert.Contains("rows=\"4\"", html);
-        Assert.Contains("align-actions-right", html);
+        Assert.Contains("decision-submit", html);
         Assert.DoesNotContain("Choose an answer", html);
         Assert.DoesNotContain("Something Else", html);
         var submit = Assert.Single(fixture.Activator.Buttons, x => x.Variant == Variant.Filled);
@@ -87,7 +87,10 @@ public sealed class OverviewQuestionAnswerTests
         Assert.Contains("Custom agent name", html);
         Assert.Contains("Creative Director", html);
         Assert.Contains("Which direction?", html);
-        Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(html, "Show impact").Count);
+        Assert.Equal(3, fixture.Activator.Info.Count(button => button.Class == "explain-option"));
+        Assert.DoesNotContain("Choose an answer", html);
+        Assert.DoesNotContain("Work can start today.", html);
+        Assert.Contains("Explain this option", html);
         Assert.Contains("Ask a follow-up", html);
         Assert.Contains("Give different direction", html);
         Assert.DoesNotContain("Something Else", html);
@@ -147,6 +150,7 @@ public sealed class OverviewQuestionAnswerTests
         var followUp = Assert.Single(fixture.Activator.Help, help => help.Option is null);
         var toggle = Assert.Single(fixture.Activator.Buttons, button => button.Class == "ask-follow-up");
         await fixture.Renderer.Dispatcher.InvokeAsync(() => toggle.OnClick.InvokeAsync(new MouseEventArgs()));
+        await fixture.RenderDialogAsync();
         var ask = Assert.Single(fixture.Activator.Buttons, b => b.Variant == Variant.Outlined);
         Assert.True(ask.Disabled);
         await fixture.Renderer.Dispatcher.InvokeAsync(() =>
@@ -161,25 +165,41 @@ public sealed class OverviewQuestionAnswerTests
         Assert.Empty(fixture.Api.Answers);
         Assert.Null(fixture.Activator.Choices!.Selected);
         var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
-        Assert.Contains("It needs separate approval.", html);
+        Assert.Contains("It needs separate approval.", await fixture.RenderDialogAsync());
         Assert.Contains("Which direction?", html);
-        Assert.Contains("Work can start today.", html);
+        Assert.DoesNotContain("Work can start today.", html);
     }
 
     [Fact]
     public async Task LegacyImpactIsLoadedOnceWithoutChoosingTheOption()
     {
         await using var fixture = new Fixture();
-        var output = await fixture.RenderAsync();
-        var toggle = Assert.Single(fixture.Activator.Buttons, button => button.Class == "show-impact");
+        await fixture.RenderAsync();
+        var choices = fixture.Activator.Choices!;
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => choices.SelectedChanged.InvokeAsync("a"));
+        var info = Assert.Single(fixture.Activator.Info, button => button.Class == "explain-option" && button.UserAttributes["aria-label"].ToString()!.EndsWith("Wait"));
         Assert.Empty(fixture.Api.Questions);
-        await fixture.Renderer.Dispatcher.InvokeAsync(() => toggle.OnClick.InvokeAsync(new MouseEventArgs()));
-        Assert.Contains("It needs separate approval.", await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString));
-        await fixture.Renderer.Dispatcher.InvokeAsync(() => toggle.OnClick.InvokeAsync(new MouseEventArgs()));
-        await fixture.Renderer.Dispatcher.InvokeAsync(() => toggle.OnClick.InvokeAsync(new MouseEventArgs()));
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => info.OnClick.InvokeAsync(new MouseEventArgs()));
+        Assert.Contains("It needs separate approval.", await fixture.RenderDialogAsync());
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => fixture.Activator.Dialog!.VisibleChanged.InvokeAsync(false));
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => info.OnClick.InvokeAsync(new MouseEventArgs()));
+        Assert.Contains("It needs separate approval.", await fixture.RenderDialogAsync());
         Assert.Equal("b", Assert.Single(fixture.Api.Questions).OptionId);
-        Assert.Null(fixture.Activator.Choices!.Selected);
+        Assert.Equal("a", choices.Selected);
         Assert.Empty(fixture.Api.Answers);
+    }
+
+    [Fact]
+    public async Task OpeningSavedImpactShowsItsModalWithoutRequestingAnExplanationOrSelectingIt()
+    {
+        await using var fixture = new Fixture();
+        await fixture.RenderAsync();
+        var info = Assert.Single(fixture.Activator.Info, button => button.Class == "explain-option" && button.UserAttributes["aria-label"].ToString()!.EndsWith("Proceed"));
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => info.OnClick.InvokeAsync(new MouseEventArgs()));
+        Assert.Contains("Work can start today.", await fixture.RenderDialogAsync());
+        Assert.Empty(fixture.Api.Questions);
+        Assert.Empty(fixture.Api.Answers);
+        Assert.Null(fixture.Activator.Choices!.Selected);
     }
 
     private sealed class Fixture : IAsyncDisposable
@@ -217,10 +237,21 @@ public sealed class OverviewQuestionAnswerTests
             return await Renderer.RenderComponentAsync<EmployeePortraitScope>(ParameterView.FromDictionary(new Dictionary<string, object?>
             { ["OrganizationId"] = Api.Organization, ["ChildContent"] = content }));
         });
+        // Static HTML rendering omits MudDialog's interactive portal. Render its real content and actions.
+        public Task<string> RenderDialogAsync() => Renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var dialog = Assert.IsType<MudDialog>(Activator.Dialog);
+            RenderFragment body = builder => { builder.AddContent(0, dialog.DialogContent); builder.AddContent(1, dialog.DialogActions); };
+            var content = await Renderer.RenderComponentAsync<MudPaper>(ParameterView.FromDictionary(new Dictionary<string, object?>
+                { [nameof(MudPaper.ChildContent)] = body }));
+            return content.ToHtmlString();
+        });
         public async ValueTask DisposeAsync() { await Renderer.DisposeAsync(); await _services.DisposeAsync(); }
     }
     private sealed class CapturingActivator : IComponentActivator
     {
+        public MudDialog? Dialog { get; private set; }
+        public List<MudIconButton> Info { get; } = [];
         public DecisionChoices? Choices { get; private set; }
         public List<DecisionExplanation> Help { get; } = [];
         public AgentQuestionCard? Card { get; private set; }
@@ -228,6 +259,8 @@ public sealed class OverviewQuestionAnswerTests
         public IComponent CreateInstance(Type type)
         {
             var component = (IComponent)System.Activator.CreateInstance(type)!;
+            if (component is MudDialog dialog) Dialog = dialog;
+            if (component is MudIconButton icon) Info.Add(icon);
             if (component is DecisionChoices choices) Choices = choices;
             if (component is DecisionExplanation followUp) Help.Add(followUp);
             if (component is AgentQuestionCard card) Card = card;

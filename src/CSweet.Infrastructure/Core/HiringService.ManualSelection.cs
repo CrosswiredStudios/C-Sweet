@@ -36,6 +36,11 @@ public sealed partial class HiringService
                     : !plan.TeamId.HasValue && !plan.WorkstreamId.HasValue);
             var blocked = automatic ? blockedAttempts.SingleOrDefault(x => x.OrganizationId == plan.OrganizationId &&
                 x.AssignedAgentInstallationId == plan.RequestingInstallationId && x.CreationIdempotencyKey == $"{ChiefWorkCards.Prefix}hire:{plan.Id:N}")?.ResultSummary : null;
+            // Selection can stop before a delegated submission exists (human coverage or an unverifiable
+            // package). Preserve that recorded reason, including on recommendations from older versions.
+            if (automatic && string.IsNullOrWhiteSpace(card.SelectedCatalogAgentJson) &&
+                card.SelectionRationale is not (ChooseCandidateRationale or ComparingCandidatesRationale or WaitingForHiringAuthorRationale or NoSuitableAgentRationale))
+                blocked ??= card.SelectionRationale;
             var display = await WithCurrentCandidateBrandingAsync(plan.OrganizationId, card, branding, token);
             var wait = waits.SingleOrDefault(x => x.OrganizationId == plan.OrganizationId && x.AgentInstallationId == plan.RequestingInstallationId &&
                 x.ExternalKey == HiringDependencyOperation + ":" + plan.Id.ToString("N"));

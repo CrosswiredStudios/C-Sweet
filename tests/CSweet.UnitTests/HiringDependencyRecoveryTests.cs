@@ -3,6 +3,9 @@ using CSweet.Agent.SDK;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Agents;
 using CSweet.Infrastructure.Core;
+using CSweet.Infrastructure.Security;
+using CSweet.Infrastructure.WorkManagement;
+using CSweet.UI.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
@@ -46,6 +49,13 @@ public sealed partial class HiringServiceTests
         var card = Assert.Single(await f.Service.ListRecommendationsAsync(f.Organization));
         Assert.Equal(preview.Message, card.AutomaticHiringBlockReason);
         Assert.Equal(state.RetryAt, card.AutomaticHiringRetryAt);
+        Assert.Equal(!rateLimited, OverviewAttentionItems.IsActionable(card));
+        var receipt = await db.CoreWorkTasks.SingleAsync(x => x.CreationIdempotencyKey == $"chief-work:hire:{plan.Id:N}");
+        Assert.Equal(rateLimited ? CSweet.Domain.Core.WorkTaskStatus.Running : CSweet.Domain.Core.WorkTaskStatus.Blocked, receipt.Status);
+        var todos = new PersonalTodoService(db, TimeProvider.System);
+        var grants = new ScopedActionAuthorizationService(db);
+        var blocked = new BlockedWorkAttentionReader(db, todos, TimeProvider.System, new(db, todos, grants, new(db, grants, TimeProvider.System)));
+        Assert.Empty(await blocked.ReadAsync(f.Organization, new(f.Owner, null)));
         Assert.Contains(await db.ApplicationRealtimeOutbox.ToListAsync(), x => x.EventType.Contains("hiring-recommendations"));
         Assert.Empty(await db.AgentHireOperations.ToListAsync());
         await f.Service.SelectCandidateAsync(f.Organization, f.Installation, plan.Id);

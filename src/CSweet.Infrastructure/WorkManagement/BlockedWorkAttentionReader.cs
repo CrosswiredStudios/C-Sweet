@@ -26,6 +26,15 @@ public sealed class BlockedWorkAttentionReader(CSweetDbContext db, IPersonalTodo
                 .Where(item => item.ArchivedAt is null && item.Status == Wire.PersonalTodoStatuses.Blocked)
                 .Select(item => (Board: board, Item: item))).DistinctBy(x => x.Item.Id).ToArray();
         if (blocked.Length == 0) return [];
+        // A delegated operation receipt has no personal retry action. Its recommendation
+        // exposes the authorized hiring controls, including any scheduled dependency retry.
+        if (blocked.Any(x => !x.Item.IsExecutable && x.Item.CorrelationId?.StartsWith(ChiefWorkCards.Prefix + "hire:", StringComparison.Ordinal) == true))
+        {
+            var hiring = await ChiefWorkCards.OpenHiringTickets(db, organizationId).ToListAsync(token);
+            var receipts = hiring.Where(x => !x.IsExecutable).Select(x => x.TicketId).ToHashSet();
+            blocked = blocked.Where(x => !receipts.Contains(x.Item.Id)).ToArray();
+            if (blocked.Length == 0) return [];
+        }
         var now = clock.GetUtcNow();
         var kind = actor.AgentInstallationId.HasValue ? GrantSubjectKind.AgentInstallation : GrantSubjectKind.OrganizationUser;
         var subject = actor.AgentInstallationId ?? actor.OrganizationUserId;

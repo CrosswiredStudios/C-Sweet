@@ -13,6 +13,7 @@ public partial class CurrentActivity
 {
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public int RefreshVersion { get; set; }
+    [Parameter] public RenderFragment<CurrentActivityItem>? ItemActions { get; set; }
     private (Guid, int) _scope;
     private CurrentActivityPage? _page;
     private readonly List<CurrentActivityItem> _rows = [];

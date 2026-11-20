@@ -42,7 +42,9 @@ public sealed partial class HiringService
             transient ? "WaitingDependency" : "NeedsReview", code, error.Message, retryAt, attempts), now, ct);
         var card = await ChiefWorkCards.ActionAsync(db, org, installation, $"hire:{recommendation:N}",
             "Complete automatic hiring", ct);
-        if (card is not null) await ChiefWorkCards.FinishActionAsync(db, card, WorkTaskStatus.Blocked, error.Message, ct);
+        // A scheduled retry keeps this passive personal card in progress until the worker resumes it.
+        if (card is not null) await ChiefWorkCards.FinishActionAsync(db, card,
+            transient ? WorkTaskStatus.Running : WorkTaskStatus.Blocked, error.Message, ct);
         BusinessSuggestionService.Queue(db, org, AppRealtimeEvents.HiringRecommendationsChanged, recommendation);
         await db.SaveChangesAsync(ct);
         return new(recommendation, null, transient ? "Queued" : "NeedsReview", error.Message);

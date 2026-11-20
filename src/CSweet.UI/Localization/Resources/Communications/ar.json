@@ -43,6 +43,7 @@
   "Communications.SuggestedActions.AriaLabel": "الإجراءات المقترحة",
   "Communications.Decision.AriaLabel": "سؤال",
   "Communications.Decision.Overline": "سؤال",
+  "Communications.Decision.ExplainOption": "شرح هذا الخيار",
   "Communications.Decision.ShowImpact": "عرض الأثر",
   "Communications.Decision.OriginalWording": "النص الأصلي",
   "Communications.Decision.CustomImpact": "يمكنك كتابة إجابتك الخاصة. عند إرسالها، يُغلق هذا القرار ويتلقى الفريق تعليماتك.",

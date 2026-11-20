@@ -43,6 +43,7 @@
   "Communications.SuggestedActions.AriaLabel": "제안된 작업",
   "Communications.Decision.AriaLabel": "질문",
   "Communications.Decision.Overline": "질문",
+  "Communications.Decision.ExplainOption": "이 선택지 설명",
   "Communications.Decision.ShowImpact": "영향 보기",
   "Communications.Decision.OriginalWording": "원문",
   "Communications.Decision.CustomImpact": "직접 답변을 작성할 수 있습니다. 보내면 이 결정이 마무리되고 팀에 지시 사항이 전달됩니다.",

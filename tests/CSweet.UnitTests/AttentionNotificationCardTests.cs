@@ -37,7 +37,7 @@ public sealed class AttentionNotificationCardTests
         Assert.Contains("_content/CSweet.UI/images/agents/chief-of-staff-v1.jpg", html);
         Assert.Contains("Chief of Staff", html);
         Assert.Contains("decision-preview-text", html);
-        Assert.Contains("Choose an answer", html);
+        Assert.Contains("Confirm choice", html);
         Assert.DoesNotContain("rows=\"3\"", html);
         if (grouped) Assert.True(html.IndexOf("decision-preview-text", StringComparison.Ordinal) < html.IndexOf("<details class=\"issue-details\"", StringComparison.Ordinal));
         else Assert.DoesNotContain("Confirm the next step", html);
@@ -56,7 +56,7 @@ public sealed class AttentionNotificationCardTests
         var html = await fixture.RenderAsync(item);
         var visible = html[..html.IndexOf("<details class=\"issue-details\"", StringComparison.Ordinal)];
         Assert.Contains(first.Decision.Prompt, visible); Assert.Contains(second.Decision.Prompt, visible);
-        Assert.Equal(1, visible.Split("Choose an answer").Length - 1);
+        Assert.Equal(1, visible.Split("Confirm choice").Length - 1);
         Assert.Equal(1, visible.Split("Send response").Length - 1);
         Assert.Contains("rows=\"4\"", visible);
         Assert.DoesNotContain("class=\"incident-resolution\"", visible);
@@ -86,7 +86,7 @@ public sealed class AttentionNotificationCardTests
         var html = await fixture.RenderAsync(new { Kind = "Approve", Payload = "private-provider-payload" });
         Assert.Contains("Review this notification", html);
         Assert.DoesNotContain("private-provider-payload", html);
-        Assert.DoesNotContain("Choose an answer", html);
+        Assert.DoesNotContain("Confirm choice", html);
     }
 
     [Fact]

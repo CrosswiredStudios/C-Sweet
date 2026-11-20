@@ -12,8 +12,10 @@ namespace CSweet.UnitTests;
 
 public sealed class NotificationSnackbarTests
 {
-    [Fact]
-    public void HiringApprovalNotificationsStayQuietWhileOtherWarningsStillAppear()
+    [Theory]
+    [InlineData("ResourceChangeApproval", "Hiring plan", "Review team changes")]
+    [InlineData("PersonalTodoBlocked", "Personal task blocked", "Review blocked work: Receive scoped planning advice")]
+    public void OverviewNotificationsStayQuietWhileOtherWarningsStillAppear(string category, string title, string body)
     {
         using var provider = Services();
         var snackbar = provider.GetRequiredService<ISnackbar>();
@@ -21,7 +23,7 @@ public sealed class NotificationSnackbarTests
         typeof(AppRealtimeCoordinator).GetProperty("Snackbar", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(component, snackbar);
         var notification = new AppNotificationEvent(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null,
-            "Important", "ResourceChangeApproval", "Hiring plan", "Review team changes", "/approvals",
+            "Important", category, title, body, "/work",
             DateTimeOffset.UtcNow, null, null);
         Invoke(component, "ShowNotification", notification, Severity.Warning);
         Invoke(component, "ShowNotification", notification, Severity.Warning);

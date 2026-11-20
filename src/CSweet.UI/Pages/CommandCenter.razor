@@ -86,7 +86,17 @@
                 else if (widget == "activity")
                 {
                     <EmployeePortraitScope OrganizationId="OrganizationId">
-                        <CurrentActivity OrganizationId="OrganizationId" RefreshVersion="_activityRefreshVersion" />
+                        <CurrentActivity OrganizationId="OrganizationId" RefreshVersion="_activityRefreshVersion">
+                            <ItemActions Context="activity">
+                                @if (activity.HiringRecommendationId is Guid id && _hiring?.Recommendations.FirstOrDefault(x => x.Id == id) is { } hire &&
+                                    OverviewAttentionItems.IsAutomaticHiringActivity(hire))
+                                {
+                                    <AutomaticHiringControl OrganizationId="OrganizationId" RecommendationId="id" Name="@activity.EmployeeName"
+                                        BlockReason="@hire.AutomaticHiringBlockReason" RetryAt="hire.AutomaticHiringRetryAt"
+                                        Retried="RefreshAsync" Stopped="@(_ => RefreshAsync())" />
+                                }
+                            </ItemActions>
+                        </CurrentActivity>
                     </EmployeePortraitScope>
                 }
                 else if (widget == "finance" && _dashboard is not null)

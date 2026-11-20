@@ -1,0 +1,78 @@
+{
+  "business": "QFN Games",
+  "project": "Shatterpoint",
+  "timeZone": "America/Los_Angeles",
+  "ticket": {
+    "id": "67cf1975-0118-4aa6-a674-2d5dc98a7a0c",
+    "identifier": "VG0DA54B3DF0-10",
+    "title": "[roadmap-epic-1.story-1.task-1] Clean-Checkout PixiJS Breakout Core Slice",
+    "acceptanceCriteriaAtSprintStart": [
+      "A clean checkout of the accepted story branch contains a single-player desktop-web Breakout core slice built with PixiJS v8, TypeScript, Vite, native Web Audio, a custom game loop and scene manager, and custom collision; it runs in Chromium desktop web only and is explicitly not the full review package.",
+      "pnpm install restores the project reproducibly from a committed pnpm-lock.yaml using the accepted dependency ranges.",
+      "pnpm typecheck (if present), pnpm build, and pnpm preview succeed from a clean checkout of the accepted story branch.",
+      "The Chromium-served slice boots a canvas; mouse-primary and keyboard-secondary paddle movement work; click or spacebar launches the ball; collision, fail, and retry work.",
+      "The custom loop, scene manager, collision code, and Web Audio scheduling approach are demonstrated feasible at proof-of-concept scale by the runnable slice and its included code-review and independent-quality stages.",
+      "No public demo, hosted URL, internal hosted URL, external submission, spending, release package, or real-device certification is introduced.",
+      "60fps remains an aspirational observation only; no formal profiling or stress testing is added.",
+      "The Technical Director owns the recorded PixiJS/WebAudio/Vite toolchain choice; this story does not reopen engine or toolchain selection.",
+      "Full local desktop-web review-package assembly, Director review packaging, and optional non-gating signals are deferred to roadmap-epic-8 and are not claimed as complete or passed.",
+      "A runnable single-player desktop-web Breakout application exists and targets Chromium desktop web only.",
+      "pnpm install restores the project reproducibly with pnpm-lock.yaml committed.",
+      "pnpm typecheck (if present), pnpm build, and pnpm preview succeed from a clean checkout.",
+      "The app boots in Chromium, renders a canvas, accepts mouse paddle movement, and launches with click or spacebar.",
+      "The selected custom loop, scene manager, collision code, and Web Audio scheduling approach are feasible at the proof-of-concept scale.",
+      "No public demo, hosted URL, external submission, spending, release, or real-device certification is introduced.",
+      "60fps remains an aspirational observation only, with no formal profiling or stress testing added.",
+      "The Technical Director owns the engine and toolchain decision within the accepted Chromium web PoC.",
+      "A committed standalone verification command such as npm run verify:clean-checkout exits nonzero when pnpm-lock.yaml is missing, a fresh pnpm install does not restore the committed lockfile, pnpm typecheck (if present) or pnpm build fails, or pnpm preview cannot serve the built application.",
+      "From a clean checkout, launch the approved Story's runnable slice using Custom game loop and scene manager built on PixiJS v8 WebGL2 renderer and TypeScript. Commit pnpm-lock.yaml and verify a clean dependency restore."
+    ]
+  },
+  "assignment": {
+    "agentWorkItemId": "6c5e05e6-7019-448a-ad11-475d9f4a375a",
+    "claimedAt": "2026-11-19T14:07:37-08:00",
+    "sourceBaseCommit": "883094747758f3fdcdd00334f5ed0dfa51a97433",
+    "stageBindings": [
+      {
+        "stage": "quality",
+        "agentInstallationId": "663646fa-137a-42c4-a5ef-8d0d9f46f7da"
+      },
+      {
+        "stage": "specialist-execution",
+        "agentInstallationId": "793039fc-c68c-4b19-9c66-ab047f744be9"
+      },
+      {
+        "stage": "task-integration",
+        "agentInstallationId": null
+      },
+      {
+        "stage": "technical-review",
+        "agentInstallationId": "fd3d5c4a-d74b-48b3-aeb4-ee63fc8828ff"
+      }
+    ]
+  },
+  "provider": {
+    "model": "qwen3.8-flash-next",
+    "maxOutputTokens": 128000
+  },
+  "stream": {
+    "before": "2026-11-19T14:25:00-08:00",
+    "providerAttempts": 49,
+    "chunkRows": 26140,
+    "redundantRoleRows": 24679,
+    "redundantRoleTupleBytes": 28428864,
+    "medianRedundantRoleLedgerLagSeconds": 55.065796
+  },
+  "checkpoints": {
+    "before": "2026-11-19T14:30:00-08:00",
+    "requests": 69,
+    "sourceTips": 27,
+    "distinctPayloads": 43
+  },
+  "inference": {
+    "completedBefore": "2026-11-19T14:30:00-08:00",
+    "providerAttempts": 70,
+    "aggregateInputTokens": 2507672,
+    "largestSingleInputTokens": 50101
+  }
+}

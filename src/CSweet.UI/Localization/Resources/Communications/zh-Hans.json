@@ -43,6 +43,7 @@
   "Communications.SuggestedActions.AriaLabel": "建议的操作",
   "Communications.Decision.AriaLabel": "问题",
   "Communications.Decision.Overline": "问题",
+  "Communications.Decision.ExplainOption": "解释这个选项",
   "Communications.Decision.ShowImpact": "查看影响",
   "Communications.Decision.OriginalWording": "原文",
   "Communications.Decision.CustomImpact": "你可以自己填写答复。发送后，此项决策即告完成，团队会收到你的指示。",

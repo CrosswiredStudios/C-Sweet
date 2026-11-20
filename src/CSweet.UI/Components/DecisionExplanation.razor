@@ -1,63 +1,96 @@
 @using CSweet.Contracts.Communications
-@implements IDisposable
+@implements IAsyncDisposable
 @inject HttpClient Http
 @inject IAppLocalizer L
 
-<div class="decision-follow-up">
-    <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Primary" Class="@(Option is null ? "ask-follow-up" : "show-impact")" aria-expanded="@(_open ? "true" : "false")" OnClick="ToggleAsync">
-        @(Option is null ? L["Communications.Decision.AskFollowUp"] : L["Communications.Decision.ShowImpact"])
-        @if (Option is not null) { <span class="visually-hidden"> — @Option.Label</span> }
-    </MudButton>
-    @if (_open)
-    {
-        @if (Option is null)
-        {
-            <label>@L["Communications.Decision.QuestionLabel"]
-                <textarea rows="2" maxlength="4000" disabled="@_busy" @bind="_question" @bind:event="oninput"></textarea>
-            </label>
-            <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(_busy || string.IsNullOrWhiteSpace(_question))" OnClick="AskAsync">
-                @(_busy ? L["Communications.Decision.Asking"] : L["Communications.Decision.SendQuestion"])
-            </MudButton>
-        }
-        else if (_busy)
-        {
-            <p role="status">@L["Communications.Decision.Asking"]</p>
-        }
-        @if (_error is not null) { <p role="alert">@_error</p> }
-        @if (_answer is not null) { <p role="status">@_answer</p> }
-        @if (!string.IsNullOrWhiteSpace(Option?.Description))
-        {
-            <details open="@(_error is not null)"><summary>@L["Communications.Decision.OriginalWording"]</summary><p>@Option.Description</p></details>
-        }
-    }
-</div>
+@if (Option is null)
+{
+    <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Primary" Class="ask-follow-up"
+               StartIcon="@Icons.Material.Outlined.ChatBubbleOutline" aria-haspopup="dialog" OnClick="OpenAsync">@L["Communications.Decision.AskFollowUp"]</MudButton>
+}
+else
+{
+    <span class="option-info">
+        <MudIconButton Icon="@Icons.Material.Outlined.Info" Size="Size.Small" Class="explain-option"
+            aria-label="@($"{L["Communications.Decision.ExplainOption"]} — {Option.Label}")" aria-haspopup="dialog" OnClick="OpenAsync" />
+        <span class="info-tooltip" aria-hidden="true">@L["Communications.Decision.ExplainOption"]</span>
+    </span>
+}
+@if (_open)
+{
+    <MudDialog @ref="_dialog" @bind-Visible="_open" Options="DialogSettings" aria-label="@DialogTitle">
+        <TitleContent><MudText Typo="Typo.h6">@DialogTitle</MudText></TitleContent>
+        <DialogContent>
+            @if (_compose)
+            {
+                <label class="question-label">@L["Communications.Decision.QuestionLabel"]
+                    <textarea rows="3" maxlength="4000" disabled="@_busy" @bind="_question" @bind:event="oninput"></textarea>
+                </label>
+                @if (_answer is not null) { <p role="status">@_answer</p> }
+            }
+            else
+            {
+                @if (!string.IsNullOrWhiteSpace(Impact)) { <p>@Impact</p> }
+                @if (!string.IsNullOrWhiteSpace(Option?.Description) && Option.Description != Impact)
+                {
+                    <details open="@(_error is not null)"><summary>@L["Communications.Decision.OriginalWording"]</summary><p>@Option.Description</p></details>
+                }
+            }
+            @if (_busy) { <p role="status">@L["Communications.Decision.Asking"]</p> }
+            @if (_error is not null) { <p role="alert">@_error</p> }
+        </DialogContent>
+        <DialogActions>
+            @if (_compose)
+            {
+                <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(_busy || string.IsNullOrWhiteSpace(_question))" OnClick="AskAsync">@L["Communications.Decision.SendQuestion"]</MudButton>
+            }
+            else
+            {
+                @if (_error is not null) { <MudButton OnClick="AskAsync" Disabled="_busy">@L["Common.Retry"]</MudButton> }
+                <MudButton Size="Size.Small" Color="Color.Primary" Disabled="_busy" OnClick="Compose">@L["Communications.Decision.AskFollowUp"]</MudButton>
+            }
+            <MudButton Size="Size.Small" OnClick="CloseAsync">@L["Common.Close"]</MudButton>
+        </DialogActions>
+    </MudDialog>
+}
 
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public Guid ConversationId { get; set; }
     [Parameter] public Guid DecisionId { get; set; }
     [Parameter] public ExecutiveDecisionOptionResponse? Option { get; set; }
+    private static readonly DialogOptions DialogSettings = new() { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true, CloseOnEscapeKey = true };
     private readonly CancellationTokenSource _lifetime = new();
-    private bool _open, _busy;
-    private string? _question, _answer, _error;
+    private MudDialog? _dialog;
+    private bool _open, _busy, _compose;
+    private string? _question, _answer, _legacyImpact, _error;
+    private string? Impact => string.IsNullOrWhiteSpace(Option?.Impact) ? _legacyImpact : Option.Impact;
+    private string DialogTitle => Option?.Label ?? L["Communications.Decision.AskFollowUp"];
 
-    private async Task ToggleAsync()
+    private async Task OpenAsync()
     {
-        _open = !_open;
-        if (_open && Option is not null && _answer is null) await AskAsync();
+        _open = true;
+        _compose = Option is null;
+        _error = null;
+        if (!_compose && Impact is null) await AskAsync();
     }
+
+    private void Compose() { _compose = true; _error = null; }
 
     private async Task AskAsync()
     {
-        if (_busy || (Option is null && string.IsNullOrWhiteSpace(_question))) return;
+        if (_busy || (_compose && string.IsNullOrWhiteSpace(_question))) return;
         var token = _lifetime.Token;
+        var followUp = _compose;
         _busy = true;
-        _answer = _error = null;
+        _error = null;
+        if (followUp) _answer = null;
         try
         {
+            var optionId = Option?.Id == DecisionChoices.Other ? null : Option?.Id;
             using var response = await Http.PostAsJsonAsync(
                 $"api/organizations/{OrganizationId}/communications/hub/chats/{ConversationId}/decisions/{DecisionId}/explain",
-                new DecisionQuestionRequest(Option is null ? _question!.Trim() : "What would choosing this option mean?", Option?.Id), token);
+                new DecisionQuestionRequest(followUp ? _question!.Trim() : L["Communications.Decision.ExplainOption"], optionId), token);
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 _error = L["Communications.Decision.Unavailable"];
             else
@@ -65,7 +98,8 @@
                 response.EnsureSuccessStatusCode();
                 var result = await response.Content.ReadFromJsonAsync<DecisionExplanationResponse>(token);
                 if (string.IsNullOrWhiteSpace(result?.Explanation)) _error = L["Communications.Decision.ExplanationFailed"];
-                else _answer = result.Explanation;
+                else if (followUp) _answer = result.Explanation;
+                else _legacyImpact = result.Explanation;
             }
         }
         catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
@@ -73,5 +107,12 @@
         finally { _busy = false; }
     }
 
-    public void Dispose() { _lifetime.Cancel(); _lifetime.Dispose(); }
+    private Task CloseAsync() => _dialog?.CloseAsync() ?? Task.CompletedTask;
+
+    public async ValueTask DisposeAsync()
+    {
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+        if (_open) await CloseAsync();
+    }
 }

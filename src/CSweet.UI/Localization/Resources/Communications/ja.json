@@ -43,6 +43,7 @@
   "Communications.SuggestedActions.AriaLabel": "推奨アクション",
   "Communications.Decision.AriaLabel": "質問",
   "Communications.Decision.Overline": "質問",
+  "Communications.Decision.ExplainOption": "この選択肢の説明",
   "Communications.Decision.ShowImpact": "影響を確認",
   "Communications.Decision.OriginalWording": "元の説明",
   "Communications.Decision.CustomImpact": "自分の言葉で回答できます。送信するとこの件の判断が確定し、チームに指示が届きます。",

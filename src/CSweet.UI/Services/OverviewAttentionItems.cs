@@ -19,7 +19,18 @@ public static class OverviewAttentionItems
 
     public static bool IsActionable(ApprovalDashboardItemResponse item) => item.CanDecide && IsPending(item.Status);
 
-    public static bool IsActionable(HiringRecommendationResponse item) => IsPending(item.Status) && item.RemainingHeadcount > 0;
+    public static bool IsActionable(HiringRecommendationResponse item) =>
+        IsPending(item.Status) && item.RemainingHeadcount > 0 && !IsAutomaticHiringActivity(item);
+
+    public static bool IsAutomaticHiringActivity(HiringRecommendationResponse item)
+    {
+        if (!IsPending(item.Status) || item.RemainingHeadcount <= 0 || !item.AutomaticHiringEnabled ||
+            item.ManualSelectionRequested || item.NoSuitableAgentFound) return false;
+        if (item.AutomaticHiringStatus == "WaitingDependency" && item.AutomaticHiringRetryAt.HasValue) return true;
+        return string.IsNullOrWhiteSpace(item.AutomaticHiringBlockReason) &&
+            item.AutomaticHiringStatus is not ("NeedsReview" or AgentHireOperationStatuses.Failed or
+                AgentHireOperationStatuses.NeedsSetup or AgentHireOperationStatuses.AwaitingConfirmation);
+    }
 
     public static bool IsActionable(ProjectIncidentAttentionResponse item) => item.HasUserAction;
 

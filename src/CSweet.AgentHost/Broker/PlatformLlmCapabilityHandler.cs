@@ -443,6 +443,8 @@ public sealed partial class PlatformLlmCapabilityHandler
 
         ChatFinishReason? finishReason = null;
         var hasUsableContent = false;
+        ChatRole? lastRole = null;
+        string? lastMessageId = null, lastResponseId = null;
         await using (updates)
         {
             while (true)
@@ -530,7 +532,14 @@ public sealed partial class PlatformLlmCapabilityHandler
                     .Where(content => content is TextContent or TextReasoningContent or FunctionCallContent or FunctionResultContent)
                     .Select(ToPlatformContent)
                     .ToList();
-                if (contents.Count > 0 || usage is not null || update.Role is not null || update.FinishReason is not null)
+                if ((update.MessageId is not null && update.MessageId != lastMessageId) ||
+                    (update.ResponseId is not null && update.ResponseId != lastResponseId))
+                    lastRole = null;
+                lastMessageId = update.MessageId ?? lastMessageId;
+                lastResponseId = update.ResponseId ?? lastResponseId;
+                var roleChanged = update.Role is { } role && role != lastRole;
+                lastRole = update.Role ?? lastRole;
+                if (contents.Count > 0 || usage is not null || roleChanged || update.FinishReason is not null)
                 {
                     _dbContext.QueueAudit(new AuditEventWriteRequest("model.response.chunk", "Model", Outcome: "Running",
                         OrganizationId: hasOrganization ? organizationId : null, EntityType: "AgentRunLog", EntityId: runLog.Id,

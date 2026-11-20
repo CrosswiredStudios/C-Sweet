@@ -1,11 +1,59 @@
 using CSweet.Agent.SDK;
 using CSweet.Domain.Core;
+using CSweet.Contracts.Realtime;
+using CSweet.Infrastructure.Core;
+using CSweet.Infrastructure.Security;
+using CSweet.Infrastructure.WorkManagement;
+using CSweet.UI.Services;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
 
 public sealed partial class HiringServiceTests
 {
+    [Fact]
+    public async Task AutomaticHireAppearsAsOnePersonalActivityFromReadyThroughFulfillment()
+    {
+        await using var db = CreateDb();
+        var definitions = new RecordingDefinitionService { IsAvailableForHire = false };
+        var f = await AutonomyFixtureAsync(db, requireConfiguration: false, definitions: definitions);
+        var role = await f.Service.UpsertRecommendationAsync(f.Organization, f.Installation,
+            new("Video Game Director", "Lead the studio", null, [], null, "director"));
+        Assert.True(OverviewAttentionItems.IsActionable(Assert.Single(await f.Service.ListRecommendationsAsync(f.Organization))));
+        var changes = await db.ApplicationRealtimeOutbox.CountAsync(x => x.EventType == AppRealtimeEvents.HiringRecommendationsChanged);
+        await f.Service.UpdatePolicyAsync(f.Organization, f.Installation, f.Application,
+            new(HiringSelectionMode.Automatic, AutomaticHiringLevel.BroadDelegation), 0, "Handle hiring");
+        Assert.Equal(changes + 1, await db.ApplicationRealtimeOutbox.CountAsync(x => x.EventType == AppRealtimeEvents.HiringRecommendationsChanged));
+        Assert.False(OverviewAttentionItems.IsActionable(Assert.Single(await f.Service.ListRecommendationsAsync(f.Organization))));
+
+        var chief = await db.CoreOrganizationUsers.SingleAsync(x => x.AgentInstallationId == f.Installation);
+        var todos = new PersonalTodoService(db, TimeProvider.System);
+        var correlation = $"hiring-recommendation:{role.Id:N}";
+        var ticket = await todos.AddAsync(f.Organization, new(chief.Id, f.Installation),
+            new($"Hire {role.Title}", role.Objective, "High", null, correlation + ":personal-todo", CorrelationId: correlation));
+        var activity = new CurrentActivityService(db, new ScopedActionAuthorizationService(db),
+            new(db, new EphemeralDataProtectionProvider()), TimeProvider.System);
+        var ready = Assert.Single((await activity.ReadAsync(f.Organization, f.Application)).Items);
+        Assert.Equal(ticket.Id, ready.WorkItemId);
+        Assert.Equal(role.Id, ready.HiringRecommendationId);
+        Assert.Equal(chief.Id, ready.PersonalBoardOwnerId);
+        Assert.Equal("Hire Video Game Director", ready.Title);
+        Assert.Equal("Waiting", ready.State);
+        Assert.Empty((await activity.ReadAsync(f.Organization, f.Application, projectsOnly: true)).Items);
+
+        Assert.Equal("Building", (await f.Service.SubmitDelegatedAsync(f.Organization, f.Installation, role.Id)).Status);
+        var building = Assert.Single((await activity.ReadAsync(f.Organization, f.Application)).Items);
+        Assert.Equal(ticket.Id, building.WorkItemId);
+        Assert.Equal(role.Id, building.HiringRecommendationId);
+        Assert.Contains("Building", building.CurrentAction);
+        Assert.Equal(chief.Id, Assert.Single(building.RelatedWork).PersonalBoardOwnerId);
+        definitions.CompleteBuild();
+        Assert.True(await f.Service.ProcessNextAsync("hiring-activity-test"));
+        Assert.Empty((await activity.ReadAsync(f.Organization, f.Application)).Items);
+        Assert.Empty(await f.Service.ListRecommendationsAsync(f.Organization));
+    }
+
     [Fact]
     public async Task ManualSelection_IsOwnerOnlyRoleScopedAndSurvivesPolicyChangesAndRetries()
     {

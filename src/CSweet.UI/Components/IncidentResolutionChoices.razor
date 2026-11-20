@@ -21,18 +21,20 @@ else if (ReadOnly)
 }
 else
 {
-    <details class="incident-choices">
-        <summary>@L["IncidentResolutionChoices.Choose"]</summary>
-        <DecisionChoices OrganizationId="OrganizationId" ConversationId="ConversationId" Decision="Decision" Selected="@_selection" SelectedChanged="@(id => _selection = id)" Disabled="_busy" />
-        @if (_selection == DecisionChoices.Other)
-        {
-            <label>@L["IncidentResolutionChoices.YourDirection"]<textarea aria-label="@L["IncidentResolutionChoices.DirectionAriaLabel"]" rows="4" maxlength="4000" disabled="@_busy" @bind="_direction" @bind:event="oninput"></textarea></label>
-        }
-        <MudButton Variant="Variant.Filled" Color="Color.Primary"
-            Disabled="@(_busy || _selection is null || (_selection == DecisionChoices.Other && string.IsNullOrWhiteSpace(_direction)))"
-            OnClick="() => SubmitAsync(_selection == DecisionChoices.Other ? null : _selection)">@L["Communications.Decision.ConfirmChoice"]</MudButton>
-    </details>
-    <DecisionExplanation @key="Decision.Id" OrganizationId="OrganizationId" ConversationId="ConversationId" DecisionId="Decision.Id" />
+    <DecisionChoices @key="Decision.Id" OrganizationId="OrganizationId" ConversationId="ConversationId" Decision="Decision" Selected="@_selection"
+                     SelectedChanged="@(id => _selection = id)" Disabled="_busy">
+        <DirectionInput>
+            @if (NeedsText)
+            {
+                <label>@L["IncidentResolutionChoices.YourDirection"]<textarea aria-label="@L["IncidentResolutionChoices.DirectionAriaLabel"]" rows="4" maxlength="4000" disabled="@_busy" @bind="_direction" @bind:event="oninput"></textarea></label>
+            }
+        </DirectionInput>
+        <ConfirmButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                Disabled="@(_busy || (NeedsText ? string.IsNullOrWhiteSpace(_direction) : _selection is null))"
+                OnClick="() => SubmitAsync(NeedsText ? null : _selection)">@(NeedsText ? L["IncidentResolutionChoices.SendResponse"] : L["Communications.Decision.ConfirmChoice"])</MudButton>
+        </ConfirmButton>
+    </DecisionChoices>
 }
 @if (_error is not null) { <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert> }
 </div>
@@ -47,6 +49,7 @@ else
     private bool _busy, _confirmed;
     private string? _direction, _error;
     private string? _selection;
+    private bool NeedsText => Decision.AllowFreeText && (Decision.Options.Count == 0 || _selection == DecisionChoices.Other);
     private async Task SubmitAsync(string? option)
     {
         if (_busy || _confirmed || ReadOnly || Decision.Status != "Pending" || (option is null && string.IsNullOrWhiteSpace(_direction))) return;

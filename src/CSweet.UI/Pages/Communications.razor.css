@@ -131,7 +131,7 @@
 .executive-decision-options label > span { display: grid; gap: 2px; color: var(--activity-text, #1c2638); }
 .executive-decision-options label small { color: var(--activity-muted, #657287); font-size: .75rem; }
 .executive-decision-options .recommendation-badge { color: var(--activity-accent, #3d5f9f); font-weight: 800; letter-spacing: .05em; }
-.executive-decision-options textarea { min-height: 76px; resize: vertical; padding: 9px 10px; border: 1px solid var(--activity-border, #cbd2dd); border-radius: 8px; font: inherit; }
+.executive-decision-options textarea { width: 100%; min-height: 76px; resize: vertical; padding: 9px 10px; border: 1px solid var(--activity-border, #cbd2dd); border-radius: 8px; font: inherit; }
 .executive-decision-card > footer { display: flex; justify-content: flex-end; padding: 10px 16px 14px; }
 .executive-decision-error { margin: 0 16px; color: #b3261e; font-size: .78rem; }
 .executive-decision-answer { display: flex; align-items: center; gap: 8px; padding: 14px 16px; color: #244f38; font-weight: 650; }

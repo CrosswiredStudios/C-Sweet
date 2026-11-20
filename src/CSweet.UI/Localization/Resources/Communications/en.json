@@ -44,6 +44,7 @@
   "Communications.SuggestedActions.AriaLabel": "Suggested actions",
   "Communications.Decision.AriaLabel": "Question",
   "Communications.Decision.Overline": "QUESTION",
+  "Communications.Decision.ExplainOption": "Explain this option",
   "Communications.Decision.ShowImpact": "Show impact",
   "Communications.Decision.OriginalWording": "Original wording",
   "Communications.Decision.CustomImpact": "You can write your own answer. Sending it closes this decision and gives the team your instructions.",

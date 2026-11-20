@@ -16,6 +16,7 @@ public sealed record CurrentActivityItem(string Key, Guid? WorkItemId, Guid? Boa
     CurrentActivityCompute? Compute = null, CurrentActivityGeneration? Generation = null)
 {
     public IReadOnlyList<CurrentActivityRelatedWork> RelatedWork { get; init; } = [];
+    public Guid? HiringRecommendationId { get; init; }
 }
 public sealed record CurrentActivityRelatedWork(string Key, string Title, string State, Guid EmployeeId, string EmployeeName,
     Guid? BoardId, Guid? WorkItemId, Guid? PersonalBoardOwnerId = null, Guid? ProjectId = null);

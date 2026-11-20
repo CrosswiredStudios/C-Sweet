@@ -109,6 +109,40 @@ public sealed partial class FreshTeamSprintJourneyTests
         Assert.Single(await platform.Db.WorkOrchestrationEvents.Where(e => e.EventType == "stage.retry.requested").ToListAsync());
     }
 
+    [Fact, Trait("Category", "AgentHarness")]
+    public async Task Whole_story_ticket_is_refined_and_independent_authors_claim_parallel_work()
+    {
+        var model = new FirstSprintModel(true) { SplitDelivery = true, SetupTitle = "Clean-Checkout PixiJS Breakout Core Slice",
+            StoryCriteria = ["Boot the canvas from a clean checkout.", "Reverse the ball velocity at the wall."], Outcome = "Show one rally on the canvas." };
+        await using var platform = new FreshTeamSprintPlatform(secondEngineer: true);
+        await platform.OpenAsync(model.Pitch);
+        var team = new PlanningTeam(platform, model);
+        await team.StartHostsAsync();
+        await team.PlanAsync();
+        Assert.True(model.ReviewedStoryCopy);
+        var tasks = await platform.Db.CoreWorkTasks.Where(t => t.IsExecutable && t.ProposalItemKey != null).OrderBy(t => t.ProposalItemKey).ToListAsync();
+        Assert.Equal(3, tasks.Count);
+        Assert.All(tasks, t => Assert.Equal(team.StoryAnswer.SessionId, t.ProposalCoordinationSessionId));
+        Assert.Equal(2, tasks.Take(2).Select(t => t.AccountableOrganizationUserId).Distinct().Count());
+        var dependency = JsonSerializer.Deserialize<WorkItemPlanningSpecification>(tasks[2].PlanningSpecificationJson!, JsonSerializerOptions.Web)!;
+        Assert.Equal(tasks.Take(2).Select(t => t.Id).Order(), dependency.DependencyItemIds.Order());
+        foreach (var author in platform.Engineers)
+        {
+            var lease = await platform.ClaimAsync(author);
+            Assert.NotNull(lease);
+            var assignment = lease.Payload.Deserialize<WorkExecutionAssignment>(JsonSerializerOptions.Web)!;
+            Assert.Equal(tasks.Take(2).Single(t => t.AccountableOrganizationUserId == author.OrganizationUserId).Id, assignment.ItemId);
+            Assert.Null(await platform.ClaimAsync(author));
+        }
+        Assert.Equal(2, await platform.Db.AgentWorkAttempts.CountAsync());
+    }
+
+    [Fact, Trait("Category", "AgentHarness")]
+    public Task Indivisible_story_with_a_reviewed_reason_reaches_one_worker_lease() =>
+        VerifyFirstClaimAsync(new FirstSprintModel(false) { SetupTitle = "Playable opening scene",
+            Outcome = "The selected tile moves one square.", StoryCriteria = ["A keypress moves that tile exactly once."],
+            IndivisibleReason = "Both checks observe the same single tile movement from one keypress." });
+
     private static async Task VerifyFirstClaimAsync(FirstSprintModel model, string[]? deferredFeatures = null)
     {
         await using var platform = new FreshTeamSprintPlatform();
@@ -221,7 +255,7 @@ public sealed partial class FreshTeamSprintJourneyTests
             var fingerprint = FreshTeamSprintPlatform.Digest(platform.Project.ToString() + digest);
             var handoff = planningSource ?? new GameProducer.ProducerAcceptedHandoff(platform.Project, platform.PitchId, platform.RevisionId, digest,
                 digest, Guid.NewGuid(), platform.PackageId, 1, now);
-            foreach (var actor in new[] { platform.Gabriel, platform.Victor, platform.Engineer })
+            foreach (var actor in new[] { platform.Gabriel, platform.Victor }.Concat(platform.Engineers))
             {
                 var runtime = platforms[actor.OrganizationUserId] = new();
                 var state = new OperatingStateFixture(runtime);
@@ -265,7 +299,7 @@ public sealed partial class FreshTeamSprintJourneyTests
         public async Task StartHostsAsync()
         {
             foreach (var (actor, agent) in new (AgentCoordinationParticipant, ICSweetAgent)[] {
-                (platform.Gabriel, new GameProducer.SpecialistAgent()), (platform.Victor, new GameTechnicalDirector()), (platform.Engineer, platform.Engineer.Role == "software-developer" ? new SoftwareDeveloper() : new GameEngineer()) })
+                (platform.Gabriel, new GameProducer.SpecialistAgent()), (platform.Victor, new GameTechnicalDirector()) }.Concat(platform.Engineers.Select(person => (person, (ICSweetAgent)(person.Role == "software-developer" ? new SoftwareDeveloper() : new GameEngineer())))))
             {
                 var identity = new AgentIdentity(actor.OrganizationUserId.ToString(), actor.DisplayName, null, actor.Role, null, [], null, actor == platform.Gabriel ? manager?.ToString() : null, null) { TeamContext = platform.Roster };
                 var host = hosts[actor.OrganizationUserId] = new(agent, platforms[actor.OrganizationUserId], identity, platform.Organization.ToString(), actor.AgentInstallationId.ToString());
@@ -347,7 +381,7 @@ public sealed partial class FreshTeamSprintJourneyTests
         private AgentCoordinationSession StartSession(StartBoardCoordinationRequest r)
         {
             if (sessions.TryGetValue(r.IdempotencyKey, out var existing)) return existing;
-            var target = new[] { platform.Victor, platform.Engineer }.Single(p => p.OrganizationUserId == r.TargetOrganizationUserId);
+            var target = platform.Engineers.Append(platform.Victor).Single(p => p.OrganizationUserId == r.TargetOrganizationUserId);
             Assert.Equal(platform.Board, r.BoardId);
             var now = DateTimeOffset.UtcNow;
             return sessions[r.IdempotencyKey] = new(Guid.NewGuid(), Guid.NewGuid(), Guid.Empty, Guid.Empty, Guid.Empty, platform.Gabriel,

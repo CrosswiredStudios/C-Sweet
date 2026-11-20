@@ -10,6 +10,9 @@ namespace CSweet.Infrastructure.Core;
 public sealed partial class HiringService
 {
     private const string NoSuitableAgentRationale = "No eligible candidate is available under your publisher preference.";
+    private const string ChooseCandidateRationale = "Choose the candidate for this approved role.";
+    private const string ComparingCandidatesRationale = "The Chief of Staff is comparing eligible candidates.";
+    private const string WaitingForHiringAuthorRationale = "Waiting for the hiring plan author.";
     private bool _executingDelegation;
 
     private async Task RequireChiefAsync(Guid organizationId, Guid installationId, CancellationToken token)
@@ -333,7 +336,7 @@ public sealed partial class HiringService
         if (mode == HiringSelectionMode.ChooseCandidates)
         {
             plan.SelectedCatalogAgentJson = null;
-            plan.SelectionRationale = "Choose the candidate for this approved role.";
+            plan.SelectionRationale = ChooseCandidateRationale;
             await db.SaveChangesAsync(token);
             return new(plan.Id, mode, null, plan.SelectionRationale);
         }

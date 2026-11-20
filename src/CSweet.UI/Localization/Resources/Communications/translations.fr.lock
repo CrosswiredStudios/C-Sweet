@@ -42,6 +42,7 @@
   "Communications.SuggestedActions.AriaLabel": "cdaf77138826",
   "Communications.Decision.AriaLabel": "002ff598115d",
   "Communications.Decision.Overline": "dcf89b04f735",
+  "Communications.Decision.ExplainOption": "48941162180f",
   "Communications.Decision.ShowImpact": "358b58f49f0e",
   "Communications.Decision.OriginalWording": "f433915cb338",
   "Communications.Decision.CustomImpact": "90af62379605",

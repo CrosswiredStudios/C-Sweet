@@ -24,7 +24,7 @@ namespace CSweet.GameRoleWorkflow.Tests;
 
 // An approved game project with a staffed, empty board. Board writes, readiness, dispatch and
 // the worker lease use the production services. The trusted Git remote is the existing test double.
-internal sealed class FreshTeamSprintPlatform(bool useSoftwareDeveloper = false) : IAsyncDisposable
+internal sealed class FreshTeamSprintPlatform(bool useSoftwareDeveloper = false, bool secondEngineer = false) : IAsyncDisposable
 {
     private readonly HierarchicalDeliveryServiceTests.Fixture studio = new(false,
         new DbContextOptionsBuilder<CSweetDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString())
@@ -61,16 +61,19 @@ internal sealed class FreshTeamSprintPlatform(bool useSoftwareDeveloper = false)
     public AgentCoordinationParticipant Gabriel => people[studio.Manager.Id];
     public AgentCoordinationParticipant Victor => people[studio.Technical.Id];
     public AgentCoordinationParticipant Engineer => people[studio.Author.Id];
+    public IReadOnlyList<AgentCoordinationParticipant> Engineers => people.Values.Where(p => p.Role is "game-engineer" or "software-developer").ToArray();
     public AgentTeamContext Roster { get; private set; } = null!;
     public string ProfileDigest { get; private set; } = null!;
     public static string Digest(string value) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
 
     private static readonly string[] BoardActions = [C.WorkBoardActions.Read, C.WorkBoardActions.Configure,
         C.WorkBoardActions.ConfigureColumns, C.WorkItemActions.Read, C.WorkItemActions.Create, C.WorkItemActions.RevisePlanning,
-        C.WorkItemActions.FinalizeDelivery, C.WorkItemActions.Estimate, C.WorkItemActions.Move, C.WorkItemActions.ReadComments,
+        C.WorkItemActions.FinalizeDelivery, C.WorkItemActions.Estimate, C.WorkItemActions.Move, C.WorkItemActions.ReadComments, C.WorkItemActions.Comment,
         C.WorkSprintActions.Read, C.WorkSprintActions.Create, C.WorkSprintActions.ManageCapacity, C.WorkSprintActions.ManageScope,
         C.WorkOrchestrationActions.ConfigureProfile, C.WorkOrchestrationActions.Preflight, C.WorkOrchestrationActions.Start,
         C.WorkOrchestrationActions.Read, C.WorkOrchestrationActions.Retry];
+    private static readonly string[] ParticipantActions = [C.WorkItemActions.Read, C.WorkBoardActions.Read,
+        C.WorkSprintActions.Read, C.WorkItemActions.ReadComments, C.WorkItemActions.Comment, C.WorkOrchestrationActions.Read];
 
     public async Task OpenAsync(string pitch)
     {
@@ -98,8 +101,17 @@ internal sealed class FreshTeamSprintPlatform(bool useSoftwareDeveloper = false)
         Db.WorkstreamTeamAssignments.Add(new() { Id = Guid.NewGuid(), OrganizationId = Organization, WorkstreamId = Project, TeamId = Team, StartsAt = DateTimeOffset.UtcNow });
         var team = await Db.OrganizationTeams.SingleAsync();
         var members = new List<AgentTeammate>();
-        foreach (var (person, name, role) in new[] { (studio.Manager, "Gabriel", "game-producer"),
-            (studio.Technical, "Victor", "game-technical-director"), (studio.Author, useSoftwareDeveloper ? "Daniel Kim" : "Adrian", useSoftwareDeveloper ? "software-developer" : "game-engineer"), (studio.Qa, "Quinn", "game-quality-assurance") })
+        var participants = new List<(OrganizationUser, string, string)> { (studio.Manager, "Gabriel", "game-producer"),
+            (studio.Technical, "Victor", "game-technical-director"), (studio.Author, useSoftwareDeveloper ? "Daniel Kim" : "Adrian", useSoftwareDeveloper ? "software-developer" : "game-engineer"), (studio.Qa, "Quinn", "game-quality-assurance") };
+        if (secondEngineer)
+        {
+            var person = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = Organization, DisplayName = "Second engineer", IsActive = true };
+            Db.CoreOrganizationUsers.Add(person);
+            Db.ProjectParticipants.Add(new() { OrganizationId = Organization, WorkstreamId = Project, OrganizationUserId = person.Id, AddedByOrganizationUserId = studio.Manager.Id });
+            Db.TeamMemberships.Add(new() { Id = Guid.NewGuid(), OrganizationId = Organization, OrganizationUserId = person.Id, TeamId = Team });
+            participants.Add((person, person.DisplayName, "game-engineer"));
+        }
+        foreach (var (person, name, role) in participants)
         {
             var installation = Guid.NewGuid();
             person.DisplayName = name; person.AgentInstallationId = installation; person.EmployeeType = EmployeeType.Agent;
@@ -119,7 +131,7 @@ internal sealed class FreshTeamSprintPlatform(bool useSoftwareDeveloper = false)
             members.Add(new(person.Id.ToString(), name, "Agent", null, null, "Peer", "Online") { AgentInstallationId = installation,
                 IsAvailable = true, RuntimeEligibility = "Eligible", DeclaredRoleKeys = policy.GetProperty("declaredRoleKeys").Deserialize<string[]>()!,
                 SpecializationKeys = policy.TryGetProperty("specializationKeys", out var strengths) ? strengths.Deserialize<string[]>()! : [], EffectiveCapabilities = capabilities });
-            foreach (var action in person == studio.Manager ? BoardActions : [C.WorkItemActions.Read, C.WorkBoardActions.Read, C.WorkSprintActions.Read])
+            foreach (var action in person == studio.Manager ? BoardActions : ParticipantActions)
                 Grant(installation, action, GrantScopeKind.Team, Team);
             Grant(installation, CSweet.Contracts.Core.ArtifactActions.Read, GrantScopeKind.Artifact, PitchId);
             if (person == studio.Manager)
@@ -190,7 +202,7 @@ internal sealed class FreshTeamSprintPlatform(bool useSoftwareDeveloper = false)
     {
         foreach (var action in new[] { PlatformCapabilities.ArtifactRead, PlatformCapabilities.ArtifactPackageRead })
             runtime.RegisterCapability<JsonElement, JsonElement>(action, (input, _) => InvokeAsync(actor, action, input));
-        foreach (var action in actor == Gabriel ? BoardActions : [C.WorkItemActions.Read, C.WorkBoardActions.Read, C.WorkSprintActions.Read])
+        foreach (var action in actor == Gabriel ? BoardActions : ParticipantActions)
             runtime.RegisterCapability<JsonElement, JsonElement>(action, (input, _) => InvokeAsync(actor, action, input));
         runtime.RegisterCapability<W.ReadWorkDeliveryPlansRequest, IReadOnlyList<W.WorkDeliveryPlanResponse>>(W.WorkDeliveryCapabilities.Read,
             (r, ct) => studio.Service.ReadAsync(Organization, actor.OrganizationUserId, r, ct));
@@ -223,17 +235,18 @@ internal sealed class FreshTeamSprintPlatform(bool useSoftwareDeveloper = false)
         throw new InvalidOperationException("Missing broker response to " + action);
     }
 
-    public async Task<ClaimedAgentWork?> ClaimAsync()
+    public async Task<ClaimedAgentWork?> ClaimAsync(AgentCoordinationParticipant? worker = null)
     {
         // A new process represents reconnect. The inbox and orchestrator keep their state in the database.
-        var process = new AgentRuntimeInstance { Id = Guid.NewGuid(), TickId = Guid.NewGuid(), AgentInstallationId = Engineer.AgentInstallationId,
+        worker ??= Engineer;
+        var process = new AgentRuntimeInstance { Id = Guid.NewGuid(), TickId = Guid.NewGuid(), AgentInstallationId = worker.AgentInstallationId,
             QueuedAt = DateTimeOffset.UtcNow, RuntimeDeadlineAt = DateTimeOffset.UtcNow.AddMinutes(10) };
         Db.AgentRuntimeInstances.Add(process);
         await Db.SaveChangesAsync();
         var inbox = new AgentWorkInbox(Db, protection, clock);
         await Dispatcher(inbox).PulseAsync();
         session = new McpAgentSession { Id = Guid.NewGuid(), OrganizationId = Organization.ToString(),
-            AgentInstallationId = Engineer.AgentInstallationId, RuntimeInstanceId = process.Id, TickId = process.TickId };
+            AgentInstallationId = worker.AgentInstallationId, RuntimeInstanceId = process.Id, TickId = process.TickId };
         return await inbox.ClaimAsync(session, default);
     }
 

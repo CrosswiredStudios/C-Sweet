@@ -15,6 +15,40 @@ namespace CSweet.UnitTests;
 
 public sealed class CompanyDashboardRenderingTests
 {
+    [Fact]
+    public async Task OnlyOwnerActionableHiresAppearInTheAttentionQueueAndBadge()
+    {
+        var interviewing = Recommendation("Video Game Director", 1) with { AutomaticHiringEnabled = true };
+        var selected = interviewing with { Id = Guid.NewGuid(), Title = "Automatic selection",
+            SelectedCatalogAgentJson = """{"agentReference":"catalog:naomi","name":"Naomi Chen"}""" };
+        var retrying = interviewing with { Id = Guid.NewGuid(), Title = "Scheduled retry", AutomaticHiringStatus = "WaitingDependency",
+            AutomaticHiringBlockReason = "Catalog unavailable", AutomaticHiringRetryAt = DateTimeOffset.UtcNow.AddMinutes(2) };
+        var manual = Recommendation("Choose a producer", 1) with { ManualSelectionRequested = true };
+        var suggested = selected with { Id = Guid.NewGuid(), Title = "Approve a candidate", AutomaticHiringEnabled = false };
+        var unmatched = interviewing with { Id = Guid.NewGuid(), Title = "No matching director", NoSuitableAgentFound = true };
+        var blocked = selected with { Id = Guid.NewGuid(), Title = "Review package permissions", AutomaticHiringBlockReason = "Permission approval required" };
+        HiringRecommendationResponse[] roles = [interviewing, selected, retrying, manual, suggested, unmatched, blocked];
+        var chief = Guid.NewGuid();
+        var ticket = Guid.NewGuid();
+        var work = new CurrentActivityItem("director", ticket, Guid.NewGuid(), null, null, 0, chief, "Evelyn Brooks",
+            $"Hire {interviewing.Title}", null, "Personal", "Evelyn Brooks's To Do", "Waiting", "Waiting for an agent claim",
+            DateTimeOffset.UtcNow, null, null, null, null, true, [], PersonalBoardOwnerId: chief) { HiringRecommendationId = interviewing.Id };
+        var html = await Render(false, recommendations: roles, activity: new(DateTimeOffset.UtcNow, 1, [work], null));
+        var activity = html[html.IndexOf("class=\"current-activity ", StringComparison.Ordinal)..];
+        Assert.Contains(work.Title, activity);
+        Assert.Contains($"employees/{chief}?tab=personal-board&amp;item={ticket}", activity);
+        Assert.Contains("Choose this role manually", activity);
+        Assert.DoesNotContain($">{interviewing.Title}<", html);
+        Assert.DoesNotContain(selected.Title, html);
+        Assert.DoesNotContain(retrying.Title, html);
+        Assert.Contains(manual.Title, html);
+        Assert.Contains("Hire Naomi Chen", html);
+        Assert.Contains("No suitable agent found", html);
+        Assert.Contains(blocked.AutomaticHiringBlockReason, html);
+        Assert.Contains("4 pending", html);
+        Assert.Equal(4, OverviewAttentionItems.Count(null, new(roles), null, null));
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -325,12 +359,12 @@ public sealed class CompanyDashboardRenderingTests
         bool failApprovals = false, bool failHiring = false, ComputeDashboard? compute = null, bool failCompute = false,
         IReadOnlyList<ProjectIncidentAttentionResponse>? incidents = null,
         IReadOnlyList<BlockedWorkAttentionResponse>? blockedWork = null, bool failBlockedWork = false,
-        IReadOnlyList<StaffingCorrectionResponse>? corrections = null)
+        IReadOnlyList<StaffingCorrectionResponse>? corrections = null, CurrentActivityPage? activity = null)
     {
         var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
         services.AddCSweetApiClients();
         services.AddSingleton<IJSRuntime, NoJavaScript>(); services.AddSingleton<NavigationManager, TestNavigation>();
-        services.AddSingleton(new HttpClient(new Handler(populated, failReports, approvals, recommendations, failApprovals, failHiring, compute, failCompute, incidents, blockedWork, failBlockedWork, corrections)) { BaseAddress = new Uri("http://localhost") });
+        services.AddSingleton(new HttpClient(new Handler(populated, failReports, approvals, recommendations, failApprovals, failHiring, compute, failCompute, incidents, blockedWork, failBlockedWork, corrections, activity)) { BaseAddress = new Uri("http://localhost") });
         services.AddScoped<AppRealtimeState>();
         services.AddScoped<IAgentApiClient, AgentApiClient>();
         await using var provider = services.BuildServiceProvider();
@@ -346,7 +380,7 @@ public sealed class CompanyDashboardRenderingTests
         bool failApprovals, bool failHiring, ComputeDashboard? compute, bool failCompute,
         IReadOnlyList<ProjectIncidentAttentionResponse>? incidents,
         IReadOnlyList<BlockedWorkAttentionResponse>? blockedWork, bool failBlockedWork,
-        IReadOnlyList<StaffingCorrectionResponse>? corrections) : HttpMessageHandler
+        IReadOnlyList<StaffingCorrectionResponse>? corrections, CurrentActivityPage? activity) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
@@ -376,7 +410,7 @@ public sealed class CompanyDashboardRenderingTests
                 if (failHiring) return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable));
                 result = new HiringBacklogResponse(recommendations ?? []) { PendingCorrections = corrections ?? [] };
             }
-            else if (path.EndsWith("/dashboard/activity")) result = new CurrentActivityPage(DateTimeOffset.UtcNow, 0, [], null);
+            else if (path.EndsWith("/dashboard/activity")) result = activity ?? new CurrentActivityPage(DateTimeOffset.UtcNow, 0, [], null);
             else if (path.EndsWith("/users") || path.EndsWith("/installations")) result = Array.Empty<object>();
             else if (path.EndsWith("/dashboard"))
             {

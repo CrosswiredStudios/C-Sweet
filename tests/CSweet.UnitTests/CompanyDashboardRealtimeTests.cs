@@ -184,7 +184,7 @@ public sealed class CompanyDashboardRealtimeTests
         Assert.Contains("decision-preview-text", html);
         Assert.Contains("person-portrait", html);
         Assert.DoesNotContain("Review a project decision", html);
-        Assert.Contains(openEnded ? "Send response" : "Choose an answer", html);
+        Assert.Contains(openEnded ? "Send response" : "Confirm choice", html);
         Assert.Same(page, fixture.Activator.Page); Assert.Equal(reads + 1, handler.IssueReads);
         handler.Questions = []; handler.Issues = new([]);
         await fixture.Renderer.Dispatcher.InvokeAsync(() => fixture.Publish(org, CommunicationEvents.DecisionUpdated));
@@ -223,7 +223,7 @@ public sealed class CompanyDashboardRealtimeTests
         await fixture.Renderer.Dispatcher.InvokeAsync(() => fixture.Publish(org, CommunicationEvents.DecisionUpdated));
         var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
         Assert.Contains("Evelyn Brooks", html); Assert.Contains(question.Decision.Prompt, html);
-        Assert.Contains(openEnded ? "Send response" : "Choose an answer", html);
+        Assert.Contains(openEnded ? "Send response" : "Confirm choice", html);
         Assert.Contains("Issue status could not be refreshed", html);
         var attention = html[html.IndexOf("aria-label=\"Pending attention items\"", StringComparison.Ordinal)..];
         Assert.Contains("Issue status could not be refreshed", attention[..attention.IndexOf("</section>", StringComparison.Ordinal)]);
@@ -233,7 +233,7 @@ public sealed class CompanyDashboardRealtimeTests
         handler.IssueStatus = System.Net.HttpStatusCode.OK; handler.Issues = QuestionIssues(question);
         await fixture.Renderer.Dispatcher.InvokeAsync(() => fixture.Publish(org, CommunicationEvents.DecisionUpdated));
         html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
-        Assert.Equal(1, html.Split("Choose an answer").Length - 1 + html.Split("Send response").Length - 1);
+        Assert.Equal(1, html.Split("Confirm choice").Length - 1 + html.Split("Send response").Length - 1);
         Assert.DoesNotContain("Issue status could not be refreshed", html);
     }
 

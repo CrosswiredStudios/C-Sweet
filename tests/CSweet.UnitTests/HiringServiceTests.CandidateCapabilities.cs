@@ -79,6 +79,8 @@ public sealed partial class HiringServiceTests
     {
         await using var db = CreateDb();
         var f = await AutonomyFixtureAsync(db);
+        await f.Service.UpdatePolicyAsync(f.Organization, f.Installation, f.Application,
+            new(HiringSelectionMode.Automatic, AutomaticHiringLevel.BroadDelegation), 0, "Handle eligible hires");
         var plan = await AutonomyPlanAsync(db, f.Organization, f.Installation, f.Owner);
         (await db.ResourceChangeRoles.SingleAsync()).RequiredCapabilitiesJson = "[\"platform.artifact.read.v1\"]";
         await db.SaveChangesAsync();
@@ -91,7 +93,11 @@ public sealed partial class HiringServiceTests
         var result = await service.SelectCandidateAsync(f.Organization, f.Installation, plan.Id);
         Assert.Null(result.Candidate);
         Assert.Contains("Could not verify", result.Rationale);
-        Assert.False(Assert.Single(await service.ListRecommendationsAsync(f.Organization)).NoSuitableAgentFound);
+        var card = Assert.Single(await service.ListRecommendationsAsync(f.Organization));
+        Assert.False(card.NoSuitableAgentFound);
+        Assert.True(card.AutomaticHiringEnabled);
+        Assert.Equal(result.Rationale, card.AutomaticHiringBlockReason);
+        Assert.True(CSweet.UI.Services.OverviewAttentionItems.IsActionable(card));
     }
 
     [Theory]

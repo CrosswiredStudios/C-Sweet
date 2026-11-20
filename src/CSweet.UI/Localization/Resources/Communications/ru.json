@@ -43,6 +43,7 @@
   "Communications.SuggestedActions.AriaLabel": "Предлагаемые действия",
   "Communications.Decision.AriaLabel": "Вопрос",
   "Communications.Decision.Overline": "ВОПРОС",
+  "Communications.Decision.ExplainOption": "Объяснить этот вариант",
   "Communications.Decision.ShowImpact": "Показать последствия",
   "Communications.Decision.OriginalWording": "Исходный текст",
   "Communications.Decision.CustomImpact": "Вы можете написать свой ответ. После отправки решение будет закрыто, а команда получит ваши указания.",

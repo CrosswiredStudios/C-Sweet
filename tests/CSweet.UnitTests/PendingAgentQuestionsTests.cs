@@ -43,7 +43,7 @@ public sealed class PendingAgentQuestionsTests
             Assert.Contains("2 pending", html);
             Assert.Contains("Project question 1", html);
             Assert.Contains("Project question 2", html);
-            Assert.Contains("Choose an answer", html);
+            Assert.Contains("Confirm choice", html);
             Assert.Contains("request-avatar", html);
             Assert.DoesNotContain("approvals?tab=decisions", html);
             Assert.DoesNotContain("Send response", html);
