@@ -45,6 +45,61 @@ function Set-PrivateAcl([string] $Path, [object[]] $Readers, [object] $Writer) {
     Set-Acl -LiteralPath $Path -AclObject $security
 }
 
+function Initialize-OfficeIssuer {
+    $consumers = @('CSweet.Api', 'CSweet.ExecutionGateway')
+    $readers = @($sids['CSweet.Api'], $sids['CSweet.ExecutionGateway'])
+    $configured = foreach ($consumer in $consumers) {
+        $profile = Get-Content -LiteralPath (Join-Path $root "$consumer.json") -Raw | ConvertFrom-Json
+        $values = foreach ($setting in @('AuthorityPfxPath', 'AuthorityCertificateThumbprint')) {
+            $key = "CSweet:ExecutionNodeCertificates:$setting"
+            $prop = $profile.PSObject.Properties[$key]
+            if (-not $prop) {
+                $section = $profile
+                foreach ($part in $key.Split(':')) {
+                    $prop = $section.PSObject.Properties[$part]
+                    if (-not $prop -or $null -eq $prop.Value) { break }
+                    $section = $prop.Value
+                }
+            }
+            if ($prop -and -not [string]::IsNullOrWhiteSpace([string]$prop.Value)) { "$setting=$($prop.Value)" }
+        }
+        if (@($values).Count -gt 1) { throw 'Configure one Office identity issuer per service.' }
+        if ($values) { [string]$values } else { 'installer' }
+    }
+    if ($configured[0] -ine $configured[1]) { throw 'Headquarters API and Execution Gateway require the same Office identity issuer.' }
+    if ($configured[0] -ne 'installer') { return }
+    $record = Join-Path $root 'office-issuer.json'
+    if ([IO.File]::Exists($record)) {
+        Assert-ProtectedPath $record
+        $saved = (Get-Content -LiteralPath $record -Raw | ConvertFrom-Json).CSweet.ExecutionNodeCertificates.AuthorityCertificateThumbprint
+        if ($saved -cnotmatch '^[A-Fa-f0-9]{40}$' -or -not (Test-Path -LiteralPath "Cert:\LocalMachine\My\$saved")) {
+            throw 'Restore the registered Office identity issuer before continuing.'
+        }
+        Set-PrivateAcl $record $readers $null
+        return
+    }
+    $constraints = [Security.Cryptography.X509Certificates.X509BasicConstraintsExtension]::new($true, $true, 0, $true)
+    $certificate = New-SelfSignedCertificate -Type Custom -Subject 'CN=C-Sweet Headquarters Office Identity Issuer' -Extension $constraints `
+        -KeyAlgorithm ECDSA_nistP256 -KeyExportPolicy NonExportable -KeyUsage CertSign,CRLSign `
+        -Provider 'Microsoft Software Key Storage Provider' -HashAlgorithm SHA256 -CertStoreLocation 'Cert:\LocalMachine\My' `
+        -NotBefore ([DateTime]::Now.AddHours(-1)) -NotAfter ([DateTime]::Now.AddYears(10))
+    $pending = Join-Path $root ("issuer-" + [guid]::NewGuid().ToString('N') + '.tmp')
+    try {
+        $key = [Security.Cryptography.X509Certificates.ECDsaCertificateExtensions]::GetECDsaPrivateKey($certificate)
+        try { $file = $key.Key.UniqueName } finally { $key.Dispose() }
+        if (-not $file -or [IO.Path]::GetFileName($file) -cne $file) { throw 'Unexpected machine key location.' }
+        $privateKey = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) "Microsoft\Crypto\Keys\$file"
+        Set-PrivateAcl $privateKey $readers $null
+        $settings = @{ CSweet=@{ ExecutionNodeCertificates=@{ AuthorityCertificateThumbprint=$certificate.Thumbprint } } }
+        [IO.File]::WriteAllText($pending, ($settings | ConvertTo-Json -Depth 4))
+        Set-PrivateAcl $pending $readers $null
+        [IO.File]::Move($pending, $record)
+    } catch {
+        Remove-Item -LiteralPath ("Cert:\LocalMachine\My\" + $certificate.Thumbprint) -DeleteKey
+        throw
+    } finally { if ([IO.File]::Exists($pending)) { [IO.File]::Delete($pending) } }
+}
+
 Assert-ProtectedPath $vendor
 Assert-ProtectedPath $root
 if ($EnrollOffice -and (Get-Service -Name 'CSweet.Office.Node' -ErrorAction SilentlyContinue)) {
@@ -72,6 +127,7 @@ foreach ($name in @('completed', 'enroll-office', 'enrollment.secret')) {
 }
 if ($EnrollOffice) {
     Assert-ProtectedPath (Join-Path $root 'office.json')
+    Initialize-OfficeIssuer
     [IO.File]::WriteAllText((Join-Path $migration 'enroll-office'), '1')
     Set-PrivateAcl (Join-Path $migration 'enroll-office') @($sids['CSweet.Migrator']) $null
     [IO.File]::WriteAllText((Join-Path $migration 'enrollment.secret'), '')

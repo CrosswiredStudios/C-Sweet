@@ -12,6 +12,7 @@ public sealed class ExecutionNodeCertificateAuthorityOptions
     public const string SectionName = "CSweet:ExecutionNodeCertificates";
     public string AuthorityPfxPath { get; set; } = string.Empty;
     public string AuthorityPfxPassword { get; set; } = string.Empty;
+    public string AuthorityCertificateThumbprint { get; set; } = string.Empty;
     public int OperationalCertificateHours { get; set; } = 24;
 }
 
@@ -89,6 +90,24 @@ public sealed class ExecutionNodeCertificateAuthority(
         {
             if (_authority is not null) return _authority;
             var configured = options.Value.AuthorityPfxPath;
+            var thumbprint = options.Value.AuthorityCertificateThumbprint;
+            if (!string.IsNullOrWhiteSpace(thumbprint))
+            {
+                if (!OperatingSystem.IsWindows() || !string.IsNullOrWhiteSpace(configured) ||
+                    thumbprint.Length != 40 || !thumbprint.All(Uri.IsHexDigit))
+                    throw new InvalidOperationException("Configure one Office identity issuer using a PFX or a Windows machine certificate.");
+                using var store = new X509Store(StoreName.My, StoreLocation.LocalMachine);
+                store.Open(OpenFlags.ReadOnly | OpenFlags.OpenExistingOnly);
+                var certificate = store.Certificates.Find(X509FindType.FindByThumbprint, thumbprint, false).SingleOrDefault();
+                if (certificate is null || !certificate.HasPrivateKey ||
+                    certificate.Extensions.OfType<X509BasicConstraintsExtension>().SingleOrDefault()?.CertificateAuthority != true ||
+                    certificate.Extensions.OfType<X509KeyUsageExtension>().SingleOrDefault()?.KeyUsages.HasFlag(X509KeyUsageFlags.KeyCertSign) != true)
+                {
+                    certificate?.Dispose();
+                    throw new InvalidOperationException("The configured Windows Office identity issuer is missing or cannot sign certificates.");
+                }
+                return _authority = certificate;
+            }
             var path = string.IsNullOrWhiteSpace(configured)
                 ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "CSweet", "control-plane", "execution-node-ca.pfx")

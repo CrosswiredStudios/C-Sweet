@@ -74,6 +74,24 @@ public sealed class ExecutionNodeCertificateAuthorityTests
         }
     }
 
+    [Theory]
+    [InlineData("invalid", "")]
+    [InlineData("0000000000000000000000000000000000000000", "operator.pfx")]
+    [InlineData("0000000000000000000000000000000000000000", "")]
+    public void Issue_RejectsInvalidConflictingOrAbsentMachineIssuer(string thumbprint, string path)
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var csr = new CertificateRequest("CN=node", key, HashAlgorithmName.SHA256).CreateSigningRequestPem();
+        var authority = new ExecutionNodeCertificateAuthority(
+            Options.Create(new ExecutionNodeCertificateAuthorityOptions
+            {
+                AuthorityCertificateThumbprint = thumbprint,
+                AuthorityPfxPath = path
+            }), new TestHostEnvironment { EnvironmentName = Environments.Production });
+
+        Assert.Throws<InvalidOperationException>(() => authority.Issue(csr, Guid.NewGuid()));
+    }
+
     private static ExecutionNodeCertificateAuthority CreateAuthority(string path) => new(
         Options.Create(new ExecutionNodeCertificateAuthorityOptions
         {

@@ -98,6 +98,15 @@ The Migrator issues a normal one-use enrollment through Headquarters. The Office
 installer consumes it from protected machine storage. Office approval in Headquarters
 and machine consent to compute are separate from those general Office allocations.
 
+On a combined install, Headquarters creates an Office identity issuer in the local
+machine's Personal certificate store. Its non-exportable signing key is readable by
+the API and Execution Gateway service accounts. Its thumbprint is retained in
+`%ProgramFiles%\CSweet\Provisioning\office-issuer.json` for subsequent starts.
+This issuer signs Office client certificates. The installer publisher and the
+gateway HTTPS certificate have separate keys. For a deployment spanning
+Headquarters machines, provision the same `CSweet:ExecutionNodeCertificates:AuthorityPfxPath`
+and password in the protected API and gateway profiles before installation.
+
 ## Build dependencies and verification
 
 `Build-WindowsDistribution.ps1` publishes explicit projects rather than the whole
