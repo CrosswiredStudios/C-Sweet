@@ -70,7 +70,22 @@ For V11a, [`Test-InstalledOfficeMaintenance.ps1`](../../../scripts/tests/Test-In
 uses an authenticated Headquarters owner session to submit a repair for one Office. Supplying
 `-TargetVersion` submits an automatic update through the same public API. The check waits
 for a successful session and a fresh heartbeat from the original Office ID.
-On the combined 0.0.4 installation, Headquarters approved the Office, received its heartbeat and accepted the owner's repair request. Office 0.16.0 did not claim the handoff before it expired. Headquarters reported `office_maintenance_unavailable`. All nine services were running at expiry.
+On the combined 0.0.4 installation, Headquarters approved the Office, received its
+heartbeat and accepted the owner's repair request. Office 0.16.0 did not claim the
+handoff before it expired. Headquarters reported `office_maintenance_unavailable`.
+All nine services were running at expiry.
+
+The Windows loopback test `MaintenanceClaimsWithTheRecoveredCertificateOverTls`
+reproduced a Schannel credential failure at the claim endpoint. Office commit
+`84474b3` imports a temporary named key under the service account. The test then
+observed the expected recovered certificate at the claim endpoint. All 291 Office
+tests passed with the packaged Contracts dependency.
+
+The [update preparation harness](../../../scripts/tests/Test-AutomaticOfficeUpdatePreparation.ps1)
+passed five Headquarters checks and seven installed Office helper checks. The Office
+checks cover the publisher requirement, refusal of a source checkout, staging on the
+selected volume and preparation before drain. The harness substitutes file retrieval
+and control-plane responses. An installed version-to-version update remains outstanding.
 
 The Headquarters `Hired_agent_waits_for_office_capacity_across_restart_without_local_setup`
 regression reopens the platform state, queues the same hired installation, and redelivers

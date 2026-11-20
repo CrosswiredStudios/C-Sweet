@@ -1,19 +1,25 @@
+param([ValidateSet('Both','Headquarters','Office')][string]$Helper = 'Both')
+
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+if ($Helper -eq 'Both') {
+    & $PSCommandPath -Helper Headquarters
+    & $PSCommandPath -Helper Office
+    return
+}
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $launcher = Join-Path $repositoryRoot 'src/CSweet.Api/Setup/Start-CSweetDevelopmentOfficeSetup.ps1'
 $officeRoot = [IO.Path]::GetFullPath((Join-Path $repositoryRoot '../CSweet.Office'))
 $packagedHelper = Join-Path $officeRoot 'scripts/windows/Start-CSweetOfficeAutomaticUpdate.ps1'
-if ((Get-FileHash -LiteralPath $launcher).Hash -ne (Get-FileHash -LiteralPath $packagedHelper).Hash) {
-    throw 'Headquarters and the installed Office automatic-update helper have drifted.'
-}
+$installed = $Helper -eq 'Office'
+if ($installed) { $launcher = $packagedHelper }
 $binary = Join-Path $officeRoot 'src/CSweet.Office.Node/bin/Release/net10.0/CSweet.Office.Node.dll'
 if (-not (Test-Path -LiteralPath $binary)) { throw 'Build Office in Release before running the preparation harness.' }
 $binaryVersion = ([version](Get-Item -LiteralPath $binary).VersionInfo.FileVersion).ToString(3)
 $tokens = $null; $parseErrors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile($launcher, [ref]$tokens, [ref]$parseErrors)
 if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
-foreach ($name in @('Get-OptionalObjectProperty', 'Assert-DevelopmentOfficePayload', 'Remove-TransientFile')) {
+foreach ($name in @('Get-QueryValue', 'Get-OptionalObjectProperty', 'Assert-DevelopmentOfficePayload', 'Remove-TransientFile')) {
     $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }.GetNewClosure(), $true)
     Invoke-Expression $definition.Extent.Text
 }
@@ -28,6 +34,33 @@ $harnessRoot = Join-Path $artifactsRoot ('office-update-harness-' + [guid]::NewG
 New-Item -ItemType Directory -Path $harnessRoot -Force | Out-Null
 $checks = 0
 try {
+    if ($installed) {
+        $gate = $ast.Find({ param($node) $node -is [Management.Automation.Language.IfStatementAst] -and
+            $node.Extent.Text.StartsWith('if ($automaticUpdate) {') -and $node.Extent.Text.Contains("Get-QueryValue " + '$uri' + " 'localSource'") }, $true)
+        $automaticUpdate = $true
+        $targetVersion = $binaryVersion
+        $uri = [uri]'csweet-office://enroll/v1?localSource=true'
+        $rejected = $false
+        try { & ([scriptblock]::Create($gate.Extent.Text)) } catch {
+            if ($_.Exception.Message -ne 'Office maintenance requires a publisher-signed release.') { throw }
+            $rejected = $true
+        }
+        if (-not $rejected) { throw 'Installed maintenance accepted a source checkout.' }
+        $checks++
+        $selector = $ast.Find({ param($node) $node -is [Management.Automation.Language.IfStatementAst] -and
+            $node.Extent.Text.StartsWith('if (-not $UseLocalSource)') -and $node.Extent.Text.Contains('Resolve-CSweetOfficeRelease') }, $true)
+        function Resolve-CSweetOfficeRelease($Architecture,$TargetVersion,[switch]$RequirePublisherSignature) {
+            if (-not $RequirePublisherSignature -or $Architecture -ne 'x64' -or $TargetVersion -ne $binaryVersion) {
+                throw 'Installed maintenance did not require a pinned publisher for the selected update.'
+            }
+            [pscustomobject]@{Version=$TargetVersion; MsiManifest=@{}}
+        }
+        $UseLocalSource = $false
+        $architecture = 'x64'
+        . ([scriptblock]::Create($selector.Extent.Text))
+        $signedRelease = $release
+        $checks++
+    }
     foreach ($scenario in @('ready', 'ready-selected-drive', 'bootstrap-failed', 'wrong-version', 'cancelled')) {
         $caseRoot = Join-Path $harnessRoot $scenario
         $setupRoot = Join-Path $caseRoot 'setup'
@@ -37,6 +70,7 @@ try {
         if ($scenario -eq 'ready-selected-drive') {
             $storage = [pscustomobject]@{ VolumeId = 'test-volume'; DataRoot = (Join-Path $caseRoot 'selected drive') }
             $global:OfficeUpdateHarnessPayloadRoot = Join-Path $storage.DataRoot 'setup/certification/payload'
+            $payloadSetupRoot = Join-Path $storage.DataRoot 'setup/staging'
         }
         New-Item -ItemType Directory -Path $setupRoot,$officeScriptRoot,$global:OfficeUpdateHarnessPayloadRoot -Force | Out-Null
         Copy-Item -LiteralPath $binary -Destination (Join-Path $global:OfficeUpdateHarnessPayloadRoot 'office.dll')
@@ -62,6 +96,18 @@ $global:LASTEXITCODE = $(if ($global:OfficeUpdateHarnessScenario -eq 'bootstrap-
         $sessionId = [guid]::NewGuid()
         $identity = [pscustomobject]@{ User = [pscustomobject]@{ Value = 'test-user' } }
         $release = $null; $prebuiltRoot = $null
+        if ($installed) {
+            $release = $signedRelease
+            $msiUpdate = $true
+            function Receive-CSweetMsiUpdate($Release,$Destination) {
+                if ($scenario -eq 'bootstrap-failed') { throw 'Fixture rejected the update signature.' }
+                if ($Release.Version -ne $binaryVersion -or (Split-Path -Parent $Destination) -ne $payloadSetupRoot) {
+                    throw 'The installed update used a different release or staging volume.'
+                }
+                $global:OfficeUpdateHarnessEvents.Add('prepared')
+                Split-Path -Parent $global:OfficeUpdateHarnessPayloadRoot
+            }
+        }
         $progressPath = Join-Path $setupRoot 'progress.json'
         function Invoke-CSweetPinnedRestMethod {
             param($Method,$Uri,$Body)
@@ -86,7 +132,8 @@ $global:LASTEXITCODE = $(if ($global:OfficeUpdateHarnessScenario -eq 'bootstrap-
         try { & $body } catch { $failure = $_ }
         if ($scenario -in @('ready','ready-selected-drive')) {
             if ($failure) { throw $failure }
-            if ($script:readyCalls -ne 2 -or $global:OfficeUpdateHarnessEvents.IndexOf('prepared') -gt $global:OfficeUpdateHarnessEvents.IndexOf('request-stop') -or
+            if ($script:readyCalls -ne 2 -or -not $global:OfficeUpdateHarnessEvents.Contains('prepared') -or
+                $global:OfficeUpdateHarnessEvents.IndexOf('prepared') -gt $global:OfficeUpdateHarnessEvents.IndexOf('request-stop') -or
                 -not $global:OfficeUpdateHarnessEvents.Contains('wait-for-confirmation')) { throw 'Preparation/stop ordering was violated.' }
             # Evaluate the actual request construction as well: the development-source
             # path must report the verified target rather than the legacy setup version.
@@ -107,7 +154,7 @@ $global:LASTEXITCODE = $(if ($global:OfficeUpdateHarnessScenario -eq 'bootstrap-
         }
         $checks++
     }
-    Write-Output "Passed $checks real automatic-update preparation scenarios and packaged-helper parity."
+    Write-Output "$Helper passed $checks automatic-update preparation checks."
 }
 finally {
     Remove-Variable -Name OfficeUpdateHarnessPayloadRoot,OfficeUpdateHarnessEvents,OfficeUpdateHarnessScenario -Scope Global -ErrorAction SilentlyContinue
