@@ -12,6 +12,7 @@
     <PackageReference Include="xunit" />
     <None Update="Fixtures/qwen-saved-capacity-hold.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures/shatterpoint-ticket.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures/prism-breaker-startup-review.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures/qwen-adrian-21-zero.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures/qwen-adrian-estimate.json" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Fixtures/prism-break-recipe-review.json" CopyToOutputDirectory="PreserveNewest" />

@@ -1,0 +1,165 @@
+{
+  "goals": [
+    "Deliver the install-free Chromium desktop web prototype package with the full one-ball, one-hit Breakout core loop and required mouse and keyboard controls, keeping the work browser-only, desktop-only, and subject to stable observed Chromium playability.",
+    "Deliver the visual and audio identity through reproducible code-native procedural generation with declared project-use rights and hash-bound provenance; keep it original, avoid Breakout brand or trade-dress, and avoid stock-first placeholder identity.",
+    "Create the original reactive code-native chiptune and SFX set so music responds to combo rise, layout clear, and ball loss, and sounds cover block material, paddle catch, wall bounce, clear, and loss.",
+    "The approved first-time-player acceptance condition requires at least 30 seconds of unassisted Chromium desktop play, but the planned evidence ownership only describes a feedback summary and panel protocol, not that concrete condition.",
+    "Required remappable keys must cover supported keyboard commands, but no approved outcome, acceptance criterion, or planned record defines the supported command set or remapping depth."
+  ],
+  "reply": {
+    "summary": "The candidate is a desktop-only Chromium startup slice. It commits a lockfile, uses exact v7 package slots, replaces the unavailable @pixi/filter-chromatic-aberration slot with @pixi/filter-rgb-split in package.json and the verifier, and validates clean install, lockfile restore, build, package setup, and Chromium startup with a Pixi v7 canvas and custom TypeScript loop. The increment's startup, dependency, and verification obligations are evidenced. The supplied broader Story criteria for the full Breakout core loop, visual/audio identity, reactive chiptune/SFX, 30-second unassisted play, and remappable key set are not satisfied by this candidate and remain downstream obligations.",
+    "criteria": [
+      {
+        "evidence": "Candidate obligations: package.json and package-lock.json are present and package-lock.json is not ignored; scripts include npm-based dev/build/preview/test/verify commands; package-lock root records exact dependency versions and npm ci/build receipts exit 0. Responsible operations: package.json script manifest, verify-lockfile-restore hash/restore check, verify-package-setup lockfile and script checks, and package-lock.json root entries. The lockfile shows optional platform binaries and no introduced native build script; the clean npm ci and build commands corroborate this, but the primary proof is the source lockfile and verification scripts.",
+        "satisfied": true,
+        "evidenceOffsets": [
+          54,
+          6325,
+          86982,
+          88022,
+          96471,
+          54284
+        ]
+      },
+      {
+        "evidence": "Candidate obligations: Vite is configured to a Chromium target, startup verification resolves only a Chromium binary, package setup rejects non-Chromium startup mentions, and no cross-browser/device certification configuration is visible. Responsible operations: vite.config.ts, scripts/verify-startup.mjs, scripts/verify-package-setup.mjs, tests/verify-package-setup.test.mjs, package.json scripts, and index.html/styles.css desktop-only layout. Transitive ismobilejs lockfile entries do not introduce a mobile/touch build or certification scope.",
+        "satisfied": true,
+        "evidenceOffsets": [
+          4999,
+          86982,
+          96471,
+          107356,
+          134512,
+          143401,
+          148776,
+          54284
+        ]
+      },
+      {
+        "evidence": "Candidate obligations: a preview build is served to Chromium at desktop viewport, a canvas is present, a WebGL/Pixi startup contract is checked, a startup-complete DOM event is awaited, and custom-loop telemetry grows. Responsible operations: scripts/verify-startup.mjs, src/main.ts, src/core/Renderer.ts, src/core/GameLoop.ts, and the startup smoke/validation receipts. This certifies the startup slice obligations; full game behavior is a downstream Story obligation.",
+        "satisfied": true,
+        "evidenceOffsets": [
+          4999,
+          107356,
+          120720,
+          124524,
+          130087
+        ]
+      },
+      {
+        "evidence": "Candidate obligations: the build target and runtime shell are fixed desktop dimensions; mobile viewport configuration is rejected by package-setup verification and tests; startup uses hasTouch false. Responsible operations: index.html, src/styles.css, scripts/verify-startup.mjs, scripts/verify-package-setup.mjs, and tests/verify-package-setup.test.mjs. No mobile or touch build target is declared in package.json or vite.config.ts.",
+        "satisfied": true,
+        "evidenceOffsets": [
+          4999,
+          86982,
+          96471,
+          107356,
+          134512,
+          143401,
+          148776
+        ]
+      },
+      {
+        "evidence": "Candidate obligations: verification uses Chromium desktop only at 1280x720, with no mobile emulation or browser-matrix configuration; CSS uses fixed desktop dimensions and no responsive breakpoints. Responsible operations: scripts/verify-startup.mjs, vite.config.ts, index.html, src/styles.css, and tests/verify-package-setup.test.mjs. The browser smoke and startup receipts corroborate the source configuration, while the source scripts own the scope.",
+        "satisfied": true,
+        "evidenceOffsets": [
+          4999,
+          107356,
+          134512,
+          143401,
+          148776
+        ]
+      },
+      {
+        "evidence": "Candidate obligations evidenced for this increment: committed package-lock.json, exact pinned dependency set including PixiJS 7.4.3, a PixiJS v7 Application renderer, a custom TypeScript GameLoop, main entry wiring, and clean dependency restore via verify-lockfile-restore and npm ci receipts. The unavailable @pixi/filter-chromatic-aberration slot is absent and replaced by @pixi/filter-rgb-split in package.json, lockfile, verifier, and tests. Direct collision/layout gameplay is treated as a downstream Story obligation and not an introduced native or non-desktop build; the candidate obligations required by this startup increment are satisfied.",
+        "satisfied": true,
+        "evidenceOffsets": [
+          6325,
+          86982,
+          88022,
+          96471,
+          120720,
+          124524,
+          130087,
+          148042
+        ]
+      },
+      {
+        "evidence": "Missing candidate evidence: the reviewed code is a startup slice with no paddle, ball, collision, scoring, or mouse/keyboard gameplay. Responsible operations absent: no gameplay modules, no input handlers, and no Breakout core-loop assertions. The startup loop and renderer telemetry are present, but the full one-ball one-hit Breakout loop and controls are not implemented or validated.",
+        "satisfied": false,
+        "evidenceOffsets": [
+          571,
+          120720,
+          124524,
+          130087
+        ]
+      },
+      {
+        "evidence": "Missing candidate evidence: no visual/audio identity implementation or hash-bound provenance artifacts are visible. Responsible operations absent: no procedural asset modules, no declared project-use rights record, and no provenance/hash artifacts. The startup background is placeholder Graphics only and does not satisfy the identity criterion.",
+        "satisfied": false,
+        "evidenceOffsets": [
+          571,
+          86982,
+          124524,
+          130087
+        ]
+      },
+      {
+        "evidence": "Missing candidate evidence: tone is pinned as a dependency, but no reactive chiptune layering, SFX implementation, combo/layout/ball-loss hooks, or block/paddle/wall/clear/loss sound behaviors are present. Responsible operations absent: no audio module, no music state machine, no SFX event wiring, and no browser audio validation.",
+        "satisfied": false,
+        "evidenceOffsets": [
+          571,
+          86982,
+          120720,
+          124524,
+          130087
+        ]
+      },
+      {
+        "evidence": "Missing candidate evidence: the startup verification observes only a few growing loop ticks and startup completion, not 30 seconds of unassisted Chromium desktop play or a first-time-player acceptance protocol. Responsible operations absent: no long-play scenario, no unassisted play telemetry, and no panel/feedback record satisfying the concrete 30-second condition.",
+        "satisfied": false,
+        "evidenceOffsets": [
+          571,
+          107356,
+          120720,
+          130087
+        ]
+      },
+      {
+        "evidence": "Missing candidate evidence: no keyboard command set, remapping schema, key-state input system, or remapping depth specification is implemented or validated. Responsible operations absent: no input configuration module, no command registry, no remapping UI/contract, and no scenario evidence exercising remapped keys.",
+        "satisfied": false,
+        "evidenceOffsets": [
+          571,
+          86982,
+          120720,
+          124524,
+          130087
+        ]
+      }
+    ],
+    "resolutions": [],
+    "additionalFindings": []
+  },
+  "title": "Install-Free Chromium Package Restore and Rendered Startup",
+  "ticket": "VGA7CE8AC760-9",
+  "criteria": [
+    "From a clean checkout, `npm ci` restores dependencies using the committed `package-lock.json` and the project produces a desktop-web build without a native install step.",
+    "The project configuration and verification scope treat Chromium desktop web as the only approved platform for this increment; no cross-browser or real-device certification is introduced.",
+    "A clean Chromium desktop session can load the project package without installation and start the game.",
+    "Desktop web is the only approved PoC platform; no mobile or touch build is produced or required.",
+    "Chromium desktop is the primary verification target; responsive behavior is limited to desktop viewports and no cross-browser certification is required.",
+    "From a clean checkout, launch the approved Story's runnable slice using PixiJS v7 WebGL renderer with a custom TypeScript game loop; collision and layout logic implemented directly (no full arcade engine) and TypeScript. Commit package-lock.json and verify a clean dependency restore."
+  ],
+  "constraints": [
+    "Engine and language: PixiJS v7 WebGL renderer with a custom TypeScript game loop.",
+    "Libraries: pixi.js, @pixi/filter-kawase-blur, @pixi/filter-glow, @pixi/filter-chromatic-aberration, tone, vite.",
+    "Package manager evidence: package-lock.json generated or verified through npm; clean restore uses npm ci when the lockfile is committed.",
+    "Browser target: Chromium desktop web only; no mobile, touch, cross-browser certification, profiling, power-ups, or stress testing beyond stable observed playability.",
+    "Verification: Chromium startup and input behavior should be validated through the browser scenario runner; standalone dependency or build checks may use npm test or script-based verify commands rather than inline snippets.",
+    "Interaction criteria for running behavior require browser scenario evidence when implemented; documents and dependency checks may use build or script evidence.",
+    "Technical Director chose PixiJS v7 WebGL renderer with a custom TypeScript game loop; collision and layout logic implemented directly (no full arcade engine) with TypeScript and pixi.js, @pixi/filter-kawase-blur, @pixi/filter-glow, @pixi/filter-chromatic-aberration, tone, vite. Fixed constraints require a Chromium desktop web PoC with readable Breakout rules and a heavy juice/audio layer, but no mobile, cross-browser certification, profiling, or power-ups. PixiJS plus a custom loop is chosen because it gives WebGL compositing, particle containers, and custom GLSL filters for additive glow, bloom, chromatic shards, hit-stop, and screen shake while keeping gameplay logic simple enough for a one-screen Breakout. No external deadline or budget/time constraint has been recorded, so selection is by PoC merit rather than schedule. Canvas 2D was rejected as the main path because required bloom and shader-driven debris would be approximate and less maintainable. Phaser was rejected for this MVP despite faster scene and physics scaffolding because the required renderer juice exceeds default 2D conventions and would depend on plugin or renderer escape hatches. Raw WebGL or WebGPU was rejected because it gives the most visual control but adds too much boilerplate and maintenance for a PoC with one ball and fixed layouts. Tone.js is selected to prototype reactive chiptune layering and SFX without a full audio engine, accepting extra bundle size and Web Audio scheduling complexity as the main tradeoff. Accessibility is handled in the custom loop with reduced-motion, volume, remapping, audio-visual redundancy, and pause/restart; Pixi remains a desktop-web renderer dependency rather than a full game engine, keeping maintenance bounded."
+  ],
+  "requirements": [
+    "Outcome: Deliver the first runnable desktop-web package from a clean Story checkout: package.json with pinned dependencies, TypeScript/Vite scripts, PixiJS v7 WebGL canvas placeholder, custom TypeScript loop stub, committed package-lock.json, and observable Chromium desktop startup. Out of scope: paddle/ball gameplay, collision, scoring, audio, juice, accessibility settings, mobile/touch, cross-browser certification, and real-device certification.\n\nContext: Empty or unstructured Story checkout may be expected; developer reads current ticket comments and actual Story target branch before work. Proposed files are conventions unless checkout inspection differs: package.json, tsconfig.json, vite.config.ts, index.html, src/main.ts, src/core/GameLoop.ts, src/core/Renderer.ts, scripts/verify-package-setup.mjs, and scripts/verify-startup.mjs. Direct dependencies must use exact PixiJS v7-compatible versions for pixi.js, @pixi/filter-kawase-blur, @pixi/filter-glow, @pixi/filter-chromatic-aberration, tone, and vite; dev dependencies include TypeScript, npm test tooling, and a Chromium-only scenario runner. package-lock.json is a committed deliverable.\n\nPseudocode:\n- Read comments and inspect the actual Story branch; if file conventions differ, use the actual branch unless the difference changes scope.\n- Scaffold an npm package for Node LTS with scripts for dev, build, preview, test, verify:package-setup, and verify:startup.\n- Select exact PixiJS v7-compatible package versions from npm, generate or verify package-lock.json with npm, and ensure the clean install path uses npm ci.\n- Configure Vite for desktop web output only; if a scenario runner needs a default viewport, use a desktop Chromium viewport and do not add mobile, touch, browser-matrix, or device-certification configuration.\n- In main.ts initialize a PixiJS v7 WebGL renderer inside a mounted canvas, add a background and a minimal custom GameLoop with update and render hooks driven by requestAnimationFrame or Pixi ticker, and emit a startup-complete test event.\n- In scripts/verify-package-setup.mjs assert package-lock.json exists, package.json declares the pinned dependencies and scripts, install scripts use npm, and no native-install or mobile/touch-specific build requirement is introduced.\n- In scripts/verify-startup.mjs build or preview the package, open only Chromium at a desktop viewport, wait for a canvas plus WebGL/Pixi startup signal and startup-complete event, and fail on fatal console or page errors.\n\nAssumptions: The platform checkout of the Story target branch is clean and npm/Node LTS are available; the engineer resolves exact Pixi v7 and filter versions in this ticket; package-lock may need regeneration after exact selection. Verification is performed on the platform-assigned immutable candidate commit and actual Story target branch, not by checking out main first. If package layout, Pixi API, or Vite config differs from these proposed locations, developers adapt in the ticket comment within accepted scope; request revision only when assumptions are stale or scope changes.\n\nVerification: From a clean Story checkout run npm ci; run node scripts/verify-package-setup.mjs; run npm run build; run node scripts/verify-startup.mjs. Expected: all exit 0, package-lock.json is present and unchanged after clean install, and the Chromium desktop canvas starts with the custom TypeScript loop; no install step, no mobile/touch output, no cross-browser/device certification checks, and no native install requirement is introduced."
+  ]
+}

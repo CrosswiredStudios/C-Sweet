@@ -18,6 +18,7 @@ internal sealed class FirstSprintModel(bool dependencies)
         : "Make a tiny browser puzzle where a player moves a tile one square at a time.";
     public string Outcome { get; init; } = dependencies ? "The spring deflects the obstacle." : "The selected tile moves one square.";
     public string[] StoryCriteria { get; init; } = [];
+    public StartupReviewIncident? Startup { get; init; }
     public string? SupersededCriterion { get; init; }
     public bool RefineWithoutCandidate { get; init; }
     public int RevisionRequests { get; private set; }
@@ -68,6 +69,11 @@ internal sealed class FirstSprintModel(bool dependencies)
         if (actor.Role == "game-producer")
         {
             var data = JsonDocument.Parse(messages[1]).RootElement;
+            if (Startup is { } incident && data.TryGetProperty("existingObligations", out var registry))
+                return new { commitments = incident.Goals.Select((statement, index) => new { statement, sources = new[] { 0 },
+                    evidenceIndexes = new[] { 0 }, proposedIndexes = new[] { index },
+                    existingObligationIndex = registry.EnumerateArray().Where(e => e.GetProperty("Statement").GetString() == statement)
+                        .Select(e => (int?)e.GetProperty("index").GetInt32()).SingleOrDefault() }), gaps = Array.Empty<string>() };
             if (data.TryGetProperty("existingObligations", out var existing))
                 return new { commitments = new[] { new { statement = Outcome, sources = new[] { 0 }, evidenceIndexes = new[] { 0 },
                     proposedIndexes = new[] { 0 }, existingObligationIndex = existing.GetArrayLength() == 0 ? (int?)null : 0 } }, gaps = Array.Empty<string>() };
@@ -153,9 +159,10 @@ internal sealed class FirstSprintModel(bool dependencies)
         }
         return page switch
         {
-            2 => new { commitments = new[] { new { statement = Outcome, sourceIndexes = new[] { 0 }, kind = "Outcome" } } },
+            2 => new { commitments = (Startup?.Goals ?? [Outcome]).Select(statement => new { statement, sourceIndexes = new[] { 0 }, kind = "Outcome" }) },
             3 => new { epics = new[] { new { title = "Playable interaction", outcome = Outcome, acceptanceCriteria = new[] { Outcome },
-                sourceIndexes = new[] { 0 }, prerequisiteIndexes = Array.Empty<int>() } }, feasibilityFindings = none, technicalConstraints = none, openFeasibilityDecisions = none },
+                sourceIndexes = Enumerable.Range(0, Startup?.Goals.Length ?? 1).ToArray(), prerequisiteIndexes = Array.Empty<int>() } }, feasibilityFindings = none,
+                technicalConstraints = Startup is null ? none : [.. Startup.Constraints[..6], Startup.Goals[2]], openFeasibilityDecisions = none },
             4 => new { stories = new[] { new { title = SplitDelivery ? SetupTitle : "Playable opening scene", outcome = Outcome, acceptanceCriteria = StoryCriteria, epicCriterionIndexes = new[] { 0 }, prerequisiteIndexes = Array.Empty<int>() } } },
             5 when SplitDelivery && RevisionRequests > 0 => SplitTasks(messages),
             6 when SplitDelivery && RevisionRequests > 0 => new { items = new[] { 1, 2, 3 }.Select(i => new {
@@ -163,8 +170,9 @@ internal sealed class FirstSprintModel(bool dependencies)
             5 => new { setupTaskIndex = 0, tasks = new[] { new { title = SetupTitle, description = Brief, workItemTypeKey = ReplaysBreakout ? "video-game.research-spike.v1" : "video-game.task.v1",
                 accountableRoleKey = "game-engineer", requiredSpecializationKeys = none, preferredSpecializationKeys = none, storyCriterionIndexes = Enumerable.Range(0, StoryCriteria.Length + 1).ToArray(),
                 additionalCriteria = SupersededCriterion is not null && RevisionRequests == 0 ? new[] { SupersededCriterion } : none,
-                browserVerification = "none", interactionCriteria = Array.Empty<int>(), earlierTaskIndexes = Array.Empty<int>(), priorTaskIndexes = Array.Empty<int>() } } },
-            6 => new { items = new[] { new { proposalKey = "roadmap-epic-1.story-1.task-1", description = Brief } } },
+                technicalConstraintIndexes = Startup is null ? Array.Empty<int>() : Enumerable.Range(0, 6).ToArray(),
+                browserVerification = Startup is null ? "none" : "canvas", interactionCriteria = Array.Empty<int>(), earlierTaskIndexes = Array.Empty<int>(), priorTaskIndexes = Array.Empty<int>() } } },
+            6 => new { items = new[] { new { proposalKey = "roadmap-epic-1.story-1.task-1", description = Startup?.Requirements.Single() ?? Brief } } },
             _ => throw new InvalidOperationException("Unexpected technical generation or correction: " + messages.Last()[..Math.Min(300, messages.Last().Length)])
         };
     }
