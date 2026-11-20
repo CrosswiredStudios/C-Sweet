@@ -81,6 +81,14 @@ reproduced a Schannel credential failure at the claim endpoint. Office commit
 observed the expected recovered certificate at the claim endpoint. All 291 Office
 tests passed with the packaged Contracts dependency.
 
+On a fresh boot of that Windows Server 2025 VM, an authenticated owner request
+completed repair session `362d0992-d1df-4938-8e11-0ae4c0527667`. The original
+Office `01068017-b8d3-42a1-abb2-da519449193e` reported a fresh heartbeat at
+23:45:43 UTC. The guest reported zero interactive logons since boot. This run
+used the debug-signed 0.16.1 Maintenance executable from `496a47f` with the
+installed 0.16.0 configurator and runtime. The harness restored the original
+service executable and confirmed Maintenance was running after the test.
+
 The [update preparation harness](../../../scripts/tests/Test-AutomaticOfficeUpdatePreparation.ps1)
 passed five Headquarters checks and seven installed Office helper checks. The Office
 checks cover the publisher requirement, refusal of a source checkout, staging on the
@@ -106,7 +114,7 @@ Office remains a separate gate.
 | V8 | Command, browser evidence, build archive and published port | Windows and Linux Offices | Results match existing compute. Another tenant cannot open the URL, guest content cannot receive Headquarters cookies, and revocation closes an open stream | |
 | V9 | Outbound internet with and without the owner's grant | Windows and Linux Offices | Package installs work with the grant; private and blocked ranges are unreachable; nothing works without it | |
 | V10 | Stop and start a persistent environment, then cross the seven-day assignment limit with Headquarters reachable and disconnected | Windows and Linux Offices | Authorized successors see a marker on the same disk with one writer. Expiry offline stops work, closes streams and preserves the disk. An ephemeral environment ends at expiry | |
-| V11a | Headquarters team: request repair and automatic upgrade on an enrolled Windows Office with the development launcher configured. Exercise drain using an existing workload, then make Maintenance unavailable | Windows, existing Office release | The installed Maintenance service claims the targeted handoffs and completes eligible requests. Drain still protects active work. Headquarters reports the unavailable case. Every case records zero elevation launches | Office 0.16.0 repair expired with `office_maintenance_unavailable`. Automatic update pending. |
+| V11a | Headquarters team: request repair and automatic upgrade on an enrolled Windows Office with the development launcher configured. Exercise drain using an existing workload, then make Maintenance unavailable | Windows, existing Office release | The installed Maintenance service claims the targeted handoffs and completes eligible requests. Drain still protects active work. Headquarters reports the unavailable case. Every case records zero elevation launches | Repair passed before login with 0.16.1 Maintenance on Office 0.16.0. The unpatched service produced `office_maintenance_unavailable`. Installed version-to-version update and active-workload drain pending. |
 | V11b | Office and Headquarters teams: repeat upgrade with a live persistent compute environment and exercise repair after compute enrollment | Windows, Office with compute | Drain prevents new starts, the data survives upgrade, repair preserves the installed compute ceiling and no UAC prompt appears | |
 | V12 | Restart after VM creation but before acknowledgment, then drop a guest command result after its side effect | All | Redelivery recovers one owned VM and one reservation. The guest command runs once or reports an unknown outcome without automatic re-execution | Hyper-V probe passed for VM and guest command. Installed Office recovery pending. |
 | V13 | Migrate a first-business unsuffixed service and a subsequent suffixed one, with data on a selected volume and a legacy host temporarily offline | Private, Windows | Ownership and drain are verified. Persistent data and shared images still in use survive. Exact-owned legacy services and SYSTEM retirement tasks are confirmed removed when online, and retries leave other businesses intact | |
