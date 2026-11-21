@@ -111,7 +111,19 @@ The [update preparation harness](../../../scripts/tests/Test-AutomaticOfficeUpda
 passed five Headquarters checks and seven installed Office helper checks. The Office
 checks cover the publisher requirement, refusal of a source checkout, staging on the
 selected volume and preparation before drain. The harness substitutes file retrieval
-and control-plane responses. An installed version-to-version update remains outstanding.
+and control-plane responses.
+
+On the next cold boot, the owner requested an automatic update of the enrolled
+0.16.0 Office. Headquarters completed session `0e5b6141-dc8b-4f35-8f30-aa65d09fc4e6`.
+Office `01068017-b8d3-42a1-abb2-da519449193e` reported version 0.16.1 and a fresh
+heartbeat at 00:17:13 UTC on November 21. The selected storage volume was preserved,
+Windows recorded zero interactive logons, and the newly installed Maintenance service
+was running after the test fixture was removed. As in the repair test, the initial
+0.16.0 service used the 0.16.1 credential fix. The disconnected guest used a test
+copy of the release downloader to read the local MSI layout. Release selection,
+publisher verification, installation and Headquarters communication ran against the
+real signed packages and enrolled Office. GitHub delivery and drain with an active
+workload need separate runs.
 
 The Headquarters `Hired_agent_waits_for_office_capacity_across_restart_without_local_setup`
 regression reopens the platform state, queues the same hired installation, and redelivers
@@ -132,7 +144,7 @@ Office remains a separate gate.
 | V8 | Command, browser evidence, build archive and published port | Windows and Linux Offices | Results match existing compute. Another tenant cannot open the URL, guest content cannot receive Headquarters cookies, and revocation closes an open stream | |
 | V9 | Outbound internet with and without the owner's grant | Windows and Linux Offices | Package installs work with the grant; private and blocked ranges are unreachable; nothing works without it | |
 | V10 | Stop and start a persistent environment, then cross the seven-day assignment limit with Headquarters reachable and disconnected | Windows and Linux Offices | Authorized successors see a marker on the same disk with one writer. Expiry offline stops work, closes streams and preserves the disk. An ephemeral environment ends at expiry | |
-| V11a | Headquarters team: request repair and automatic upgrade on an enrolled Windows Office with the development launcher configured. Exercise drain using an existing workload, then make Maintenance unavailable | Windows, existing Office release | The installed Maintenance service claims the targeted handoffs and completes eligible requests. Drain still protects active work. Headquarters reports the unavailable case. Every case records zero elevation launches | Repair passed before login with 0.16.1 Maintenance on Office 0.16.0. The unpatched service produced `office_maintenance_unavailable`. Installed version-to-version update and active-workload drain pending. |
+| V11a | Headquarters team: request repair and automatic upgrade on an enrolled Windows Office with the development launcher configured. Exercise drain using an existing workload, then make Maintenance unavailable | Windows, existing Office release | The installed Maintenance service claims the targeted handoffs and completes eligible requests. Drain still protects active work. Headquarters reports the unavailable case. Every case records zero elevation launches | Repair and the signed 0.16.0 → 0.16.1 update passed before login with the Maintenance credential fix and local release delivery. The unpatched service produced `office_maintenance_unavailable`. Active-workload drain pending. |
 | V11b | Office and Headquarters teams: repeat upgrade with a live persistent compute environment and exercise repair after compute enrollment | Windows, Office with compute | Drain prevents new starts, the data survives upgrade, repair preserves the installed compute ceiling and no UAC prompt appears | |
 | V12 | Restart after VM creation but before acknowledgment, then drop a guest command result after its side effect | All | Redelivery recovers one owned VM and one reservation. The guest command runs once or reports an unknown outcome without automatic re-execution | Hyper-V probe passed for VM and guest command. Installed Office recovery pending. |
 | V13 | Migrate a first-business unsuffixed service and a subsequent suffixed one, with data on a selected volume and a legacy host temporarily offline | Private, Windows | Ownership and drain are verified. Persistent data and shared images still in use survive. Exact-owned legacy services and SYSTEM retirement tasks are confirmed removed when online, and retries leave other businesses intact | |
