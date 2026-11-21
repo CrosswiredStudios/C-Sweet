@@ -84,10 +84,16 @@ $session = Get-LabApi '/api/auth/session'
 if (!$session.antiforgeryToken) { throw 'The test owner could not establish a Headquarters session.' }
 $headers['X-CSWEET-CSRF'] = $session.antiforgeryToken
 $hire = "/api/core/organizations/$OrganizationId/hiring"
+$team = (Get-LabApi "/api/core/organizations/$OrganizationId/teams/$TeamId").team
+if ($team.id -ne $TeamId -or $team.isArchived -or !$team.leadOrganizationUserId) {
+    throw 'The hire requires an active team with a reporting manager.'
+}
 $key = "office-compute-test:$($RunId.ToString('N'))"
 $preview = Send-LabApi "$hire/marketplace/preview" @{ agentReference=$AgentReference; roleTitle='Game Engineer'
-    employeeDisplayName="Game Engineer $($RunId.ToString('N').Substring(0,8))"; teamId=$TeamId; idempotencyKey="$key-preview" }
-if ($preview.agentReference -ne $AgentReference -or $preview.agentName -ne 'Adrian Silva' -or $preview.teamId -ne $TeamId -or $preview.requestedCapabilities -notcontains 'compute.provision.v1' -or
+    employeeDisplayName="Game Engineer $($RunId.ToString('N').Substring(0,8))"; teamId=$TeamId
+    reportsToOrganizationUserId=$team.leadOrganizationUserId; idempotencyKey="$key-preview" }
+if ($preview.agentReference -ne $AgentReference -or $preview.agentName -ne 'Adrian Silva' -or $preview.teamId -ne $TeamId -or
+    $preview.reportsToOrganizationUserId -ne $team.leadOrganizationUserId -or $preview.requestedCapabilities -notcontains 'compute.provision.v1' -or
     $preview.subscriptions -notcontains 'com.csweet.compute.available.v1' -or $preview.subscriptions -notcontains 'com.csweet.project-assignment.assigned.v1') {
     throw 'The catalog preview does not contain the expected developer release and team.'
 }
