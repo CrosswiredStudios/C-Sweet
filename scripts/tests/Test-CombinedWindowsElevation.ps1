@@ -59,16 +59,27 @@ if ($result.computer -cne $env:COMPUTERNAME -or $result.exitCode -ne 0 -or $fini
 }
 $launches = 0
 $prompts = 0
-foreach ($event in Get-WinEvent -FilterHashtable @{LogName='Security';Id=4688;StartTime=$started.LocalDateTime;EndTime=$finished.LocalDateTime}) {
+$timeline = [Collections.Generic.List[string]]::new()
+foreach ($event in Get-WinEvent -FilterHashtable @{LogName='Security';Id=4688;StartTime=$started.LocalDateTime;EndTime=$finished.LocalDateTime} -Oldest) {
     $data = @{}
     foreach ($field in ([xml]$event.ToXml()).Event.EventData.Data) { $data[$field.Name] = $field.'#text' }
-    if ($data.NewProcessName -ieq (Join-Path $env:SystemRoot 'System32\consent.exe')) { $prompts++ }
+    $isConsent = $data.NewProcessName -ieq (Join-Path $env:SystemRoot 'System32\consent.exe')
+    if ($isConsent) { $prompts++ }
+    $image = [IO.Path]::GetFileName($data.NewProcessName)
+    if ($isConsent -or $image -ieq $file.Name -or $data.TokenElevationType -eq '%%1937') {
+        $timeline.Add(('{0:o} {1} ({2}), parent {3} ({4}), elevation {5}' -f
+            $event.TimeCreated.ToUniversalTime(), $image, $data.NewProcessId,
+            [IO.Path]::GetFileName($data.ParentProcessName), $data.ProcessId, $data.TokenElevationType))
+    }
     if ($data.NewProcessName -ieq $result.bundle -and [Convert]::ToInt64($data.NewProcessId,16) -eq $result.processId) {
         if ($data.TokenElevationType -notin '%%1936','%%1938') { throw 'Windows did not record an unelevated installer launch.' }
         $launches++
     }
 }
-if ($launches -ne 1 -or $prompts -ne 1) { throw "Windows recorded $launches matching installer launches and $prompts consent prompts." }
+if ($launches -ne 1 -or $prompts -ne 1) {
+    foreach ($entry in $timeline) { Write-Warning $entry }
+    throw "Windows recorded $launches matching installer launches and $prompts machine-wide consent processes during installation. Check the process timeline against the bundle log."
+}
 foreach ($name in $services) {
     $service = Get-Service -Name $name
     $service.WaitForStatus('Running',[TimeSpan]::FromSeconds(90))

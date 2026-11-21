@@ -98,6 +98,13 @@ The Migrator issues a normal one-use enrollment through Headquarters. The Office
 installer consumes it from protected machine storage. Office approval in Headquarters
 and machine consent to compute are separate from those general Office allocations.
 
+Give owners a trusted HTTPS address for the Headquarters API. Production uses secure
+session and antiforgery cookies for Office approval, repair and upgrade. When using
+pinned guest images, set `CSweet:AgentRuntime:BuilderGuestImageDigest`,
+`CSweet:AgentRuntime:RuntimeGuestImageDigest` and
+`CSweet:AgentRuntime:RequiredCertificationSuiteVersion` to the values for the
+certified Office images deployed on this machine.
+
 On a combined install, Headquarters creates an Office identity issuer in the local
 machine's Personal certificate store. Its non-exportable signing key is readable by
 the API and Execution Gateway service accounts. Its thumbprint is retained in

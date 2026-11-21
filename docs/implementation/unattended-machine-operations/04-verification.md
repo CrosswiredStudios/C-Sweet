@@ -62,8 +62,10 @@ From its ordinary Windows desktop, run the same script with `-Bundle`, the expec
 `-Sha256` and a new `-WitnessPath`, then respond to Windows consent. From the lab's
 administrative deployment session, pass those same arguments with `-Verify`. The check
 correlates the installer PID with process-creation audit event 4688, counts consent
-processes during installation, and waits for both products' nine services. Reserve
-the guest for this test so another administrator's prompts cannot affect the count.
+processes during installation, and waits for both products' nine services. Start the
+installer from a settled desktop after sign-in. Windows Server Manager can elevate
+automatically at logon. If the count differs from one, compare the timestamped process
+and parent IDs from the verifier with the bundle log before attributing an elevation.
 
 The debug-signed combined installer `0.0.4` (Headquarters `b60a5c97`, Office
 `0.16.0` at `192d469`) installed both products with exit code 0 and generated the
@@ -115,6 +117,23 @@ The resulting Office 0.16.1 MSI, its fourteen cabinets, and the update manifest
 were signed with the local test publisher. Combined bundle 0.0.5 contains this
 Office and the same Headquarters MSI used in the 0.0.4 run.
 
+On November 21 UTC, a user launched debug-signed combined bundle `0.0.5` from
+an ordinary Windows Server 2025 session. The bundle exited with code 0. The
+machine-wide check counted two starts of `consent.exe` and failed. Security
+event 4688 recorded the first at 04:27:31 UTC, between the limited and elevated
+starts of `ServerManager.exe` by `ServerManagerLauncher.exe`. The second occurred
+at 04:27:33 while the C-Sweet bundle was requesting elevation. The bundle log
+records one elevated engine (PID 9240), which applied both MSI packages.
+All nine services were running when checked.
+
+The VM then shut down normally and powered back on at 04:35:51 UTC. Hyper-V
+Data Exchange returned the guest's startup report before the host opened a
+management session. All nine automatic services ran under their expected
+identities, Headquarters returned HTTP 200, and Windows recorded zero interactive
+user logons since boot. The harness removed the temporary installer account,
+its profile, the logon task and the staged installer. The bundle SHA-256 was
+`7c29e4785f0bd07162d1f4637ec9e2d2370e2349b9af90ee7e1eabafef5f263d`.
+
 The [update preparation harness](../../../scripts/tests/Test-AutomaticOfficeUpdatePreparation.ps1)
 passed five Headquarters checks and seven installed Office helper checks. The Office
 checks cover the publisher requirement, refusal of a source checkout, staging on the
@@ -151,7 +170,7 @@ Office remains a separate gate.
 | # | Scenario | Deployment shape | Pass when | Result |
 | --- | --- | --- | --- | --- |
 | V1a | Office team: bootstrap the Windows Office, reboot it to the sign-in screen and send an authorized compute request from an already running Headquarters | Private, separate Windows Office | Office services start and reconnect before login. One environment becomes ready without elevation. Record the Office build and boot evidence for Phase 2 | |
-| V1b | Headquarters Windows MSI team: install Headquarters and Office on one machine, reboot it to the sign-in screen, then hire the Game Engineer from another device | Private, Windows, same machine | The MSI-installed Headquarters services and dependencies start under their configured non-administrator identities, Office reconnects, and one environment becomes ready before anyone logs in. Requires the Windows service delivery and Phase 4 | Startup passed on Windows Server 2025 with combined 0.0.4. Hire and placement pending. |
+| V1b | Headquarters Windows MSI team: install Headquarters and Office on one machine, reboot it to the sign-in screen, then hire the Game Engineer from another device | Private, Windows, same machine | The MSI-installed Headquarters services and dependencies start under their configured non-administrator identities, Office reconnects, and one environment becomes ready before anyone logs in. Requires the Windows service delivery and Phase 4 | Startup passed on Windows Server 2025 with combined 0.0.4 and the interactive 0.0.5 install. Both cold boots recorded nine running services, HTTP 200 and zero interactive logons. Hire and placement pending. |
 | V2 | Hire the Game Engineer from a Headquarters machine with no Hyper-V and place the request on a second machine | Private, remote Office | One environment becomes ready on the selected Office and Headquarters makes no local setup attempt | |
 | V3 | Owner works only from the phone app | Hosted account | Hire and first build complete without touching the server | |
 | V4 | Headquarters on a Linux server without virtualization, Windows Office at the customer | Hosted platform, customer-owned Office | Environment ready on the customer's Office | |
