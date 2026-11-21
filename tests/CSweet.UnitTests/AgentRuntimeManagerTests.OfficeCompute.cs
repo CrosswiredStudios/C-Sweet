@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using CSweet.Agent.SDK;
 using CSweet.Agent.Testing;
+using CSweet.AgentHost.Broker;
 using CSweet.Compute.Contracts;
 using CSweet.Domain.Compute;
 using CSweet.Domain.Core;
@@ -105,7 +106,8 @@ public sealed partial class AgentRuntimeManagerTests
     public async Task Hired_employee_replays_office_availability_and_only_the_assigned_office_claims_the_vm()
         => await VerifyHiredOfficePlacementAsync(new ComputeBrokerTests.Fixture());
 
-    internal static async Task VerifyHiredOfficePlacementAsync(ComputeBrokerTests.Fixture storage)
+    internal static async Task VerifyHiredOfficePlacementAsync(ComputeBrokerTests.Fixture storage,
+        Func<ICSweetAgent>? createEmployee = null, Action<AgentTestRuntime>? configurePlatform = null)
     {
         await using var fixture = storage;
         await fixture.SeedAsync();
@@ -152,16 +154,21 @@ public sealed partial class AgentRuntimeManagerTests
             await using var restarted = new CSweetDbContext(fixture.Options);
             var registry = new ComputeRegistry(restarted, clock, new AuditExecutionContextAccessor());
             var broker = new ComputeBroker(restarted, registry, clock, fixture.Ledger);
-            var platform = new AgentTestRuntime()
-                .RegisterCapability<JsonElement, CSweet.Application.Compute.ComputeDefaults>(InfrastructureActions.Read,
-                    (_, ct) => Defaults(restarted).ReadAsync(fixture.Organization, fixture.Installation, ct))
-                .RegisterCapability<JsonElement, object>(InfrastructureActions.Provision, async (request, ct) =>
+            var employee = createEmployee?.Invoke() ?? new ProjectWorkspaceRequester();
+            var handler = new ComputeCapabilityHandler(broker, Defaults(restarted));
+            var capabilities = new HashSet<string> { InfrastructureActions.Read, InfrastructureActions.Provision };
+            var session = new AgentSession("session", employee.AgentId, fixture.Installation.ToString("D"),
+                fixture.Organization.ToString("D"), "runtime", "tick", new(new HashSet<string>(), new HashSet<string>(), capabilities, 1));
+            var platform = new AgentTestRuntime();
+            foreach (var action in capabilities)
+                platform.RegisterCapability<JsonElement, JsonElement>(action, async (input, _) =>
                 {
-                    var environment = await broker.RequestAsync(fixture.Organization, fixture.Installation,
-                        request.Deserialize<CSweet.Application.Compute.RequestComputeEnvironment>(ComputeProtocol.Json)!, ct);
-                    return JsonSerializer.SerializeToElement(environment, ComputeProtocol.Json);
+                    var response = await ComputeCapabilityTests.Invoke(handler, session, action, input);
+                    Assert.True(response.Succeeded, response.Error);
+                    return response.Payload.ToElement();
                 });
-            var host = new AgentTestHost(new ProjectWorkspaceRequester(), platform,
+            configurePlatform?.Invoke(platform);
+            var host = new AgentTestHost(employee, platform,
                 businessId: fixture.Organization.ToString("D"), installationId: fixture.Installation.ToString("D"));
             var reply = await host.DeliverEventAsync(wake.EventType, JsonSerializer.Deserialize<JsonElement>(wake.DataJson), wake.Id);
             Assert.True(reply.Succeeded, reply.Error);

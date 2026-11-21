@@ -178,7 +178,7 @@ public sealed class ComputeCapabilityTests
             resources = new { cpuCount = 2, memoryMiB = 4096, diskMiB = 20480 }, lifetimeSeconds = 600 }
     });
 
-    private static async Task<CapabilityResult> Invoke(ComputeCapabilityHandler handler, AgentSession session, string action, JsonElement input)
+    internal static async Task<CapabilityResult> Invoke(ComputeCapabilityHandler handler, AgentSession session, string action, JsonElement input)
     {
         var result = new List<CapabilityResult>();
         await foreach (var item in new PlatformCapabilityDispatcher([handler]).InvokeAsync(session,
