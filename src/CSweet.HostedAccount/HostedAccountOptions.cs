@@ -10,6 +10,7 @@ public sealed class HostedAccountOptions
 
     /// <summary>Shows the Hosted choice at first run. Off in production until hosted onboarding is accepted.</summary>
     public bool LinkingEnabled { get; set; }
+    public string? ReservedOwnerSubject { get; set; }
 
     /// <summary>The C-Sweet account issuer. Every linked installation trusts only this address.</summary>
     public string Issuer { get; set; } = "https://account.c-sweet.com/";

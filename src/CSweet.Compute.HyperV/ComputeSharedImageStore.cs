@@ -17,7 +17,7 @@ internal sealed class ComputeSharedImageStore
     private readonly Action<string> protectFile;
     private readonly Action<string> verify;
 
-    public ComputeSharedImageStore() : this(InstallationRoot, EnsureProtectedDirectory,
+    public ComputeSharedImageStore(string root) : this(root, EnsureProtectedDirectory,
         ProtectFile, WindowsComputeProtectedPaths.Verify) { }
 
     // Tests use isolated directories without changing machine ACLs or requiring elevation.

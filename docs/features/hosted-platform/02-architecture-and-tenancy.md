@@ -20,10 +20,11 @@ credential cannot become an Office credential.
 
 ```mermaid
 flowchart TB
-    Browser["Customer browser"] --> Portal["Account portal and hosting control"]
-    Portal --> Registry["Customer, deployment, and entitlement registry"]
-    Portal --> Provisioner["Deployment adapter"]
-    Portal --> Billing["Billing ledger and payment integration"]
+    Browser["Customer browser"] --> Portal["CSweet.Market account portal"]
+    Portal --> Billing["Orders, payment and hosting entitlements"]
+    Portal -->|Authenticated provisioning request| Hosting["Hosting web service"]
+    Hosting --> Registry["Customer deployments and operation status"]
+    Hosting --> Provisioner["Deployment adapter"]
     Provisioner --> TenantA
     Provisioner --> TenantB
     subgraph TenantA["Customer A Headquarters"]
@@ -43,6 +44,11 @@ flowchart TB
 
 A shared ingress or database server is possible. Neither diagram grouping nor
 hostname routing is an authorization boundary by itself.
+
+The proposed Marketplace purchase flow uses Hosting as an independently deployable
+web service. Market owns the paid entitlement and Hosting verifies it before
+allocating resources. See [purchase and fulfillment](12-marketplace-hosted-purchase.md)
+for service ownership, retry behavior and the owned-PC validation sequence.
 
 ## Customer isolation model
 

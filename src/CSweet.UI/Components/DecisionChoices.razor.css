@@ -1,27 +1,39 @@
 .decision-response { container: decision / inline-size; width: 100%; min-width: 0; }
-.decision-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; padding-block: .2rem; }
-.choice { position: relative; display: flex; align-items: center; border: 1px solid var(--mud-palette-divider); border-radius: 9px; background: var(--mud-palette-surface); padding-inline-end: .25rem; }
-.choice:hover { border-color: var(--mud-palette-lines-inputs); }
-.choice:has(input:checked) { border-color: var(--mud-palette-primary); background: var(--mud-palette-primary-hover); }
-.choice label { display: flex; align-items: center; align-self: stretch; flex: 1; min-width: 0; gap: .55rem; padding: .68rem .25rem .68rem .75rem; cursor: pointer; }
-.choice input { flex: none; width: .95rem; height: .95rem; margin: 0; accent-color: var(--mud-palette-primary); }
-.choice:has(input:focus-visible) { outline: 2px solid var(--mud-palette-primary); outline-offset: 2px; }
-.choice-copy { min-width: 0; overflow-wrap: anywhere; }
-.choice-copy strong { display: block; font-weight: 600; font-size: .9rem; line-height: 1.3; }
-.recommended { position: absolute; inset-block-start: 0; inset-inline-start: 1.7rem; transform: translateY(-58%); background: var(--mud-palette-surface); color: var(--mud-palette-primary); padding-inline: .3rem; border-radius: 3px; font-size: .67rem; line-height: 1.15; font-weight: 600; pointer-events: none; }
-.choice-summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: .8rem; line-height: 1.35; margin-top: .12rem; color: var(--mud-palette-text-secondary); }
-.decision-actions, .decision-submit, .custom-direction { display: flex; align-items: center; }
-.decision-actions { gap: .2rem .75rem; flex-wrap: wrap; margin-top: .65rem; padding-top: .45rem; border-top: 1px solid var(--mud-palette-divider); }
-.decision-submit { gap: .35rem; max-width: 100%; margin-inline-start: auto; justify-content: flex-end; }
+.decision-layout { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.25fr); gap: .7rem 1.2rem; align-items: start; }
+.decision-picker { display: grid; min-width: 0; gap: .3rem; color: var(--mud-palette-text-secondary); font-size: .8rem; font-weight: 600; }
+.select-field { display: grid; align-items: center; position: relative; }
+.select-field select { width: 100%; min-width: 0; min-height: 44px; padding-block: .55rem; padding-inline: .7rem 2.25rem; appearance: none; cursor: pointer; background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); border: 1px solid var(--mud-palette-lines-inputs); border-radius: 8px; font: inherit; font-size: .9rem; text-overflow: ellipsis; }
+.select-field select:hover { border-color: var(--mud-palette-primary); }
+.select-field select:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 2px; }
+.select-field select:disabled { cursor: default; opacity: .65; }
+.select-field ::deep svg { position: absolute; inset-inline-end: .65rem; width: 18px; color: var(--mud-palette-primary); pointer-events: none; }
+@media (hover: hover) and (pointer: fine) {
+    @supports (appearance: base-select) {
+        .select-field select, .select-field select::picker(select) { appearance: base-select; }
+        .select-field select::picker-icon { display: none; }
+        .select-field select:open { border-color: var(--mud-palette-primary); }
+        .select-field select::picker(select) { margin-block: 4px; padding: 4px; border: 1px solid var(--mud-palette-divider); border-radius: 9px; background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); box-shadow: var(--mud-elevation-4); }
+        .select-field option { padding: .45rem .6rem; border-radius: 5px; font: inherit; font-weight: 400; white-space: normal; overflow-wrap: anywhere; }
+        .select-field option:checked, .select-field option:hover { background: var(--mud-palette-primary-hover); color: var(--mud-palette-primary); }
+    }
+}
+.option-detail { min-width: 0; padding: .85rem 1rem; border-radius: 10px; background: var(--mud-palette-primary-hover); overflow-wrap: anywhere; }
+.detail-heading { display: flex; align-items: center; flex-wrap: wrap; gap: .25rem .45rem; }
+.detail-heading ::deep svg, .detail-heading small { color: var(--mud-palette-primary); }
+.detail-heading strong { font-size: .95rem; font-weight: 600; }
+.detail-heading small { margin-inline-start: auto; font-size: .7rem; font-weight: 600; }
+.option-detail p { margin: .3rem 0 0; color: var(--mud-palette-text-secondary); font-size: .87rem; line-height: 1.5; white-space: pre-line; }
+.choice-impact { border-top: 1px solid var(--mud-palette-divider); padding-top: .5rem; margin-top: .65rem; }
+.choice-impact h4 { margin: 0; font-size: .8rem; font-weight: 600; }
+.decision-submit { display: flex; align-items: center; justify-content: flex-end; gap: .4rem; margin-top: .7rem; padding-top: .55rem; border-top: 1px solid var(--mud-palette-divider); }
 .decision-submit ::deep .mud-button-root { min-width: 0; text-transform: none; letter-spacing: normal; }
-.custom-direction button { font: inherit; font-weight: 500; font-size: .8rem; color: var(--mud-palette-text-secondary); padding: .35rem 0; border: 0; background: none; cursor: pointer; }
-.custom-direction button:hover, .custom-direction button[aria-pressed=true] { text-decoration: underline; color: var(--mud-palette-primary); }
-.custom-direction button:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 2px; }
-@container decision (max-width: 32rem) { .decision-choices { grid-template-columns: minmax(0, 1fr); } }
-@media (max-width: 600px) { .decision-choices { grid-template-columns: minmax(0, 1fr); } }
-@media (pointer: coarse) { .custom-direction button, .decision-submit ::deep .mud-button-root { min-height: 44px; } }
-
+@container decision (max-width: 32rem) { .decision-layout { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) { .decision-layout { grid-template-columns: minmax(0, 1fr); } }
 @container decision (max-width: 22rem) {
     .decision-submit ::deep .mud-button-root { padding-inline: .5rem; }
     .decision-submit ::deep .mud-button-icon-start { display: none; }
+}
+@media (pointer: coarse) {
+    .decision-submit ::deep button { min-height: 44px; }
+    .select-field select, .decision-layout ::deep textarea { font-size: 1rem; }
 }

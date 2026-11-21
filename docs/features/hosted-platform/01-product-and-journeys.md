@@ -99,8 +99,7 @@ cloud charges. A developer's local model and a premium review model can coexist;
 model availability is evaluated separately from execution placement.
 
 **Illustrative bill with one Standard hosted Office and eight active agents:**
-$99 + (2 × $9) + $69 + (8 × $10) = **$266**, plus managed inference and authorized
-hosted overage. Local execution hours do not create hosted-compute charges.
+$99 + (2 × $9) + $69 + (8 × $10) = **$266**, plus managed inference.
 
 ## Journey D: reconnect after an overnight shutdown
 

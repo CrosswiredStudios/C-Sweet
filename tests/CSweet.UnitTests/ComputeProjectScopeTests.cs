@@ -12,7 +12,7 @@ namespace CSweet.UnitTests;
 public sealed class ComputeProjectScopeTests
 {
     private static ComputeDefaultsService Service(ComputeBrokerTests.Fixture f) => new(f.Db, TimeProvider.System,
-        new(f.Db, TimeProvider.System, new CSweet.Infrastructure.Setup.AuditExecutionContextAccessor()));
+        new(f.Db, TimeProvider.System, new CSweet.Infrastructure.Setup.AuditExecutionContextAccessor()), preparation: new(LegacyInteractive: true));
 
     private static async Task<OrganizationUser> PrepareProjectAsync(ComputeBrokerTests.Fixture f)
     {

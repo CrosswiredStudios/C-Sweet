@@ -30,6 +30,18 @@ try {
     $serviceName = $installation.ServiceName
     $serviceArguments = $installation.ServiceArguments
     & (Join-Path $repositoryRoot 'scripts\Register-ComputeBusinessRetirement.ps1') -HandoffPath $HandoffPath -ProtectedRoot $protectedRoot -ServiceName $serviceName
+    . (Join-Path $repositoryRoot 'scripts\Initialize-ComputeStorage.ps1')
+    $volumeId = if ($setup.PSObject.Properties['storageVolumeId']) { [string]$setup.storageVolumeId }
+    $failureCode = 'compute_storage_unavailable'
+    $bulkRoot = Initialize-ComputeStorage $volumeId
+    $failureCode = 'local_setup_failed'
+    $storageArguments = @()
+    if ($bulkRoot) {
+        $storageArguments = @('-StorageDrive', $bulkRoot.Substring(0,1))
+        # Record only the drive letter and attempt identity for the download monitor.
+        @{ drive = $bulkRoot.Substring(0,1); attemptId = $preparationAttempt } | ConvertTo-Json -Compress |
+            Set-Content -LiteralPath (Join-Path $logRoot 'storage.json') -Encoding UTF8
+    }
     $validationArguments = @($installation.ValidationArguments)
     $existingService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
     if ($null -ne $existingService) {
@@ -88,7 +100,7 @@ try {
                 param($updatedExecutable)
                 & "$env:SystemRoot\System32\icacls.exe" (Split-Path -Parent $updatedExecutable) '/setowner' '*S-1-5-32-544' '/T' '/C' | Out-Null
                 if ($LASTEXITCODE -ne 0) { throw 'Updated compute payload ownership could not be protected.' }
-                & $updatedExecutable @repairArguments
+                & $updatedExecutable @repairArguments @storageArguments
                 if ($LASTEXITCODE -ne 0) { throw 'Updated compute release certification failed; previous release restored.' }
                 & $updatedExecutable @validationArguments
                 if ($LASTEXITCODE -ne 0) { throw 'Updated compute service validation failed; previous payload restored.' }
@@ -112,7 +124,7 @@ try {
     }
     # The Office image service owns prerequisites and immutable Linux image preparation.
     $failureCode = 'local_setup_failed'
-    $imagePath = & (Join-Path $repositoryRoot 'scripts\Ensure-ComputeLinuxImage.ps1') -SetupProgressPath $setupProgress -SetupAttemptId $preparationAttempt
+    $imagePath = & (Join-Path $repositoryRoot 'scripts\Ensure-ComputeLinuxImage.ps1') -StorageRoot $bulkRoot -SetupProgressPath $setupProgress -SetupAttemptId $preparationAttempt
     if (-not (Test-Path -LiteralPath $imagePath -PathType Leaf)) { throw 'The Linux test image was not prepared.' }
     $publishRoot = Join-Path $logRoot 'provider'
     $acceptanceRoot = Join-Path $logRoot 'acceptance'
@@ -202,7 +214,7 @@ try {
     $providerExecutable = Join-Path $runtimeRoot 'CSweet.Compute.HyperV.exe'
     $failureCode = 'compute_enrollment_failed'
     # Configure imports once by digest into the protected installation-wide image store.
-    & $providerExecutable configure-local $HandoffPath $imagePath (Join-Path $acceptanceRoot 'compute.trx')
+    & $providerExecutable configure-local $HandoffPath $imagePath (Join-Path $acceptanceRoot 'compute.trx') @storageArguments
     if ($LASTEXITCODE -eq 10) { $failureCode = 'setup_configuration_invalid' }
     if ($LASTEXITCODE -ne 0) { throw 'The compute provider could not be enrolled.' }
     & (Join-Path $repositoryRoot 'scripts\Register-ComputeGuestService.ps1') | Out-Host

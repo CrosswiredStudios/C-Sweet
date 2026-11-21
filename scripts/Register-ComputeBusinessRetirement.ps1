@@ -60,6 +60,13 @@ Copy-Item -LiteralPath (Join-Path $setup.repositoryRoot 'src\CSweet.Compute.Hype
 $request = @{cleanupId=$setup.retirement.cleanupId;businessId=$setup.organizationId;nodeId=$setup.setupId;
     receiptToken=$setup.retirement.receiptToken;coreOrigin=$setup.coreOrigin;coreCertificateSha256=$setup.coreCertificateSha256;
     certificateThumbprint=$null;preserveSharedProvider=$shared}
+if (!$shared) {
+    $configurationPath = Join-Path $ProtectedRoot 'provider.json'
+    if (Test-Path -LiteralPath $configurationPath) {
+        $provider = Get-Content -LiteralPath $configurationPath -Raw | ConvertFrom-Json
+        if ($provider.PSObject.Properties['workloadVolumeId']) { $request.workloadVolumeId = $provider.workloadVolumeId }
+    } elseif ($setup.PSObject.Properties['storageVolumeId']) { $request.workloadVolumeId = $setup.storageVolumeId }
+}
 $incoming = Join-Path $directory 'request.incoming'
 $request | ConvertTo-Json -Compress | Set-Content -LiteralPath $incoming -Encoding UTF8
 Move-Item -LiteralPath $incoming -Destination (Join-Path $directory 'request.json') -Force

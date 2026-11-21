@@ -14,7 +14,7 @@ namespace CSweet.Compute.HyperV;
 /// <summary>Application installer entry point. Never reachable from agent dispatch or guest commands.</summary>
 internal static class LocalComputeInstaller
 {
-    public static async Task ConfigureAsync(string? handoffPath, string imagePath, string acceptancePath, CancellationToken token, Guid? businessId = null)
+    public static async Task ConfigureAsync(string? handoffPath, string imagePath, string acceptancePath, CancellationToken token, Guid? businessId = null, char? storageDrive = null)
     {
         if (!OperatingSystem.IsWindows() || !new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
             throw new UnauthorizedAccessException("Administrator approval is required.");
@@ -61,7 +61,18 @@ internal static class LocalComputeInstaller
         // Preserve the enrolled image checks above before migrating its storage location.
         // Import before creating a new provider key, so a failed image import can be retried.
         // The digest/template and business identity stay unchanged; old files remain for rollback.
-        imagePath = await new ComputeSharedImageStore().ImportAsync(imagePath, digest, token);
+        // Standalone repair retains a previously selected shared store.
+        if (handoff is null && storageDrive is null && char.IsAsciiLetter(imagePath[0]) &&
+            string.Equals(Path.GetDirectoryName(imagePath), Path.Combine(ComputeVolumeStorage.Root(imagePath[0]), "base"), StringComparison.OrdinalIgnoreCase))
+            storageDrive = imagePath[0];
+        var storeRoot = ComputeSharedImageStore.InstallationRoot;
+        if (storageDrive is { } drive)
+        {
+            var bulkRoot = ComputeVolumeStorage.Root(drive);
+            WindowsComputeProtectedPaths.Verify(bulkRoot);
+            storeRoot = Path.Combine(bulkRoot, "base");
+        }
+        imagePath = await new ComputeSharedImageStore(storeRoot).ImportAsync(imagePath, digest, token);
         if (configuration is null)
         {
             if (handoff is null) throw new InvalidOperationException("Repair requires an existing enrolled provider.");
@@ -78,8 +89,11 @@ internal static class LocalComputeInstaller
             using (var store = new X509Store(StoreName.My, StoreLocation.LocalMachine)) { store.Open(OpenFlags.ReadWrite); store.Add(certificate); }
             configuration = new(1, new(handoff.OrganizationId, handoff.SetupId, "hyperv", handoff.ControlPlaneKey),
                 new("local-node", Convert.ToBase64String(signer.ExportSubjectPublicKeyInfo())), handoff.CoreOrigin,
-                Path.Combine(root, "journal"), Path.Combine(root, "workloads"), new(2, new(4, 4096, 40960)),
-                certificate.Thumbprint, StoreLocation.LocalMachine, Path.Combine(root, "provisioning.json"), handoff.CoreCertificateSha256);
+                Path.Combine(root, "journal"), storageDrive is { } selected
+                    ? ComputeVolumeStorage.Workloads(selected, handoff.OrganizationId, handoff.SetupId)
+                    : Path.Combine(root, "workloads"), new(2, new(4, 4096, 40960)),
+                certificate.Thumbprint, StoreLocation.LocalMachine, Path.Combine(root, "provisioning.json"), handoff.CoreCertificateSha256,
+                storageDrive.HasValue ? handoff.StorageVolumeId ?? throw new InvalidDataException("Missing workload volume identity.") : null);
         }
         ProtectDirectory(configuration.JournalDirectory); ProtectDirectory(configuration.WorkloadDirectory);
         var files = new Dictionary<string, string>(StringComparer.Ordinal);

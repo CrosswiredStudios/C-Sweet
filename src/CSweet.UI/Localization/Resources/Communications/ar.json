@@ -55,6 +55,8 @@
   "Communications.Decision.Unavailable": "لم يعد هذا القرار متاحًا. حدّث الصفحة للاطلاع على حالته الحالية.",
   "Communications.Decision.ExplanationFailed": "تعذّر الحصول على توضيح. يمكنك المحاولة مجددًا.",
   "Communications.Decision.ConfirmChoice": "تأكيد الاختيار",
+  "Communications.Decision.YourChoice": "اختيارك",
+  "Communications.Decision.WhatThisMeans": "ماذا يعني ذلك",
   "Communications.Decision.ChooseAnswer": "اختيار إجابة",
   "Communications.Decision.Recommended": "مُوصى به",
   "Communications.Decision.SomethingElse": "شيء آخر",

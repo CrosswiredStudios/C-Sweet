@@ -55,6 +55,8 @@
   "Communications.Decision.Unavailable": "此决定已不可用。请刷新以查看当前状态。",
   "Communications.Decision.ExplanationFailed": "未能获取说明。请重试。",
   "Communications.Decision.ConfirmChoice": "确认选择",
+  "Communications.Decision.YourChoice": "你的选择",
+  "Communications.Decision.WhatThisMeans": "这意味着什么",
   "Communications.Decision.ChooseAnswer": "选择答案",
   "Communications.Decision.Recommended": "推荐",
   "Communications.Decision.SomethingElse": "其他",

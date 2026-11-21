@@ -1,0 +1,117 @@
+@page "/settings/storage"
+@layout SettingsLayout
+@using CSweet.Contracts.Setup
+@inject HttpClient Http
+@inject IAppLocalizer L
+
+<PageTitle>@L["Settings.Section.Storage.Title"] - C-Sweet</PageTitle>
+<div class="setup-shell configuration-page">
+    <header class="page-header">
+        <div><MudText Typo="Typo.h3">@L["Settings.Section.Storage.Title"]</MudText>
+            <MudText>@L["Settings.Section.Storage.Description"]</MudText></div>
+        <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="@(() => LoadAsync(true))">@L["Storage.Measure"]</MudButton>
+    </header>
+    @if (_message != null) { <MudAlert Severity="_severity" role="status">@_message</MudAlert> }
+    @if (_busy) { <MudProgressLinear Indeterminate="true" /> }
+    @if (_report is { } report)
+    {
+        @if (report.Windows)
+        {
+            <MudPaper Class="surface-panel pa-4" Outlined="true">
+                <MudText Typo="Typo.h5">@L["Storage.Compute"]</MudText>
+                <MudText Class="mb-3">@L["Storage.ComputeHint"]</MudText>
+                <MudSelect T="string" @bind-Value="_volume" Label="@L["Storage.Destination"]" Disabled="_busy" Variant="Variant.Outlined">
+                    <MudSelectItem T="string" Value="@FollowOffice">@L["Storage.FollowOffice"]</MudSelectItem>
+                    @if (report.ComputeVolumeId is { } saved && !report.Volumes.Any(v => v.Id == saved))
+                    { <MudSelectItem T="string" Value="@saved" Disabled="true">@L["Storage.Unavailable"]</MudSelectItem> }
+                    @foreach (var v in report.Volumes)
+                    {
+                        <MudSelectItem T="string" Value="@v.Id" Disabled="@(!v.IsEligible)">
+                            @v.MountPath @v.Label · @Size(v.FreeBytes) @L["Storage.Free"] @v.UnavailableReason
+                        </MudSelectItem>
+                    }
+                </MudSelect>
+                @if (report.Volumes.FirstOrDefault(v => v.Id == (_volume == FollowOffice ? report.OfficeVolumeId : _volume)) is { } chosen)
+                { <MudText Class="mt-2"><code>@(chosen.MountPath + "CSweetCompute")</code></MudText> }
+                else if (_volume == FollowOffice && report.OfficeVolumeId == null)
+                { <MudText Class="mt-2">@L["Storage.LegacyDefault"]</MudText> }
+                else { <MudText Color="Color.Warning">@L["Storage.Unavailable"]</MudText> }
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" OnClick="SaveAsync"
+                           Disabled="@(_busy || _volume == (report.ComputeVolumeId ?? FollowOffice))">@L["Common.Save"]</MudButton>
+            </MudPaper>
+        }
+        <MudPaper Class="surface-panel pa-4" Outlined="true">
+            <MudText Typo="Typo.h5">@L["Storage.Locations"]</MudText>
+            <MudText>@L["Storage.MeasureHint"]</MudText>
+            <MudTable T="HostStorageLocation" Items="@report.Locations" Dense="true" Hover="true" Elevation="0">
+                <HeaderContent><MudTh>@L["Storage.Component"]</MudTh><MudTh>@L["Storage.Location"]</MudTh><MudTh>@L["Storage.Size"]</MudTh><MudTh>@L["Storage.Control"]</MudTh></HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="@L["Storage.Component"]">@context.Name</MudTd>
+                    <MudTd DataLabel="@L["Storage.Location"]" Style="overflow-wrap:anywhere">@context.Path</MudTd>
+                    <MudTd DataLabel="@L["Storage.Size"]">@(context.Bytes is { } bytes ? Size(bytes) : "") @(context.Status == "Measured" ? "" : context.Status)</MudTd>
+                    <MudTd DataLabel="@L["Storage.Control"]" Style="overflow-wrap:anywhere">@context.Control</MudTd>
+                </RowTemplate>
+            </MudTable>
+            @if (report.Windows && report.Locations.Any(x => x.Status is "Unavailable" or "Partial"))
+            {
+                <MudText Class="mt-3">@L["Storage.ProtectedHint"] <code>.\scripts\Get-CSweetVmStorage.ps1</code></MudText>
+            }
+        </MudPaper>
+        <MudPaper Class="surface-panel pa-4" Outlined="true">
+            <MudText Typo="Typo.h6">@L["Storage.External"]</MudText>
+            <MudText>@L["Storage.Docker"]</MudText>
+            <MudLink Href="/settings/offices">@L["Settings.Section.Offices.Title"]</MudLink>
+            <span> · </span><MudLink Href="/settings/source-control">@L["Settings.Section.SourceControl.Title"]</MudLink>
+        </MudPaper>
+    }
+</div>
+
+@code {
+    private const string FollowOffice = "office";
+    private HostStorageReport? _report;
+    private string _volume = FollowOffice;
+    private bool _busy;
+    private string? _message;
+    private Severity _severity;
+    private static string Size(long bytes) => bytes >= 1L << 30 ? $"{bytes / (double)(1L << 30):N2} GiB"
+        : bytes >= 1L << 20 ? $"{bytes / (double)(1L << 20):N1} MiB" : $"{bytes:N0} B";
+    protected override Task OnInitializedAsync() => LoadAsync(false);
+
+    private async Task LoadAsync(bool measure)
+    {
+        _busy = true;
+        _message = null;
+        try
+        {
+            using var response = await Http.GetAsync(measure ? "/api/setup/storage?measure=true" : "/api/setup/storage");
+            response.EnsureSuccessStatusCode();
+            _report = await response.Content.ReadFromJsonAsync<HostStorageReport>() ?? throw new System.Text.Json.JsonException();
+            _volume = _report.ComputeVolumeId ?? FollowOffice;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        {
+            _report = null;
+            _severity = Severity.Warning;
+            _message = ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.Unauthorized }
+                ? L["Storage.AdminRequired"] : L["Storage.ReadFailed"];
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        var preference = new ComputeStoragePreference(_volume == FollowOffice ? null : _volume);
+        try
+        {
+            using var response = await Http.PutAsJsonAsync("/api/setup/storage/compute", preference);
+            response.EnsureSuccessStatusCode();
+            _report = _report! with { ComputeVolumeId = preference.VolumeId };
+            _message = L["Storage.Saved"];
+            _severity = Severity.Success;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        { _message = L["Storage.SaveFailed"]; _severity = Severity.Error; }
+        finally { _busy = false; }
+    }
+}

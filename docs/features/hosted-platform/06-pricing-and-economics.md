@@ -2,7 +2,7 @@
 
 [Overview](README.md) · [Journeys](01-product-and-journeys.md) · [Hosting](08-hosting-and-migration.md) · [Decisions](09-decisions-and-questions.md)
 
-**Status: Commercial model agreed; prices and allowances are proposals.** All
+**Status: Headquarters is $99/month. Office tiers, other charges and allowances are proposals.** All
 amounts are USD unless stated otherwise. Research date: **2026-10-15**. Rounded
 examples are explanatory; invoices need deterministic decimal arithmetic and a
 versioned rate card. These scenarios are not supplier quotes or demand forecasts.
@@ -15,36 +15,37 @@ Monthly C-Sweet bill = Headquarters subscription
                     + hosted Office subscriptions
                     + distinct agents active in this billing period
                     + settled managed inference
-                    + approved hosted capacity overage
                     - explicit credits
                     + applicable tax
 ```
 
 Customer-owned hardware and BYOK remove the relevant C-Sweet compute/provider
 purchase, not the costs of Headquarters, relay traffic, storage, operations, or
-support. Do not charge hosted execution hours for work on the customer's machine.
+support.
 
 ## Proposed price card
 
 | Item | Monthly price | Proposed inclusion / rule |
 |---|---:|---|
-| Standard Headquarters | $99 | Always-available application; 25 GB customer data; two model connectors |
-| Business Headquarters | $199 | Larger allocation; 100 GB customer data; ten model connectors; priority support |
+| Hosted Headquarters | $99 | One hosted company workspace |
 | Customer-owned Office | $9 each | Connection, management, diagnostics, and bounded relay service |
-| Standard hosted Office | $69 each | 100 active Office-hours; up to two concurrent workloads within resource limits |
-| Team hosted Office | $249 each | 300 active Office-hours; up to four concurrent workloads within resource limits |
+| Standard hosted Office | $69 each | 100 GB storage, 8 GB RAM, maximum 2 concurrently running agents |
+| Team hosted Office | $249 each | 250 GB storage, 16 GB RAM, maximum 4 concurrently running agents |
 | Active agent | $10 each | Full month if employee performs customer work during the billing period |
-| Standard / Team hosted overage | $0.60 / $1.20 per hour | Owner-authorized limit required |
 | Managed inference | Supplier rate × 1.30 | Versioned tariff; input/output/cache/tool distinctions retained |
 | BYOK / private inference | $0 in C-Sweet token fees | Provider or customer hardware costs paid outside C-Sweet |
 
-Storage, traffic, and connector quotas are bounded. Exact traffic and request
+Office storage belongs to the Office offer. Relay traffic and request limits are operational controls. Exact traffic and request
 limits remain Q-06. Do not launch a plan labeled unlimited, or silently add an
 unreviewed relay/storage overage charge. Additional private model connections do
 not automatically create Office subscriptions.
 
-These figures are candidates for review, not individually accepted prices. The
+The $99 Headquarters price is confirmed. The other figures are candidates for review. The
 user selected a smaller customer-owned Office fee, not specifically $9.
+
+### Hosted Office capacity
+
+Allow approximately 1–2 GB of RAM per running agent for planning. Reserve memory for the Office runtime and use each workload’s actual resource request at admission. Start another agent only when both its resources fit and a concurrent-agent slot is available on that Office. Enforce the slot and memory reservations together, including simultaneous starts. At the proposed Standard cap of two, a third agent waits even with ample free RAM. Conversely, a large workload can wait with a slot free. Release the slot after confirmed stop. An employee active for monthly billing can use different Offices over time. It occupies a slot only while running.
 
 ## Four worked customer bills
 
@@ -59,7 +60,7 @@ customer. A $0 C-Sweet token line is not a claim of free inference.
 
 ### B. Own PC and separate local-model computer
 
-The same setup plus one included model connector:
+The same setup plus a standalone private model connector:
 
 `99 + 9 + (3 × 10) = $138`
 
@@ -68,7 +69,7 @@ machine. Local power, GPU, maintenance, and model-license costs remain the custo
 
 ### C. Fully hosted, moderate inference
 
-One Standard Headquarters, one Standard hosted Office within 100 active hours,
+One Standard Headquarters, one Standard hosted Office,
 three active agents, and a hypothetical model tariff of $2/million input tokens
 and $10/million output tokens. With 10 million uncached input and 2 million output:
 
@@ -85,17 +86,12 @@ surcharges. Actual billing uses the selected provider/model tariff.
 ### D. Mixed studio, heavier execution
 
 One Standard Headquarters, two customer-owned Offices, one Standard hosted Office,
-eight active agents, 140 hosted Office-hours, and the same $52 managed inference:
+eight active agents, and the same $52 managed inference:
 
 ```text
 Base = $99 + (2 × $9) + $69 + (8 × $10) = $266
-Hosted overage = max(140 - 100, 0) × $0.60 = $24
-Total = $266 + $24 + $52 = $342
+Total = $266 + $52 = $318
 ```
-
-If the owner did not authorize overage, new admission pauses at the included limit
-subject to the explicitly designed reservation/drain behavior; it does not silently
-incur the extra $24. Local Office activity adds no hosted hours.
 
 ## What constitutes billable activity
 
@@ -115,17 +111,7 @@ that actually works is not automatically exempt from the proposed seat model.
 offline periods. Unlinking stops future billing. Proration and period-end treatment
 need Q-03; temporary network loss must not destroy enrollment.
 
-**Hosted Office:** active hours are the union of intervals in which that Office
-retains active customer workloads, not the sum of concurrent workload durations.
-Example: two simultaneous 30-minute workloads consume 0.5 Office-hours. Two
-sequential 30-minute workloads consume 1 Office-hour. Different Offices accumulate
-separately. Work waiting on a model counts while it retains workload capacity.
-
-Cold starts, idle shutdown grace, and infrastructure repair are proposed as
-C-Sweet-funded overhead. The proposed entry-Office idle grace is ten minutes
-(P-11), subject to measured restart cost and latency. Builds and tests use the same capacity pool; first-party
-package rollout overhead needs explicit treatment in Q-03. Never advertise a
-workload count without a corresponding CPU/memory/resource envelope.
+**Hosted Office:** charge the monthly fee for each subscribed Office at its selected tier. The same fee applies when the Office is busy, idle or asleep. Work queues when a resource or concurrent-agent limit is reached.
 
 **Inference:** meter each provider attempt, including an authorized formatting
 repair or retry. Settle cumulative streaming counters once; cached input and
@@ -233,7 +219,7 @@ Other model inputs:
 | Shared infrastructure | $450/month at 10–25 customers; $1,000 at 100 |
 | Customer storage/backups | $10/customer/month |
 | BYO Office connection/relay allowance | $5/customer/month in the one-Office scenario |
-| Hosted Office capacity allowance | $25/customer/month for 100 active hours; replaces the BYO allowance |
+| Hosted Office capacity allowance | $25/customer/month as an illustrative internal capacity cost; replaces the BYO allowance |
 | Support | $20/customer/month: 15 minutes at $80/hour |
 | Payment + subscription processing | 3.6% of revenue + $0.30 per monthly payment |
 | Model revenue/costs | Excluded from table; compare base subscription economics |
@@ -248,9 +234,7 @@ services. It does not establish that every required service fits in one task, or
 that separately deployed tasks cost the same. Measure the packaged topology and
 sum actual task allocations before using this figure as a deployment budget.
 
-Hosted billing hours also differ from supplier rental hours. A customer may use
-100 active hours while an allocated host or independently installed Office VM
-costs C-Sweet money all month. Sleeping only saves rental if the underlying paid
+A provisioned host can cost C-Sweet money all month. Sleeping only saves rental if the underlying paid
 capacity can actually stop or serve other eligible demand. The current
 machine-wide Office installation does not establish a shared multi-customer
 execution pool. Model independent certified installations, host memory/CPU,
@@ -291,7 +275,7 @@ that reserve alone exceeds the modeled $102 contribution.
 | Support takes one hour instead of 15 minutes | $60 additional cost per customer under the labor assumption |
 | Customer activates more agents | More seat revenue, but measure corresponding support, storage, and work overhead |
 | Customers run private models with large contexts/media | No token revenue; relay bandwidth and memory pressure may increase |
-| Hosted Office spends many hours waiting for inference | Capacity cost persists; verify billable-hour semantics and idle overhead |
+| Hosted Office spends many hours waiting for inference | Capacity cost persists; measure peak occupancy and idle overhead |
 | Users sleep local PCs frequently | Lower customer compute availability; potentially higher connection support demand |
 | One bare-metal host fills | Capacity cost rises in steps; per-customer averages cannot be extrapolated indefinitely |
 

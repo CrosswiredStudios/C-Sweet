@@ -5,7 +5,8 @@ param(
     [string] $SwitchName = 'Default Switch',
     [string] $UbuntuVersion = '24.04.4',
     [string] $PackerVersion = '1.15.4',
-    [scriptblock] $ReportProgress = { param($phase, $message) Write-Host $message }
+    [scriptblock] $ReportProgress = { param($phase, $message) Write-Host $message },
+    [string] $ArtifactDirectory = (Join-Path $IsolationRoot 'artifacts\linux-images')
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -24,7 +25,7 @@ $prepare = {
 }.GetNewClosure()
 $result = New-CSweetLinuxHyperVImage -ProfileDirectory (Join-Path $repositoryRoot 'build\compute-linux') `
     -PreparePayload $prepare -GuestServiceName 'csweet-compute-guest.service' `
-    -ArtifactDirectory (Join-Path $IsolationRoot 'artifacts\linux-images') -OutputPath $OutputPath `
+    -ArtifactDirectory $ArtifactDirectory -OutputPath $OutputPath `
     -SwitchName $SwitchName -UbuntuVersion $UbuntuVersion -PackerVersion $PackerVersion -ReportProgress $ReportProgress
 $result | ConvertTo-Json | Set-Content -LiteralPath ($result.ImagePath + '.build.json') -Encoding UTF8
 Write-Output $result.ImagePath

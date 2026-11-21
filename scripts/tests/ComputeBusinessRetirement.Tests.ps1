@@ -103,6 +103,17 @@ Describe 'Business provider retirement' {
         (Test-Path -LiteralPath (Join-Path $owned 'private.vhdx')) | Should Be $true
         Assert-MockCalled Invoke-WebRequest -Times 0 -Exactly -Scope It -ParameterFilter { $Uri.ToString().EndsWith('/retirement-receipt') }
     }
+    It 'preserves the business and its receipt while the selected workload volume is disconnected' {
+        $path = Join-Path $taskDirectory 'request.json'
+        $request = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+        $request.preserveSharedProvider = $false
+        $request | Add-Member -NotePropertyName workloadVolumeId -NotePropertyValue 'offline-volume'
+        $request | ConvertTo-Json | Set-Content -LiteralPath $path
+        Mock Get-Volume { @() }
+        { & $taskScript } | Should Throw 'workload volume is unavailable'
+        Test-Path -LiteralPath $owned | Should Be $true
+        Test-Path -LiteralPath $path | Should Be $true
+    }
     It 'keeps all payloads when current Core state refuses retirement' {
         $env:CSWEET_RETIRE_TEST_DENY = '1'
         $caught = $false

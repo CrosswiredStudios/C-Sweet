@@ -1,0 +1,53 @@
+name: Linux Headquarters image
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths:
+      - '.github/workflows/linux-headquarters.yml'
+      - 'scripts/release/publish-linux-hq.sh'
+      - 'scripts/release/test-linux-hq.sh'
+      - 'scripts/release/build-dependencies.json'
+      - 'docker/hosted-headquarters.Dockerfile'
+      - 'src/**'
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          global-json-file: global.json
+      - name: Publish services and web assets
+        run: bash scripts/release/publish-linux-hq.sh "$RUNNER_TEMP/hq"
+      - name: Build and smoke-test the deployable image
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/csweet-headquarters"
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+          docker build --platform linux/amd64 --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --label "org.opencontainers.image.revision=$GITHUB_SHA" -t "$image:sha-$GITHUB_SHA" "$RUNNER_TEMP/hq"
+          docker run --rm --entrypoint sh "$image:sha-$GITHUB_SHA" -ec 'test -s /srv/web/index.html; test -s /srv/CSweet.ExecutionGateway/CSweet.ExecutionGateway.dll; dotnet --list-runtimes'
+          bash scripts/release/test-linux-hq.sh "$image:sha-$GITHUB_SHA"
+      - name: Publish to GHCR and record the deployment reference
+        if: github.event_name != 'pull_request'
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push "$IMAGE:sha-$GITHUB_SHA"
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            docker tag "$IMAGE:sha-$GITHUB_SHA" "$IMAGE:$GITHUB_REF_NAME"
+            docker push "$IMAGE:$GITHUB_REF_NAME"
+          fi
+          docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:sha-$GITHUB_SHA" | tee -a "$GITHUB_STEP_SUMMARY"

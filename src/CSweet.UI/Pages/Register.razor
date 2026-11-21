@@ -73,7 +73,10 @@
     }
     else if (_step == RegistrationStep.Hosted)
     {
-        <button type="button" class="registration-back" disabled="@_saving" @onclick="BackToChoice"><MudIcon Icon="@Icons.Material.Outlined.ArrowBack" /> @L["Common.Back"]</button>
+        @if (!_hostedRequired)
+        {
+            <button type="button" class="registration-back" disabled="@_saving" @onclick="BackToChoice"><MudIcon Icon="@Icons.Material.Outlined.ArrowBack" /> @L["Common.Back"]</button>
+        }
         <span class="registration-eyebrow">@L["Register.Hosted.Eyebrow"]</span>
         <h1 id="registration-title" tabindex="-1" @ref="_heading">@L["Register.Hosted.Title"]</h1>
         <p class="registration-lead">@L["Register.Hosted.Lead"]</p>
@@ -89,7 +92,10 @@
         <button type="button" class="registration-primary registration-spaced" disabled="@(_saving || string.IsNullOrWhiteSpace(_installationName))" @onclick="StartHostedAsync">
             <span role="status">@(_saving ? L["Register.Hosted.Starting"] : L["Register.Hosted.Start"])</span><MudIcon Icon="@Icons.Material.Outlined.ArrowForward" />
         </button>
-        <button type="button" class="registration-link" disabled="@_saving" @onclick="UsePrivate">@L["Register.Hosted.UsePrivate"]</button>
+        @if (!_hostedRequired)
+        {
+            <button type="button" class="registration-link" disabled="@_saving" @onclick="UsePrivate">@L["Register.Hosted.UsePrivate"]</button>
+        }
     }
     else if (_step == RegistrationStep.HostedWaiting && _hostedStatus is { } waiting)
     {
@@ -200,7 +206,7 @@
     private enum HostingSelection { Hosted, Private }
     private RegistrationStep _step = RegistrationStep.Loading;
     private HostingSelection? _selection;
-    private bool _hostedAvailable, _focusHeading;
+    private bool _hostedAvailable, _hostedRequired, _focusHeading;
     private ElementReference _heading;
     private string _installationName = string.Empty;
     private HostedSetupStatusResponse? _hostedStatus;
@@ -221,6 +227,8 @@
             var options = await AuthenticationApi.GetRegistrationOptionsAsync();
             if (!options.RegistrationOpen) { _registrationClosed = true; return; }
             _hostedAvailable = options.HostedSetupAvailable;
+            _hostedRequired = options.HostedSetupRequired;
+            if (_hostedRequired) { _step = RegistrationStep.Hosted; return; }
         }
         catch (Exception)
         {

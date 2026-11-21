@@ -32,6 +32,7 @@ public sealed class SettingsWorkspaceRenderingTests
     [InlineData(typeof(Agents), "agents", "Installed agents")]
     [InlineData(typeof(AgentRuntimeSettings), "runtime", "Save runtime settings")]
     [InlineData(typeof(ExecutionFleet), "offices", "Studio Office")]
+    [InlineData(typeof(StorageSettings), "storage", "Use the registered Office drive")]
     [InlineData(typeof(SourceControlSettings), "source-control", "Internal Git storage")]
     [InlineData(typeof(Plugins), "plugins", "Find plugins")]
     [InlineData(typeof(ToolchainSetup), "toolchains", "No enabled, built provider is installed for this business")]
@@ -203,6 +204,7 @@ public sealed class SettingsWorkspaceRenderingTests
                 "/api/source-control/storage" => """{"ready":true,"repositoryRoot":"/data/repositories","temporaryRoot":"/data/tmp","lfsProvider":"FileSystem","lfsLocation":"/data/lfs","backupProvider":"FileSystem","backupLocation":"/data/backups"} """,
                 "/api/source-control/platform-setup" => "{\"readiness\":{\"existingGitHubAvailable\":false,\"guidedSetupAvailable\":true}}",
                 "/api/llm-provider-profiles" or "/api/genai-provider-profiles" or "/api/agents/definitions" or "/api/plugins/installations" or "/api/plugins/provider-profiles" or "/api/setup/email-delivery/profiles" => "[]",
+                "/api/setup/storage" => """{"windows":true,"computeVolumeId":null,"officeVolumeId":"office-volume","volumes":[{"id":"office-volume","mountPath":"D:\\","isEligible":true}],"locations":[{"name":"Office VM disks","path":"D:\\CSweet\\Office\\data","bytes":null,"status":"Not measured","control":"Office setup"}]}""",
                 _ => null
             };
             if (path.EndsWith("/activity")) json = "{\"activeAssignmentCount\":0,\"recentAssignments\":[]}";

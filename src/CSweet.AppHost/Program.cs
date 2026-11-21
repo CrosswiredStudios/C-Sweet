@@ -27,8 +27,10 @@ var postgresPassword = builder.AddParameterFromConfiguration(
 var postgresDatabaseName = builder.Configuration["CSweet:Postgres:Database"]
     ?? throw new InvalidOperationException("CSweet:Postgres:Database must be configured for AppHost.");
 
-var postgresServer = builder.AddPostgres("postgres", userName: postgresUserName, password: postgresPassword)
-    .WithDataVolume("csweet-aspire-postgres");
+var postgresServer = builder.AddPostgres("postgres", userName: postgresUserName, password: postgresPassword);
+var postgresDirectory = HostDirectory("CSweet:Postgres:DataDirectory");
+if (postgresDirectory is null) postgresServer.WithDataVolume("csweet-aspire-postgres");
+else postgresServer.WithDataBindMount(postgresDirectory);
 var postgres = postgresServer.AddDatabase("csweet", postgresDatabaseName);
 
 var repositoryRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
@@ -45,16 +47,19 @@ var searxng = builder.AddContainer("searxng", "searxng/searxng", "2026.10.19-813
     .WithEnvironment("FORCE_OWNERSHIP", "false")
     .WithEntrypoint("/bin/sh")
     .WithArgs("/usr/local/bin/csweet-searxng-start.sh")
-    .WithVolume("csweet-searxng-cache", "/var/cache/searxng")
     .WithHttpEndpoint(targetPort: 8080, name: "http")
     .WithHttpHealthCheck("/healthz");
+var searchDirectory = HostDirectory("CSweet:Search:Searxng:CacheDirectory");
+if (searchDirectory is null) searxng.WithVolume("csweet-searxng-cache", "/var/cache/searxng");
+else searxng.WithBindMount(searchDirectory, "/var/cache/searxng");
 
 var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
 var localStateDirectory = string.IsNullOrWhiteSpace(localAppData)
     ? Path.Combine(repositoryRoot, ".csweet")
     : Path.Combine(localAppData, "CSweet");
 Directory.CreateDirectory(localStateDirectory);
-var crashDirectory = Path.Combine(localStateDirectory, "crashes");
+var crashDirectory = HostDirectory("CSweet:Diagnostics:CrashDirectory") ?? Path.Combine(localStateDirectory, "crashes");
+var mediaDirectory = HostDirectory("CSweet:GenAi:MediaRoot") ?? Path.Combine(localStateDirectory, "media");
 var dumpDirectory = Path.Combine(crashDirectory, "dumps");
 Directory.CreateDirectory(dumpDirectory);
 var executionGatewayCertificate = EnsureDevelopmentExecutionGatewayCertificate(localStateDirectory);
@@ -91,7 +96,6 @@ var agentHost = builder.AddProject<Projects.CSweet_AgentHost>("agenthost")
     .WithReference(searxng.GetEndpoint("http"))
     .WithEnvironment("CSweet__Search__Searxng__BaseUrl", searxng.GetEndpoint("http"))
     .WithEnvironment("CSweet__Secrets__FilePath", Path.Combine(localStateDirectory, "provider-secrets.json"))
-    .WithEnvironment("CSweet__GenAi__MediaRoot", Path.Combine(localStateDirectory, "media"))
     .WithEnvironment("CSweet__Marketplace__Enabled", marketplaceEnabled)
     .WithEnvironment("CSweet__Marketplace__BaseUrl", marketplaceBaseUrl)
     .WithEnvironment("CSweet__Marketplace__TimeoutSeconds", marketplaceTimeoutSeconds)
@@ -106,7 +110,6 @@ var api = builder.AddProject<Projects.CSweet_Api>("api")
     .WithReference(postgres)
     .WithReference(agentHostEndpoint)
     .WithEnvironment("CSweet__AgentRuntime__AgentHostBroker__BaseUrl", agentHostEndpoint)
-    .WithEnvironment("CSweet__GenAi__MediaRoot", Path.Combine(localStateDirectory, "media"))
     .WithEnvironment("CSweet__Marketplace__Enabled", marketplaceEnabled)
     .WithEnvironment("CSweet__Marketplace__BaseUrl", marketplaceBaseUrl)
     .WithEnvironment("CSweet__Marketplace__TimeoutSeconds", marketplaceTimeoutSeconds)
@@ -204,6 +207,20 @@ foreach (var setting in builder.Configuration.GetSection("CSweet:SourceControl:S
 }
 var gitHostEndpoint = gitHost.GetEndpoint("http");
 
+foreach (var project in new[] { api, agentHost, workerHost, executionGateway })
+{
+    project.WithEnvironment("CSweet__GenAi__MediaRoot", mediaDirectory);
+    foreach (var key in new[] { "WorkspaceSnapshotStorePath", "SourceArchiveStorePath", "BuildLogStorePath", "Artifacts:RootPath" })
+    {
+        var setting = "CSweet:AgentRuntime:" + key;
+        if (HostDirectory(setting) is { } path) project.WithEnvironment(setting.Replace(":", "__"), path);
+    }
+}
+api.WithEnvironment("CSweet__Diagnostics__CrashDirectory", crashDirectory)
+    .WithEnvironment("CSweet__Storage__AppHostVolumes", "true");
+if (postgresDirectory != null) api.WithEnvironment("CSweet__Postgres__DataDirectory", postgresDirectory);
+if (searchDirectory != null) api.WithEnvironment("CSweet__Search__Searxng__CacheDirectory", searchDirectory);
+
 api.WithReference(gitHost)
     .WithEnvironment("CSweet__SourceControl__TrustedServiceKeyId", "core")
     .WithEnvironment("CSweet__SourceControl__TrustedServiceKeyBase64", trustedServiceKey)
@@ -278,6 +295,15 @@ builder.Services.AddSingleton(new CrashSupervisionOptions(
 builder.Services.AddHostedService<ResourceCrashSupervisor>();
 
 builder.Build().Run();
+
+string? HostDirectory(string key)
+{
+    var path = builder.Configuration[key];
+    if (string.IsNullOrWhiteSpace(path)) return null;
+    if (!Path.IsPathFullyQualified(path) || Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)) == Path.GetPathRoot(path))
+        throw new InvalidOperationException($"{key} requires an absolute, dedicated directory.");
+    return Path.GetFullPath(path);
+}
 
 static bool HasGitHubAppConfiguration(params string?[] values) =>
     values.All(value => !string.IsNullOrWhiteSpace(value));

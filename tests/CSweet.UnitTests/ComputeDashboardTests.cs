@@ -1,12 +1,56 @@
 using CSweet.Api.Compute;
+using CSweet.Contracts.Realtime;
 using CSweet.Domain.Compute;
 using CSweet.Domain.Core;
+using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
 
 public sealed class ComputeDashboardTests
 {
+    [Fact]
+    public async Task InstallerFailurePublishesOneComputeChangeAndLateDeliveryCannotRestoreItAfterRetry()
+    {
+        await using var f = new ComputeBrokerTests.Fixture();
+        await f.SeedAsync();
+        f.Db.CoreOrganizationUsers.Add(new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = f.Organization,
+            ApplicationUserId = Guid.NewGuid(), EmployeeType = EmployeeType.Human, IsActive = true,
+            PermissionLevel = OrganizationPermissionLevel.Owner });
+        var observed = new ComputeLocalSetup { Id = Guid.NewGuid(), OrganizationId = f.Organization,
+            State = "Running", PreparationAttemptId = Guid.NewGuid(), HandoffHash = "old", HandoffExpiresAt = DateTimeOffset.UtcNow };
+        f.Db.Add(observed);
+        await f.Db.SaveChangesAsync();
+        f.Db.ChangeTracker.Clear();
+        var events = f.Db.ApplicationRealtimeOutbox.Where(x => x.OrganizationId == f.Organization && x.EventType == AppRealtimeEvents.ComputeChanged);
+        var initial = await events.CountAsync();
+        await ComputeLocalSetupWorker.FailAsync(f.Db, observed, "compute_checks_build_failed", default);
+        await using var restarted = new CSweetDbContext(f.Options);
+        var setup = await restarted.Set<ComputeLocalSetup>().SingleAsync();
+        Assert.Equal("Failed", setup.State);
+        Assert.Equal("compute_checks_build_failed", setup.ErrorCode);
+        Assert.Null(setup.HandoffHash);
+        Assert.Null(setup.HandoffExpiresAt);
+        await ComputeLocalSetupWorker.FailAsync(restarted, observed, "setup_interrupted", default);
+        Assert.Equal(initial + 1, await events.CountAsync());
+        setup.State = "Pending";
+        setup.ErrorCode = null;
+        setup.Revision++;
+        await restarted.SaveChangesAsync();
+        Assert.Equal(initial + 2, await events.CountAsync());
+        setup.State = "Running";
+        setup.PreparationAttemptId = Guid.NewGuid();
+        setup.Revision++;
+        await restarted.SaveChangesAsync();
+        await ComputeLocalSetupWorker.FailAsync(restarted, observed, "setup_interrupted", default);
+        Assert.Equal("Running", (await f.Db.Set<ComputeLocalSetup>().AsNoTracking().SingleAsync()).State);
+        Assert.Equal(initial + 3, await events.CountAsync());
+        // This context still tracks the earlier attempt; a current installer result must still reach the owner.
+        await ComputeLocalSetupWorker.FailAsync(f.Db, setup, "compute_service_start_failed", default);
+        Assert.Equal("compute_service_start_failed", (await restarted.Set<ComputeLocalSetup>().AsNoTracking().SingleAsync()).ErrorCode);
+        Assert.Equal(initial + 4, await events.CountAsync());
+    }
+
     [Fact]
     public async Task Runtime_update_requires_owner_and_idle_compute_and_preserves_instances()
     {

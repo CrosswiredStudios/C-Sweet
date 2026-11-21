@@ -2,8 +2,9 @@
 
 [Overview](README.md) · [Acceptance](10-acceptance-scenarios.md) · [Migration](08-hosting-and-migration.md)
 
-**Status: Proposed first deployment.** The remote PC has not been inspected or
-modified as part of this documentation work.
+**Role in the development lab.** The Windows PC serves as a customer-owned Office and
+can also run the standalone package checks below. The first provisioning target is the
+[TrueNAS development pool](08-hosting-and-migration.md#development-cleanup).
 
 ## Known hardware and unknowns
 

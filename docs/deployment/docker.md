@@ -8,6 +8,33 @@ Docker is **trusted application infrastructure**. It is not the isolation bounda
 
 See the [security architecture overview](../../Documentation/Architecture/AGENT_ISOLATION_SECURITY_OVERVIEW.md) for the trust boundaries and startup sequence.
 
+## Disk usage and storage configuration
+
+**Settings → Storage** inventories Headquarters paths and local Windows VM storage.
+The Office drive picker places Office programs and mutable disks. Local Compute uses
+the Office drive by default and has a separate drive selection. The Docker host owns
+its engine disk, layers, build cache and named volumes. Run `docker system df -v`
+on that host to identify C-Sweet volumes and any separate model volumes.
+
+Aspire accepts dedicated host directories for PostgreSQL, search, media, artifacts,
+snapshots, archives, build logs and crash dumps. See the [AppHost configuration keys](../implementation/features/office-assisted-installation.md#office-drive-selection-2026-10-24).
+
+For Compose, set any of the following environment variables to a dedicated absolute
+bind-mount directory on the Docker host. Omitted variables keep the original volumes.
+Docker must be able to mount the directory and the container service must have the
+required ownership and permissions. Stop writers and migrate or restore populated
+stores before switching mounts. An empty PostgreSQL directory initializes a new database.
+
+| Data | Compose mount setting |
+| --- | --- |
+| PostgreSQL and search cache | `CSWEET_POSTGRES_MOUNT`, `CSWEET_SEARCH_CACHE_MOUNT` |
+| Media, agent sources and packages | `CSWEET_MEDIA_MOUNT`, `CSWEET_AGENT_SOURCES_MOUNT`, `CSWEET_AGENT_PACKAGES_MOUNT` |
+| Provider secrets and internal Git trust | `CSWEET_PROVIDER_SECRETS_MOUNT`, `CSWEET_GIT_TRUST_MOUNT` |
+| Git repositories | `CSWEET_GIT_DATA_VOLUME` |
+
+These settings apply to C-Sweet containers. Docker model volumes and other WSL
+distributions have independent storage.
+
 ## Windows source prerequisites
 
 - Docker Desktop installed and configured to use Linux containers.

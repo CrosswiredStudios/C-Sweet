@@ -54,6 +54,8 @@
   "Communications.Decision.Unavailable": "4d1d3197812f",
   "Communications.Decision.ExplanationFailed": "4dade7a9e73a",
   "Communications.Decision.ConfirmChoice": "d3e7007eeee8",
+  "Communications.Decision.YourChoice": "e7332f9619f9",
+  "Communications.Decision.WhatThisMeans": "a4bccc9de0ca",
   "Communications.Decision.ChooseAnswer": "42dce49e1fbe",
   "Communications.Decision.Recommended": "e37d21edad7c",
   "Communications.Decision.SomethingElse": "48f88ac322a0",

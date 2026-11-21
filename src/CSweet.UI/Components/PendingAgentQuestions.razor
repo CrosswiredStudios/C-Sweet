@@ -65,7 +65,16 @@
         {
             <div class="attention-list" aria-label="@L["PendingAgentQuestions.DecisionsApprovalsHiringAndCompute"]">
                 @foreach (var issue in PendingIssues) { <IssueAttentionCard @key="issue.Key" Item="issue" OrganizationId="OrganizationId" Answered="OnAnsweredAsync" RefreshRequested="RefreshRequested" /> }
-                @if (WaitingForOfficeCapacity)
+                @if (FailedComputeSetup is { } failed)
+                {
+                    <AttentionRequestCard Kind="Compute" Name="Linux compute"
+                        Prompt="@(failed.Health == "NeedsPermission" ? "Linux compute needs administrator approval" : "Linux compute preparation failed")"
+                        Description="@ComputePreparationFailure.Describe(failed).Cause"
+                        Status="Work that needs this environment, including browser QA, waits until compute is ready.">
+                        <MudButton Href="@($"/organizations/{OrganizationId:D}/compute")" Variant="Variant.Outlined" Color="Color.Primary">Open Compute</MudButton>
+                    </AttentionRequestCard>
+                }
+                else if (WaitingForOfficeCapacity)
                 {
                     <MudAlert Severity="Severity.Info">An employee is waiting for an Office with compute capacity.
                         <MudLink Href="@($"/organizations/{OrganizationId:D}/compute")">View compute</MudLink>
@@ -126,6 +135,7 @@
     [Parameter] public string? ComputeError { get; set; }
     [Parameter] public bool ComputeHasMore { get; set; }
     [Parameter] public bool WaitingForOfficeCapacity { get; set; }
+    [Parameter] public ComputeSetupStatus? FailedComputeSetup { get; set; }
     [Parameter] public IReadOnlyList<BlockedWorkAttentionResponse> BlockedWork { get; set; } = [];
     [Parameter] public bool BlockedWorkLoaded { get; set; } = true;
     [Parameter] public string? BlockedWorkError { get; set; }
@@ -139,7 +149,7 @@
         item.IssueId is not null || item.Work.Count > 0 || item.Incidents.Count > 0 ||
         item.Questions.Count == 0 || item.Questions.Any(q => !_completedDecisions.Contains(q.Decision.Id))).ToArray();
     private int PendingCount => PendingIssues.Count + PendingApprovals.Count + Recommendations.Count + ComputeResources.Count + SuggestionCount +
-        (WaitingForOfficeCapacity ? 1 : 0);
+        (FailedComputeSetup is not null || WaitingForOfficeCapacity ? 1 : 0);
     private bool _showAll;
     private readonly HashSet<Guid> _completedDecisions = [];
     private readonly HashSet<Guid> _completedApprovals = [];

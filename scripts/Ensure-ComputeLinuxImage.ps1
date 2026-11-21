@@ -6,13 +6,14 @@ param(
     [string] $SetupProgressPath,
     [guid] $SetupAttemptId = [guid]::Empty,
     [guid] $ProgressJobId = [guid]::Empty,
-    [string] $ProgressHelperPath = "$PSScriptRoot\..\..\CSweet.Office\scripts\windows\CSweet.WindowsSetupProgress.ps1"
+    [string] $ProgressHelperPath = "$PSScriptRoot\..\..\CSweet.Office\scripts\windows\CSweet.WindowsSetupProgress.ps1",
+    [string] $StorageRoot
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = [IO.Path]::GetFullPath($RepositoryRoot)
 $isolationRoot = [IO.Path]::GetFullPath((Join-Path $repositoryRoot '..\CSweet.Isolation'))
-$imageRoot = Join-Path $repositoryRoot 'artifacts\compute\mvp\images'
+$imageRoot = if ($StorageRoot) { Join-Path $StorageRoot 'prepared' } else { Join-Path $repositoryRoot 'artifacts\compute\mvp\images' }
 $receiptPath = Join-Path $imageRoot 'current-image.json'
 $progressState = @{ Heartbeat = $null }
 $ownerProcessId = $PID
@@ -95,7 +96,9 @@ try {
             return
         }
         $imagePath = Join-Path $imageRoot ("ubuntu-compute-$fingerprint-$([guid]::NewGuid().ToString('N')).vhdx")
-        & (Join-Path $repositoryRoot 'scripts\New-ComputeLinuxImage.ps1') -OutputPath $imagePath -ReportProgress $report | Out-Host
+        $buildStorage = @{}
+        if ($StorageRoot) { $buildStorage.ArtifactDirectory = Join-Path $StorageRoot 'build' }
+        & (Join-Path $repositoryRoot 'scripts\New-ComputeLinuxImage.ps1') @buildStorage -OutputPath $imagePath -ReportProgress $report | Out-Host
         & $report 'finalize-image' 'Verifying and saving the reusable Linux image.'
         $build = Get-Content -LiteralPath ($imagePath + '.build.json') -Raw | ConvertFrom-Json
         if ($build.ImagePath -cne $imagePath -or

@@ -28,7 +28,7 @@ evidence. Do not put credentials or raw customer content into test reports.
 | A-02 | Customer Office | Private connector on same computer | Local endpoint works without public exposure |
 | A-03 | Customer Office | Private connector on another computer | Connector works independently of Office/Hyper-V |
 | A-04 | Hosted Office | Customer private connector | Model location is independent of execution location |
-| A-05 | Hosted Office | Managed model | Budget reservation, usage settlement, and Office metering reconcile |
+| A-05 | Hosted Office | Managed model | Budget reservation, usage settlement, and the monthly Office fee reconcile |
 | A-06 | Mixed Offices | Per-agent model mix | Placement and model policy both hold; no accidental paid fallback |
 | A-07 | Self-hosted HQ | Existing supported provider | New commercial services are not mandatory for self-hosting |
 
@@ -50,7 +50,7 @@ employees, and starts one bounded assignment.
 connected and certified before dispatch; assignment and results belong to that
 customer; the model key stays out of the guest; usage has immutable attribution;
 the invoice preview contains one own-Office subscription, the correct distinct
-active agents, no hosted Office-hours, and no C-Sweet BYOK token fee.
+active agents, no hosted Office subscription, and no C-Sweet BYOK token fee.
 
 **Repeat:** duplicate the enrollment submission, reconnect the Office, replay the
 completion event, and upgrade an agent package. These actions must not create a
@@ -81,6 +81,7 @@ second Office subscription, duplicate work, or a new employee billing identity.
 | R-04 | User cancels a long streamed answer | Cancellation propagates; resources released when confirmed |
 | R-05 | Slow consumer and large response | Buffers/frames bounded; no unbounded gateway memory growth |
 | R-06 | Two workloads fit nominal slots but exceed RAM | Queue or deny placement; do not overcommit safety limits |
+| R-11 | A hosted Office has one agent slot left and enough free RAM for two simultaneous starts | Admit at most one additional agent on this Office. Queue the other until a slot and sufficient RAM are available. |
 | R-07 | Provisioning stops between external resource creation and local commit | Reconcile the resource; no duplicate tenant/subscription |
 | R-08 | Restore customer backup to clean deployment | Data, repository refs, keys, roles, and endpoint identities verified together |
 | R-09 | Paid model or hosted fallback is available but unauthorized | Continue waiting; no new charge |
@@ -93,8 +94,8 @@ second Office subscription, duplicate work, or a new employee billing identity.
 | B-01 | Same employee retries or upgrades during month | One active-agent charge under the chosen activation policy |
 | B-02 | A hired employee never works | No active-agent charge |
 | B-03 | Background work activates a dormant employee | Chosen Q-03 policy and owner staffing budget enforced |
-| B-04 | Two simultaneous 30-minute workloads on one hosted Office | 0.5 Office-hours, not 1; resource limits still enforced |
-| B-05 | Local Office executes for 100 hours | No hosted compute-hour charge |
+| B-04 | Run successive and overlapping workloads on one subscribed hosted Office | One monthly tier fee across both runs. The tier concurrency cap still applies |
+| B-05 | Customer uses only a linked local Office | Bill the linked Office fee without a hosted Office subscription |
 | B-06 | Two inference calls race for the last available balance | Atomic reservation prevents double spending |
 | B-07 | Provider streams repeated cumulative usage updates | Single settlement; token subsets not double-counted |
 | B-08 | Provider call ends without final usage | Unresolved coverage; no invented bill or false zero |

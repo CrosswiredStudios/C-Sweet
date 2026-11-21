@@ -21,30 +21,33 @@ a live deployment test. Open details intentionally remain visible for review.
 | D-07 | Support private models through a standalone connector | Model-only installation must not require Office/Hyper-V |
 | D-08 | Charge a smaller fee for customer-owned Offices | Exact fee is not yet selected |
 | D-09 | Charge the full agent fee if the agent works in the month | Detailed activity trigger and adjustment policy still need review |
-| D-10 | Hosted Offices may include hours and approved overage | No unrestricted compute promise |
+| D-10 | Hosted Offices have a fixed monthly fee per tier | Storage, RAM and concurrent-agent slots define capacity |
 | D-11 | Entry hosted Offices may sleep | Explain availability and startup latency |
 | D-12 | Aim for a useful entry package around $100–$200 before tokens | Validate against actual operating cost and support |
-| D-13 | Start development on the owned Windows PC | Reported 32 GB RAM, approximately 2 TB SSD, Tailscale; hardware uninspected |
+| D-13 | Test provisioning on owned hardware | TrueNAS is the initial compute provider. The developer chooses when to remove test instances. The Windows PC can serve as a linked Office. |
 | D-14 | Keep hosting portable and move to US managed cloud later when justified | AWS is a candidate destination, not a prerequisite for development |
 | D-15 | Write reviewable feature documentation before implementation | This folder remains product/design context, not a delivery status claim |
+| D-16 | Keep compute providers replaceable | Hosting selects a provider per pool. Keep payment, installation, owner binding, and workspace readiness independent of TrueNAS. [Provider boundary](08-hosting-and-migration.md#first-provisioning-service) |
 
 The earlier $500–$2,000 pilot infrastructure range was a selected planning scale,
 not authorization to spend it now. Later discussion specifically prioritized
 avoiding rental costs during development. The proposed $50/$150 or $100/$300
 development/launch budget choices were not answered and are not approved budgets.
 
+Hosted Headquarters costs **$99/month**. Customers can connect their computers or rent Offices. A hosted Office tier specifies storage, RAM and a hard limit on concurrently running agents, even when spare memory is available. Exact Office configurations remain proposals.
+
 ## Proposed defaults, not yet adopted decisions
 
 | ID | Proposal | Rationale | Where to review |
 |---|---|---|---|
-| P-01 | $99 Standard HQ, $9 linked own Office, $10 active agent | $138 example entry bill; test margin and willingness to pay | [Economics](06-pricing-and-economics.md) |
-| P-02 | $69 / $249 hosted Offices with 100 / 300 active hours | Separate seats from execution capacity | [Economics](06-pricing-and-economics.md) |
+| P-01 | $9 linked own Office, $10 active agent | $138 example entry bill; test margin and willingness to pay | [Economics](06-pricing-and-economics.md) |
+| P-02 | $69 / $249 monthly hosted Office tiers with two / four concurrent-agent slots | Separate seats from execution capacity | [Economics](06-pricing-and-economics.md) |
 | P-03 | Managed token markup of 30% and prepaid balance | Limit unfunded provider exposure; disclose actual margin | [Economics](06-pricing-and-economics.md) |
 | P-04 | Separate app deployment and database per Headquarters | Reduce dependence on retrofitting business scopes into tenant isolation | [Architecture](02-architecture-and-tenancy.md) |
 | P-05 | One Headquarters assignment per Office/connector identity | Align with existing Office trust ownership | [Connectivity](03-office-connectivity.md) |
 | P-06 | Scoped gRPC model relay with local endpoint approval | Reuse transport experience without exposing the LAN | [Models](04-model-connectivity.md) |
 | P-07 | No automatic paid or cross-location fallback by default | Preserve cost and data-routing intent | [Models](04-model-connectivity.md) |
-| P-08 | Two / ten model connectors included by HQ tier | Avoid a separate fee merely for a model-only computer | [Economics](06-pricing-and-economics.md) |
+| P-08 (superseded) | Earlier HQ connector allowances withdrawn | Capacity is described at the Office level | [Economics](06-pricing-and-economics.md) |
 | P-09 | $50/month managed-model test cap | Keep routine tests deterministic and cheap | [Owned server](07-owned-server-validation.md) |
 | P-10 | OIDC-capable account boundary | Keep identity provider replaceable | [Architecture](02-architecture-and-tenancy.md) |
 | P-11 | Ten idle minutes before sleeping an entry hosted Office | Reduce idle cost while avoiding immediate restart churn | [Economics](06-pricing-and-economics.md) |

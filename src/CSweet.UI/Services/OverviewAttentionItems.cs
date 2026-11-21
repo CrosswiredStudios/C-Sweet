@@ -85,10 +85,13 @@ public static class OverviewAttentionItems
     public static bool WaitingForOfficeCapacity(ComputeDashboard? dashboard) =>
         dashboard is { CanManageNetwork: true, Setup.Health: "WaitingForOffice" };
 
+    public static ComputeSetupStatus? FailedComputePreparation(ComputeDashboard? dashboard) =>
+        dashboard is { CanManageNetwork: true, Setup.State: "Failed" } ? dashboard.Setup : null;
+
     public static int Count(ApprovalDashboardResponse? approvals, HiringBacklogResponse? hiring,
         IReadOnlyList<PendingAgentQuestionResponse>? questions, ComputeDashboard? compute,
         IReadOnlyList<BlockedWorkAttentionResponse>? blockedWork = null, OverviewIssueDirectory? issues = null) =>
         (approvals?.Items.Count(IsActionable) ?? 0) + (hiring?.Recommendations.Count(IsActionable) ?? 0) + ComputeRequests(compute).Count +
-        (WaitingForOfficeCapacity(compute) ? 1 : 0) +
+        (WaitingForOfficeCapacity(compute) || FailedComputePreparation(compute) is not null ? 1 : 0) +
         (issues ?? FallbackIssues(blockedWork, questions, approvals?.ProjectIncidents)).UserActions.Count;
 }

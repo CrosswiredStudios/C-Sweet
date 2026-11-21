@@ -21,6 +21,25 @@ namespace CSweet.UnitTests;
 public sealed class OverviewAttentionStateTests
 {
     [Fact]
+    public async Task ExistingComputeFailureCountsOnceForTheOwnerAcrossReconnect()
+    {
+        await using var fixture = new Fixture();
+        fixture.Api.Compute = fixture.Api.Compute with { Resources = [],
+            Setup = new("Failed", "Preparation failed", null, null, "compute_checks_build_failed") };
+        await fixture.State.InitializeAsync();
+        Assert.Equal(5, fixture.State.PendingCount);
+        fixture.Reconnect();
+        Assert.Equal(5, fixture.State.PendingCount);
+        fixture.Api.Compute = fixture.Api.Compute with { CanManageNetwork = false };
+        await fixture.State.ReloadAsync();
+        Assert.Equal(4, fixture.State.PendingCount);
+        fixture.Api.Compute = fixture.Api.Compute with { CanManageNetwork = true,
+            Setup = fixture.Api.Compute.Setup! with { State = "Pending", FailureCode = null } };
+        fixture.Publish(fixture.OrganizationId, AppRealtimeEvents.ComputeChanged);
+        Assert.Equal(4, fixture.State.PendingCount);
+    }
+
+    [Fact]
     public async Task BlockedWorkUpdatesTheSharedBadgeAndReconnectRecoversResolution()
     {
         await using var fixture = new Fixture();

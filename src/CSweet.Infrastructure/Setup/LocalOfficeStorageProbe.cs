@@ -6,13 +6,13 @@ using CSweet.Contracts.Setup;
 namespace CSweet.Infrastructure.Setup;
 
 /// <summary>Host volume discovery, never browser filesystem discovery. Installation revalidates it elevated.</summary>
-internal static class LocalOfficeStorageProbe
+public static class LocalOfficeStorageProbe
 {
     private static readonly object Sync = new();
     private static DateTimeOffset lastRead;
     private static IReadOnlyList<LocalOfficeVolumeResponse> cached = [];
 
-    internal static IReadOnlyList<LocalOfficeVolumeResponse> GetWindowsVolumes(bool refresh)
+    public static IReadOnlyList<LocalOfficeVolumeResponse> GetWindowsVolumes(bool refresh)
     {
         lock (Sync)
         {

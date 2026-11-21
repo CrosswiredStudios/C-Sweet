@@ -30,11 +30,14 @@ public static class AuthenticationEndpoints
         {
             var status = await service.GetStatusAsync(null, cancellationToken: cancellationToken);
             var linkingEnabled = configuration.GetValue<bool>("Installation:LinkingEnabled");
-            return Results.Ok(new RegistrationOptionsResponse(status.RegistrationOpen, status.RegistrationOpen && linkingEnabled));
+            return Results.Ok(new RegistrationOptionsResponse(status.RegistrationOpen, status.RegistrationOpen && linkingEnabled,
+                !string.IsNullOrEmpty(configuration["Installation:ReservedOwnerSubject"])));
         }).AllowAnonymous();
 
         group.MapPost("/register", async (RegisterAdminRequest request, HttpContext context, IAuthenticationService service, CancellationToken cancellationToken) =>
-            ToResult(await service.RegisterAsync(WithInitialLocale(request, context.Request.Headers.AcceptLanguage.ToString()), cancellationToken), StatusCodes.Status201Created))
+            !string.IsNullOrEmpty(context.RequestServices.GetRequiredService<IConfiguration>()["Installation:ReservedOwnerSubject"])
+                ? Results.Json(new AuthActionResponse(false, "hosted_owner_required", "Use the purchasing Market account."), statusCode: 403)
+                : ToResult(await service.RegisterAsync(WithInitialLocale(request, context.Request.Headers.AcceptLanguage.ToString()), cancellationToken), StatusCodes.Status201Created))
             .AllowAnonymous()
             .RequireRateLimiting(AgentRateLimiting.AuthPolicy);
 

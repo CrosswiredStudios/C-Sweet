@@ -6,7 +6,7 @@ Previews or applies a destructive reset of the default Windows development insta
 Close AppHost, C-Sweet, builds and setup first. Run in elevated Windows PowerShell 5.1 or later as the
 development user. Preview is the default; -Apply is required for any mutation.
 This resets ALL local C-Sweet businesses, including ones still present in the DB.
-Registered Office storage is included. Other custom storage, remote offices, Compose, certificates and shared SDK caches are excluded.
+Registered Office and Compute storage are included. Other custom storage, remote offices, Compose, certificates and shared SDK caches are excluded.
 See docs/implementation/local-reset.md for scope and recovery instructions.
 #>
 [CmdletBinding(SupportsShouldProcess)]
@@ -239,6 +239,32 @@ function Assert-CSweetResetBuildUntracked([string] $Repository, [string] $Path) 
     if (@(Get-CSweetResetTrackedFiles $Repository $Path).Count -gt 0) { throw "Refusing build cleanup with tracked files: $Path" }
 }
 
+. (Join-Path $PSScriptRoot 'Initialize-ComputeStorage.ps1')
+
+function Assert-CSweetResetComputeRoot([string] $Root) {
+    Assert-CSweetResetPath $Root $Root
+    if (Test-Path -LiteralPath $Root) {
+        foreach ($entry in Get-ChildItem -LiteralPath $Root -Force -ErrorAction Stop) {
+            if (!$entry.PSIsContainer -or ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+                $entry.Name -notmatch '^(?:prepared|base|build|workloads-[0-9a-f]{32}-[0-9a-f]{32})$') {
+                throw "Unexpected item in registered Compute storage. Review before reset: $($entry.FullName)"
+            }
+        }
+    }
+}
+
+function Get-CSweetResetComputeVolumes {
+    $registrations = 'HKLM:\SOFTWARE\CSweet\Compute\StorageVolumes'
+    if (!(Test-Path -LiteralPath $registrations)) { return }
+    foreach ($key in Get-ChildItem -LiteralPath $registrations -ErrorAction Stop) {
+        $volumeId = '\\?\Volume{' + $key.PSChildName + '}\'
+        $registration = Get-ComputeStorageRegistration $volumeId
+        $root = Resolve-ComputeStorageRoot $volumeId
+        Assert-CSweetResetComputeRoot $root
+        [pscustomobject]@{ VolumeId = $volumeId; Root = $root; Registration = $registration }
+    }
+}
+
 function Invoke-CSweetLocalReset {
     [CmdletBinding(SupportsShouldProcess)]
     param(
@@ -268,12 +294,17 @@ function Invoke-CSweetLocalReset {
             $targets.Add([pscustomobject]@{ Path = [IO.Path]::GetFullPath($Path); Boundary = $Boundary; Kind = $Kind; Repository = $Repo; GiB = $null })
         }
     }
-    foreach ($name in @('AgentRuntime', 'Compute', 'ComputeBusinesses', 'ComputeRetirement', 'Diagnostics', 'Setup', 'Office', 'SatelliteOffice', 'ExecutionNode')) {
+    foreach ($name in @('AgentRuntime', 'Compute', 'ComputeBusinesses', 'ComputeImages', 'ComputeRetirement', 'Diagnostics', 'Setup', 'Office', 'SatelliteOffice', 'ExecutionNode')) {
         Add-Target (Join-Path $machineRoot $name) $machineRoot 'Runtime'
     }
     foreach ($name in @('Office', 'SatelliteOffice', 'ExecutionNode')) {
         Add-Target (Join-Path $installRoot $name) $installRoot 'Installed office'
     }
+    $computeVolumes = @()
+    try {
+        $computeVolumes = @(Get-CSweetResetComputeVolumes)
+        foreach ($volume in $computeVolumes) { Add-Target $volume.Root $volume.Root 'Registered Compute storage' }
+    } catch { $blockers.Add('Compute storage inventory failed: ' + $_.Exception.Message) }
     $officeStorageKey = 'HKLM:\SOFTWARE\CSweet\Office\Storage'
     if (Test-Path -LiteralPath $officeStorageKey) {
         try {
@@ -476,6 +507,11 @@ function Invoke-CSweetLocalReset {
         if ($LASTEXITCODE -ne 0) { throw 'Failed to remove the database volume.' }
     }
     foreach ($target in $targets) {
+        if ($target.Kind -eq 'Registered Compute storage') {
+            $volume = $computeVolumes | Where-Object Root -eq $target.Path
+            if ((Resolve-ComputeStorageRoot $volume.VolumeId) -ine $target.Path) { throw 'Compute volume mount changed. Preview again.' }
+            Assert-CSweetResetComputeRoot $target.Path
+        }
         if (-not (Test-Path -LiteralPath $target.Path)) { continue }
         Assert-CSweetResetPath $target.Path $target.Boundary
         if ($target.Repository) {
@@ -489,6 +525,11 @@ function Invoke-CSweetLocalReset {
         }
         Remove-Item -LiteralPath $target.Path -Recurse -Force
         if (Test-Path -LiteralPath $target.Path) { throw "Reset did not completely remove $($target.Path)" }
+    }
+    foreach ($volume in $computeVolumes) {
+        $root = Resolve-ComputeStorageRoot $volume.VolumeId
+        if ($root -ine $volume.Root -or (Test-Path -LiteralPath $root)) { throw 'Registered Compute storage still exists or moved. Preview again.' }
+        Remove-Item -LiteralPath $volume.Registration -ErrorAction Stop
     }
     Write-Host 'Reset complete. Rebuild/relaunch C-Sweet and enroll fresh local execution services. See local-reset.md for excluded stores.'
 }

@@ -175,7 +175,7 @@ public static class ComputeDashboardEndpoints
             {
                 try
                 {
-                    var cache = new DirectoryInfo(Path.GetFullPath(Path.Combine(repositoryRoot, "..", "CSweet.Isolation", "artifacts", "linux-images", "cache")));
+                    var cache = DownloadCache(directory, repositoryRoot, setup.PreparationAttemptId.Value);
                     var image = cache.Exists ? cache.EnumerateFiles("ubuntu-*-live-server-amd64.iso")
                         .Where(file => file.LastWriteTimeUtc >= structured.StartedAt?.UtcDateTime)
                         .OrderByDescending(file => file.LastWriteTimeUtc).FirstOrDefault() : null;
@@ -186,7 +186,7 @@ public static class ComputeDashboardEndpoints
                         observeFile?.Invoke(image.Name);
                     }
                 }
-                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException) { }
             }
             return ComputePreparationProgress.Observe(structured, setup, observation, DateTimeOffset.UtcNow);
         }
@@ -240,5 +240,18 @@ public static class ComputeDashboardEndpoints
         {
             Milestone = step switch { 1 => 2, 2 => 3, 3 => 5, _ => 0 }
         }, setup, observation, DateTimeOffset.UtcNow);
+    }
+
+    internal static DirectoryInfo DownloadCache(string directory, string repository, Guid attempt)
+    {
+        var selection = new FileInfo(Path.Combine(directory, "storage.json"));
+        if (selection.Exists && selection.Length <= 1024)
+        {
+            using var json = JsonDocument.Parse(File.ReadAllText(selection.FullName));
+            if (json.RootElement.TryGetProperty("attemptId", out var id) && id.TryGetGuid(out var stored) && stored == attempt &&
+                json.RootElement.TryGetProperty("drive", out var letter) && letter.GetString() is { Length: 1 } drive && char.IsAsciiLetter(drive[0]))
+                return new(Path.Combine(CSweet.Compute.Runtime.ComputeVolumeStorage.Root(drive[0]), "build", "cache"));
+        }
+        return new(Path.GetFullPath(Path.Combine(repository, "..", "CSweet.Isolation", "artifacts", "linux-images", "cache")));
     }
 }

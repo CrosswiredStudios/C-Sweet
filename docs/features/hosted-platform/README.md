@@ -1,6 +1,6 @@
 # C-Sweet hosted platform and hybrid Offices
 
-**Status: Draft for review.** Last updated: **2026-10-15**.
+**Status: Draft for review.** Last updated: **2026-11-20**.
 
 This is a product and architecture proposal, not a claim of production readiness.
 The current repository has useful foundations, particularly Office enrollment,
@@ -43,13 +43,14 @@ directions. Headquarters does not need to dial into the customer's home network.
 - Charge a Headquarters subscription, an Office fee, active-agent fees, and managed
   inference usage. Customer-owned Offices carry a smaller connection/management fee.
 - Charge an agent's full monthly fee if it works during that billing period.
-- Hosted Office plans may include hours and opt-in overage; an entry Office may sleep.
-- Start development on an owned Windows 11 Pro PC with 32 GB RAM, approximately 2 TB
-  SSD, and Tailscale connectivity. Avoid recurring cloud rental during early work.
+- Hosted Offices have a fixed monthly tier fee. An entry Office may sleep when idle.
+- Use TrueNAS for real provisioning tests. The developer manages VM cleanup between runs. The Mac
+  Studio runs Market and the proposed provisioner. The Windows PC serves as a linked Office.
+  See the [provisioning service design](08-hosting-and-migration.md#first-provisioning-service).
 - Keep a migration path to affordable hosting and later US managed cloud, with AWS
   the current candidate rather than an already purchased or certified deployment.
 
-Exact prices, included quotas, recovery targets, and detailed billing policies
+Office prices, tier sizes, recovery targets, and detailed billing policies
 remain proposals. See the [decision register](09-decisions-and-questions.md).
 
 ## Read by question
@@ -67,19 +68,21 @@ remain proposals. See the [decision register](09-decisions-and-questions.md).
 | Which choices are settled, proposed, or unresolved? | [09 — Decisions and questions](09-decisions-and-questions.md) |
 | What evidence would make the feature ready? | [10 — Acceptance scenarios](10-acceptance-scenarios.md) |
 | Which statements come from code or external sources? | [11 — Evidence and source map](11-evidence-and-sources.md) |
+| How does a Marketplace purchase become a working Headquarters? | [12 — Marketplace hosted purchase](12-marketplace-hosted-purchase.md) |
+| How do we build the Linux release and test it on the NAS? | [13 — Linux Headquarters deployment](13-linux-headquarters-deployment.md) |
 
 For a product review, read **01 → 06 → 09**. For a technical review, read
 **02 → 03 → 04 → 05 → 10**. For development and operating cost, read **07 → 08 → 06**.
 
 ## Illustrative customer bill
 
-A proposed Standard Headquarters is $99/month. A linked customer-owned Office is
+Hosted Headquarters is $99/month. A linked customer-owned Office is
 $9/month and three active agents are $30/month: **$138 to C-Sweet**, before any
 managed inference. With BYOK, the customer pays the model provider separately.
-These are pricing hypotheses, not an approved price list or guaranteed margin.
+The HQ fee is confirmed. Office and active-employee fees in this example are proposals.
 
 The original all-hosted example remains possible: $99 Headquarters + $69 hosted
-Office + $30 agents = **$198**, before inference and approved overages.
+Office + $30 agents = **$198**, before inference.
 
 ## Important distinctions
 

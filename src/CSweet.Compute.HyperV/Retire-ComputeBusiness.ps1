@@ -12,6 +12,12 @@ $root = [IO.Path]::GetFullPath((Join-Path $machine ('ComputeBusinesses\' + $busi
 $taskRoot = [IO.Path]::GetFullPath((Join-Path $machine ('ComputeRetirement\' + $business)))
 if ([IO.Path]::GetFullPath($PSScriptRoot) -ine $taskRoot) { throw 'Invalid task location.' }
 $serviceName = 'CSweet.Compute.HyperV.' + $business
+$volumeWorkloads = $null
+if ((Test-Path -LiteralPath $root) -and !$request.preserveSharedProvider -and $request.PSObject.Properties['workloadVolumeId'] -and $request.workloadVolumeId) {
+    $mounted = @(Get-Volume -ErrorAction Stop | Where-Object { $_.DriveLetter -and $_.UniqueId -eq $request.workloadVolumeId })
+    if ($mounted.Count -ne 1) { throw 'The enrolled workload volume is unavailable.' }
+    $volumeWorkloads = Join-Path "$($mounted[0].DriveLetter):\CSweetCompute" "workloads-$business-$node"
+}
 
 function Assert-NoLinks([string]$Path) {
     $cursor = [IO.Path]::GetFullPath($Path)
@@ -33,7 +39,10 @@ function Assert-Tree([string]$Path) {
 function Test-InRoot([string]$Path) {
     if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
     $full = [IO.Path]::GetFullPath($Path).TrimEnd('\')
-    return $full -ieq $root -or $full.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)
+    foreach ($boundary in @($root,$volumeWorkloads)) {
+        if ($boundary -and ($full -ieq $boundary -or $full.StartsWith($boundary + '\', [StringComparison]::OrdinalIgnoreCase))) { return $true }
+    }
+    return $false
 }
 Assert-NoLinks $taskRoot
 $origin = [uri]$request.coreOrigin
@@ -70,6 +79,7 @@ $body = @{cleanupId=$request.cleanupId; receiptToken=$request.receiptToken} | Co
 $authorization = Invoke-WebRequest -UseBasicParsing -Method Post -Uri ([uri]::new($origin,'api/compute/provider/retirement-authorize')) -ContentType 'application/json' -Body $body -MaximumRedirection 0 -TimeoutSec 30
 if ($authorization.StatusCode -ne 204) { throw 'Current Core state does not authorize retirement.' }
 Assert-Tree $root
+if ($volumeWorkloads) { Assert-NoLinks $volumeWorkloads }
 if (Test-Path -LiteralPath $root) {
     $configurationPath = Join-Path $root 'provider.json'
     if (-not (Test-Path -LiteralPath $configurationPath)) { $configurationPath = Join-Path $root 'compute-owner.json' }
@@ -112,10 +122,16 @@ if (Test-Path -LiteralPath $root) {
         if ($LASTEXITCODE -ne 0) { throw 'Service removal failed.' }
     }
     Assert-Tree $root
+    # Authorized VM teardown removes each environment. Leave unexpected files for diagnosis.
+    if ($volumeWorkloads -and (Test-Path -LiteralPath $volumeWorkloads)) {
+        Assert-NoLinks $volumeWorkloads
+        [IO.Directory]::Delete($volumeWorkloads, $false)
+    }
     # The fully resolved, fixed business root was checked above, including all descendants.
     Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop
 }
 if (Test-Path -LiteralPath $root) { throw 'Business storage remains.' }
+if ($volumeWorkloads -and (Test-Path -LiteralPath $volumeWorkloads)) { throw 'Business workload storage remains.' }
 if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) { throw 'Business service remains.' }
 
 # Remove only this installer's dedicated signing certificate/key. Shared credentials are retained.

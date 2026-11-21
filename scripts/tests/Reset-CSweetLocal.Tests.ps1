@@ -99,6 +99,38 @@ Describe 'Local reset VM ownership' {
     }
 }
 
+Describe 'Registered Compute storage ownership' {
+    It 'accepts only a Windows volume GUID as a registry key' {
+        $id = '\\?\Volume{00000000-0000-0000-0000-000000000001}\'
+        (Get-ComputeStorageRegistration $id) | Should Be 'HKLM:\SOFTWARE\CSweet\Compute\StorageVolumes\00000000-0000-0000-0000-000000000001'
+        Assert-ResetThrows { Get-ComputeStorageRegistration 'D:\Folder' }
+        Assert-ResetThrows { Get-ComputeStorageRegistration ($id + '..\other') }
+    }
+    It 'accepts the installer layout and refuses unexpected files before deletion' {
+        $root = Join-Path $TestDrive 'CSweetCompute'
+        foreach ($name in 'base','build','prepared',('workloads-' + ('a' * 32) + '-' + ('b' * 32))) {
+            New-Item -Type Directory -Path (Join-Path $root $name) -Force | Out-Null
+        }
+        Assert-CSweetResetComputeRoot $root
+        Set-Content (Join-Path $root 'keep.txt') 'unrelated'
+        Assert-ResetThrows { Assert-CSweetResetComputeRoot $root }
+    }
+    It 'discovers the registered volume by identity without creating an installer directory' {
+        $guid = '00000000-0000-0000-0000-000000000123'
+        $expectedId = '\\?\Volume{' + $guid + '}\'
+        $expectedRoot = Join-Path $TestDrive 'missing-compute'
+        $registry = 'HKLM:\SOFTWARE\CSweet\Compute\StorageVolumes'
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -eq $registry }
+        Mock Get-ChildItem { [pscustomobject]@{ PSChildName = $guid } } -ParameterFilter { $LiteralPath -eq $registry }
+        Mock Resolve-ComputeStorageRoot { $expectedRoot } -ParameterFilter { $VolumeId -eq $expectedId -and !$Create }
+        $plan = @(Get-CSweetResetComputeVolumes)
+        $plan.Count | Should Be 1
+        $plan[0].Root | Should Be $expectedRoot
+        $plan[0].Registration | Should Be (Join-Path $registry $guid)
+        [IO.Directory]::Exists($expectedRoot) | Should Be $false
+    }
+}
+
 Describe 'Temporary C-Sweet image-build VMs' {
     BeforeEach {
         Mock Get-VMSnapshot { @() }
@@ -283,5 +315,60 @@ Describe 'Local reset execution gates' {
         Assert-ResetThrows { Invoke-CSweetLocalReset -ResetDatabase -Apply -RepositoryRoot 'C:\fixture' -WarningAction SilentlyContinue }
         Assert-MockCalled Remove-Item -Times 0 -Exactly
         Assert-MockCalled Set-Service -Times 0 -Exactly
+    }
+}
+
+Describe 'Compute reset execution' {
+    BeforeEach {
+        Mock Test-Path { $LiteralPath -like '*CSweet.AppHost.csproj' }
+        Mock Get-CimInstance { @() }
+        Mock Test-CSweetResetHyperVAvailable { $false }
+        Mock Get-CSweetResetRetirementTasks { @() }
+        Mock Get-ItemProperty { $null }
+        Mock Test-CSweetResetAdministrator { $true }
+        Mock Set-Service { throw 'Mutation reached' }
+        Mock Stop-Service { throw 'Mutation reached' }
+        Mock Remove-Item { throw 'Mutation reached' }
+        Mock Write-Host {}
+    }
+    It 'blocks all mutations when a registered Compute volume is unavailable' {
+        Mock Get-CSweetResetComputeVolumes { throw 'registered volume unavailable' }
+        Assert-ResetThrows { Invoke-CSweetLocalReset -Apply -RepositoryRoot 'C:\fixture' -WarningAction SilentlyContinue }
+        Assert-MockCalled Remove-Item -Times 0 -Exactly
+        Assert-MockCalled Set-Service -Times 0 -Exactly
+    }
+    It 'applies the reset to fixture images and registered storage before clearing the registration' {
+        $previousProgramData = $env:ProgramData
+        try {
+            $env:ProgramData = Join-Path $TestDrive 'ProgramData'
+            $images = Join-Path $env:ProgramData 'CSweet\ComputeImages'
+            $root = Join-Path $TestDrive 'alternate\CSweetCompute'
+            $base = Join-Path $root 'base'
+            $keep = Join-Path $TestDrive 'alternate\model-store'
+            foreach ($path in @($images, $base, $keep)) {
+                New-Item -ItemType Directory -Path $path -Force | Out-Null
+                [IO.File]::WriteAllText((Join-Path $path 'fixture.bin'), 'fixture')
+            }
+            Mock Test-Path {
+                $LiteralPath -like '*CSweet.AppHost.csproj' -or
+                    ((Test-CSweetResetWithin $LiteralPath $TestDrive) -and [IO.Directory]::Exists($LiteralPath))
+            }
+            Mock Get-CSweetResetComputeVolumes { [pscustomobject]@{VolumeId='fixture'; Root=$root; Registration='fixture-registration'} }
+            Mock Resolve-ComputeStorageRoot { $root }
+            Mock Remove-Item {
+                if ($LiteralPath -eq 'fixture-registration') {
+                    [IO.Directory]::Exists($root) | Should Be $false
+                    return
+                }
+                $actual = [IO.Path]::GetFullPath($LiteralPath)
+                if ($actual -notin @($root,$images) -or !(Test-CSweetResetWithin $actual $TestDrive)) { throw "Unexpected target: $actual" }
+                [IO.Directory]::Delete($actual, $true)
+            }
+            Invoke-CSweetLocalReset -RepositoryRoot 'C:\fixture' -Apply
+            [IO.Directory]::Exists($images) | Should Be $false
+            [IO.Directory]::Exists($root) | Should Be $false
+            [IO.File]::Exists((Join-Path $keep 'fixture.bin')) | Should Be $true
+            Assert-MockCalled Remove-Item -Times 1 -Exactly -ParameterFilter { $LiteralPath -eq 'fixture-registration' }
+        } finally { $env:ProgramData = $previousProgramData }
     }
 }

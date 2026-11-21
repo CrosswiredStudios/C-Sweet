@@ -13,6 +13,7 @@ public static class SetupEndpoints
     public static IEndpointRouteBuilder MapSetupEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/setup");
+        group.MapHostStorage();
 
         group.MapGet("/status", async (ISetupService setupService, CancellationToken cancellationToken) =>
             Results.Ok(await setupService.GetStatusAsync(cancellationToken)));

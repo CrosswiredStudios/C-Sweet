@@ -3,10 +3,10 @@
 Registered Office storage on another fixed drive is now inventoried by `Reset-CSweetLocal.ps1`
 through Office's `Resolve-CSweetOfficeStorage -SkipSpaceCheck`. Its program/data leaves appear in
 the preview and use the Office uninstaller. An unreadable or invalid registration blocks reset;
-unregistered custom storage remains outside the reset's scope.
-
-
-Verified: 2026-10-07.
+unregistered custom storage remains outside the reset's scope. Compute base images under
+`%ProgramData%\CSweet\ComputeImages` and storage on registered Compute volumes are also
+included in the default reset. Select `-IncludeBuildOutputs` to include the older image
+preparation and builder directories in the development checkouts.
 
 `scripts/Reset-CSweetLocal.ps1` inventories the default Windows development installation
 and optionally resets **all local C-Sweet businesses**. It works without the old database.
@@ -53,7 +53,7 @@ trust an old saved plan. No UAC prompt is launched by the script itself.
 
 | Scope | What is selected |
 | --- | --- |
-| Default | Known `%ProgramData%\CSweet` runtime, Compute/ComputeBusinesses/ComputeRetirement, setup, diagnostics and Office folders; default Office installation folders; user agent archives, snapshots, logs, setup and crash caches; associated local services, VMs and verified provider-retirement tasks |
+| Default | Known `%ProgramData%\CSweet` runtime, Compute providers, installed Compute base images, retirement records, setup, diagnostics and Office folders. Includes registered Office and Compute storage, user agent archives, snapshots, logs, setup and crash caches, and the associated services, VMs and verified retirement tasks. |
 | `-IncludeBuildOutputs` | `artifacts`, project `bin`/`obj`/`TestResults`, and root `TestResults` in this checkout and sibling `CSweet.*` / `CSweetAgentSdk` Git checkouts; includes generated Office/Isolation base images and recognized temporary image-build VMs/disks |
 | `-IncludeUserData` | The entire current user's `%LOCALAPPDATA%\CSweet`, including internal Git repositories, media, provider secrets, certificates stored as files and enrollment state; repository `.csweet` fallback and `%TEMP%\csweet-git` workspaces |
 | `-ResetDatabase` | Exactly the local Docker volume `csweet-aspire-postgres` from `CSweet.AppHost/Program.cs`, plus Postgres containers using it |
@@ -129,6 +129,17 @@ does not modify repository source, `.git`, user-secrets, `.env` or LLM model sto
 Unknown C-Sweet subdirectories and legacy VMs located outside the selected roots require
 separate inspection. These exclusions mean `-All` is all supported default development
 scopes, not a machine-wide uninstall of every historical C-Sweet component.
+
+`Initialize-ComputeStorage` records each selected Compute volume under
+`HKLM\SOFTWARE\CSweet\Compute\StorageVolumes`. Reset resolves the registered volume
+identity and verifies ownership and the expected contents of its `CSweetCompute` directory.
+An unavailable registered volume or unexpected entry blocks apply. A drive preference
+alone never authorizes deletion. Applied resets remove the volume registration after the
+corresponding directory has been removed.
+
+The Docker selection is limited to the named Aspire PostgreSQL volume. The SearXNG
+cache can be shared with Compose. It stays in place, as do Docker/WSL model volumes,
+Docker Desktop's disk file, and custom bind-mounted database or cache directories.
 
 Docker Compose uses different volumes (`docker-compose.yml`), and deleting files inside
 Docker may not immediately shrink Docker Desktop's host VHDX. Do not use a global Docker

@@ -16,7 +16,7 @@ public sealed record AuthStatusResponse(
 /// Choices shown before the first administrator exists. Read from local configuration only:
 /// producing it never contacts C-Sweet services.
 /// </summary>
-public sealed record RegistrationOptionsResponse(bool RegistrationOpen, bool HostedSetupAvailable);
+public sealed record RegistrationOptionsResponse(bool RegistrationOpen, bool HostedSetupAvailable, bool HostedSetupRequired = false);
 
 /// <summary>Hosted first run: name shown on the C-Sweet approval page and to the phone app.</summary>
 public sealed record StartHostedSetupRequest([property: Required, MaxLength(80)] string InstallationName);

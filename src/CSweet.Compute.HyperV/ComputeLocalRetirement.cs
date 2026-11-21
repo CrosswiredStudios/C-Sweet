@@ -15,9 +15,11 @@ internal static class ComputeLocalRetirement
         var installation = new ComputeLocalInstallation(request.BusinessId);
         var root = installation.Root;
         var legacy = new ComputeLocalInstallation(null);
-        var shared = string.Equals(Path.GetFullPath(configuration.WorkloadDirectory), Path.Combine(legacy.Root, "workloads"), StringComparison.OrdinalIgnoreCase) &&
+        var selectedVolume = configuration.WorkloadVolumeId is not null &&
+            ComputeVolumeStorage.IsVolumeWorkload(configuration.WorkloadDirectory, request.BusinessId, request.NodeId);
+        var shared = (selectedVolume || string.Equals(Path.GetFullPath(configuration.WorkloadDirectory), Path.Combine(legacy.Root, "workloads"), StringComparison.OrdinalIgnoreCase)) &&
             string.Equals(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory), Path.Combine(legacy.Root, "runtime"), StringComparison.OrdinalIgnoreCase) && !Directory.Exists(root);
-        if (!shared && (!string.Equals(Path.GetFullPath(configuration.WorkloadDirectory), Path.Combine(root, "workloads"), StringComparison.OrdinalIgnoreCase) ||
+        if (!shared && ((!selectedVolume && !string.Equals(Path.GetFullPath(configuration.WorkloadDirectory), Path.Combine(root, "workloads"), StringComparison.OrdinalIgnoreCase)) ||
             !string.Equals(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory), Path.Combine(root, "runtime"), StringComparison.OrdinalIgnoreCase)))
             throw new IOException("Only an installed business-scoped provider can retire business storage.");
         WindowsComputeProtectedPaths.Verify(shared ? legacy.Root : root);
@@ -49,7 +51,7 @@ internal static class ComputeLocalRetirement
         {
             request.CleanupId, request.BusinessId, request.NodeId, request.ReceiptToken,
             configuration.CoreOrigin, configuration.CoreCertificateSha256, configuration.CertificateThumbprint,
-            PreserveSharedProvider = shared
+            PreserveSharedProvider = shared, WorkloadVolumeId = selectedVolume ? configuration.WorkloadVolumeId : null
         }, ComputeProtocol.Json);
         var incoming = requestPath + ".incoming";
         await File.WriteAllTextAsync(incoming, json, token);

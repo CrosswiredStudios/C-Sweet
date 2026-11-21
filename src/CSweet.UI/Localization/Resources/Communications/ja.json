@@ -55,6 +55,8 @@
   "Communications.Decision.Unavailable": "この判断はすでに締め切られています。更新して現在の状態を確認してください。",
   "Communications.Decision.ExplanationFailed": "説明を取得できませんでした。もう一度お試しください。",
   "Communications.Decision.ConfirmChoice": "選択を確定",
+  "Communications.Decision.YourChoice": "選択肢",
+  "Communications.Decision.WhatThisMeans": "この選択の意味",
   "Communications.Decision.ChooseAnswer": "回答を選ぶ",
   "Communications.Decision.Recommended": "おすすめ",
   "Communications.Decision.SomethingElse": "その他",

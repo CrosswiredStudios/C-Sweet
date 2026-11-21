@@ -52,7 +52,8 @@ builder.Services.AddSingleton(sp => new CSweet.HostedAccount.HostedAccountClient
     sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<CSweet.HostedAccount.HostedAccountOptions>>(),
     TimeProvider.System));
 builder.Services.AddSingleton(sp => new CSweet.HostedAccount.HostedSetupCoordinator(
-    sp.GetRequiredService<CSweet.HostedAccount.HostedAccountClient>(), TimeProvider.System));
+    sp.GetRequiredService<CSweet.HostedAccount.HostedAccountClient>(), TimeProvider.System,
+    sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<CSweet.HostedAccount.HostedAccountOptions>>().Value.ReservedOwnerSubject));
 builder.Services.AddSingleton(sp => new CSweet.HostedAccount.DirectoryPublisher(
     sp.GetRequiredService<CSweet.HostedAccount.HostedAccountClient>(),
     sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<CSweet.HostedAccount.HostedAccountOptions>>(), TimeProvider.System));
@@ -183,7 +184,8 @@ builder.Services.AddHttpClient("ComputeDownloadMetadata", client => client.Timeo
 builder.Services.AddSingleton<CSweet.Api.Compute.ComputeDownloadProgress>();
 
 var app = builder.Build();
-if (OperatingSystem.IsWindows() && Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService())
+if (builder.Configuration.GetValue<bool>("Installation:ServePackagedWeb") ||
+    (OperatingSystem.IsWindows() && Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService()))
 {
     var assets = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
         Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "web")));

@@ -12,7 +12,7 @@ services:
     volumes:
       - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
       - ./docker/searxng/start.sh:/usr/local/bin/csweet-searxng-start.sh:ro
-      - csweet-searxng-cache:/var/cache/searxng
+      - ${CSWEET_SEARCH_CACHE_MOUNT:-csweet-searxng-cache}:/var/cache/searxng
     healthcheck:
       test: ["CMD", "/usr/local/searxng/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3).read()"]
       interval: 10s
@@ -34,7 +34,7 @@ services:
       CSweet__SourceControl__Storage__TemporaryRoot: /tmp/csweet-git
     volumes:
       - ${CSWEET_GIT_DATA_VOLUME:-csweet-git-data}:/data
-      - csweet-git-trust:/trust
+      - ${CSWEET_GIT_TRUST_MOUNT:-csweet-git-trust}:/trust
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
       interval: 10s
@@ -119,10 +119,10 @@ services:
       CSweet__GenAi__MediaRoot: /media
       CSweet__AgentCatalog__LocalDirectoryPath: /var/lib/csweet/plugins/agents
     volumes:
-      - csweet-agent-packages:/var/lib/csweet/agents/packages:ro
-      - csweet-provider-secrets:/state
-      - csweet-git-trust:/trust:ro
-      - csweet-media:/media
+      - ${CSWEET_AGENT_PACKAGES_MOUNT:-csweet-agent-packages}:/var/lib/csweet/agents/packages:ro
+      - ${CSWEET_PROVIDER_SECRETS_MOUNT:-csweet-provider-secrets}:/state
+      - ${CSWEET_GIT_TRUST_MOUNT:-csweet-git-trust}:/trust:ro
+      - ${CSWEET_MEDIA_MOUNT:-csweet-media}:/media
       - ${CSWEET_LOCAL_AGENTS_PATH:-./Plugins/Agents}:/var/lib/csweet/plugins/agents:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api/health || exit 1"]
@@ -170,8 +170,8 @@ services:
       - "${DOCKER_GID:-0}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - csweet-agent-sources:/var/lib/csweet/agents/sources
-      - csweet-agent-packages:/var/lib/csweet/agents/packages
+      - ${CSWEET_AGENT_SOURCES_MOUNT:-csweet-agent-sources}:/var/lib/csweet/agents/sources
+      - ${CSWEET_AGENT_PACKAGES_MOUNT:-csweet-agent-packages}:/var/lib/csweet/agents/packages
 
   csweet-agenthost:
     container_name: ${CSWEET_AGENTHOST_CONTAINER_NAME:-csweet-agenthost}
@@ -202,10 +202,10 @@ services:
       CSweet__AgentCatalog__LocalDirectoryPath: /var/lib/csweet/plugins/agents
       CSWEET_AGENT_SOURCE_ROOT: /var/lib/csweet/agents/sources
     volumes:
-      - csweet-provider-secrets:/state
-      - csweet-git-trust:/trust:ro
-      - csweet-media:/media
-      - csweet-agent-sources:/var/lib/csweet/agents/sources
+      - ${CSWEET_PROVIDER_SECRETS_MOUNT:-csweet-provider-secrets}:/state
+      - ${CSWEET_GIT_TRUST_MOUNT:-csweet-git-trust}:/trust:ro
+      - ${CSWEET_MEDIA_MOUNT:-csweet-media}:/media
+      - ${CSWEET_AGENT_SOURCES_MOUNT:-csweet-agent-sources}:/var/lib/csweet/agents/sources
       - ${CSWEET_LOCAL_AGENTS_PATH:-./Plugins/Agents}:/var/lib/csweet/plugins/agents:ro
 
   # ---------------------------------------------------------
@@ -220,7 +220,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-csweet}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-in-production}
     volumes:
-      - csweet-postgres:/var/lib/postgresql/data
+      - ${CSWEET_POSTGRES_MOUNT:-csweet-postgres}:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-csweet} -d ${POSTGRES_DB:-csweet}"]
       interval: 10s

@@ -27,7 +27,7 @@ public sealed record HostedSetupApproval(HostedIdentity Identity, Guid Installat
 /// After approval the installation is registered with the issuer straight away, while the short-lived access
 /// token is valid; registration is idempotent by key, so an abandoned attempt leaves at most an unused record.
 /// </summary>
-public sealed class HostedSetupCoordinator(HostedAccountClient client, TimeProvider time) : IDisposable
+public sealed class HostedSetupCoordinator(HostedAccountClient client, TimeProvider time, string? reservedOwnerSubject = null) : IDisposable
 {
     public const int MaximumAttempts = 20;
     private readonly ConcurrentDictionary<string, Attempt> _attempts = new(StringComparer.Ordinal);
@@ -93,6 +93,12 @@ public sealed class HostedSetupCoordinator(HostedAccountClient client, TimeProvi
                     attempt.Error = result.Error;
                     break;
                 case DevicePollStatus.Approved:
+                    if (!string.IsNullOrEmpty(reservedOwnerSubject) && result.Identity?.Subject != reservedOwnerSubject)
+                    {
+                        attempt.State = HostedSetupState.Denied;
+                        attempt.Error = "Sign in with the Market account that purchased this Headquarters.";
+                        break;
+                    }
                     attempt.Identity = result.Identity;
                     try
                     {

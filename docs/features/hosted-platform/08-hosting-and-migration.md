@@ -17,7 +17,7 @@ execution requirement that is satisfied on the customer's machine.
 
 ```mermaid
 flowchart LR
-    Owned["Owned Windows PC: private validation"] --> Gate["Product and recovery evidence"]
+    Owned["TrueNAS development pool"] --> Gate["Product and recovery evidence"]
     Gate --> Budget["Budget US Headquarters hosting"]
     Gate --> AWS["AWS managed deployment"]
     Budget --> AWS
@@ -33,7 +33,8 @@ availability, or customer requirements justify it, rather than on a fixed date.
 
 | Option | Headquarters | Hosted Office | Tradeoff / current decision |
 |---|---|---|---|
-| Owned Windows PC | Native packaged services and PostgreSQL | Native Hyper-V | First validation target; one failure domain |
+| TrueNAS development pool | Ubuntu 24.04 guests running the Linux Headquarters image and PostgreSQL | Separate Windows PC for later Office pairing tests | First provisioning target. The owner reports TrueNAS 25.10.1 and 32 GB total RAM. |
+| Owned Windows PC | Fallback target for private package validation | Native Hyper-V | Exercises the customer-owned Office connection from another machine |
 | Budget US VPS | Suitable if measured app/database resources fit | Only if required virtualization is explicitly supported and certified | Low-cost candidate for BYO-first pilot |
 | OVHcloud US bare metal | Self-managed Linux/Windows stack | Candidate hardware host, subject to certification | Research candidate; current deals are not guaranteed availability |
 | Hetzner Cloud | Candidate trusted app hosting | Cloud FAQ says nested virtualization is unavailable | Do not confuse dedicated vCPU with bare metal |
@@ -88,10 +89,41 @@ assume Windows/Hyper-V evidence certifies Linux/Firecracker or public egress the
 | Artifact metadata, digests, ownership | Object/file storage provider |
 | Deployment operation lifecycle and idempotency | Infrastructure-as-code resources and commands |
 
-Do not start by building a generic multi-cloud orchestration platform. Implement
-the owned-server adapter and a portable desired-state description; add the next
-provider only when a real deployment needs it. Product code should not know EC2
-resource IDs, Windows drive letters, or a hosting vendor's billing SKU.
+### First provisioning service
+
+Market already sends `PUT /v1/deployments/{orderId}` through `HostingFulfillment` and reads
+`HostingDeploymentResult`. Keep this boundary when replacing the mock. Market supplies the
+purchased plan and owner. The private hosting service on the Mac Studio chooses a target,
+pins the Headquarters release, installs it, binds the owner, and verifies
+the customer URL. A running VM alone is insufficient evidence for returning `Ready`.
+
+Inside the ASP.NET Core Hosting service, `IComputeProvider` defines `PrepareAsync`, `EnsureRunningAsync` and `RemoveAsync`.
+The adapter prepares guest bootstrap data and reconciles compute resources using the stored allocation name. Persist the chosen pool,
+provider, and its opaque allocation reference on the deployment. The TrueNAS adapter maps the
+allocation request to the configured guest template, dataset and network. It owns NAS credentials
+and VM identifiers. The installer, owner assignment, verified workspace URL, and order workflow
+belong to Hosting and are shared by future providers.
+
+Select the adapter per pool through configuration. Changing the default selects the target
+for new deployments. Retries, status checks and cleanup for existing deployments continue to
+use their recorded provider. Moving an existing Headquarters uses the migration sequence below.
+
+### Development cleanup
+
+The developer manages NAS memory by deleting test instances between runs. Each order has
+its own deployment ID. If a clone succeeds but its response is lost, the adapter uses that
+ID to find the guest on retry. Teardown withdraws the workspace route, removes the resources
+owned by that deployment, and records completion so a late replay cannot recreate it.
+
+### How to verify the boundary
+
+Run the same contract scenarios against a deterministic in-memory provider and the TrueNAS
+adapter. Restart Hosting after allocation but before recording the response, retry order A,
+and interrupt its teardown. Verify that retries reuse A's guest, the workspace URL appears
+only after the owner and HTTPS checks pass, and teardown can resume. In a service test, switch the default
+to a second fake provider while A exists. A must still be inspected and removed by its
+original provider, and a subsequent new deployment must use the new default. The existing
+Market mock remains available for checkout and UI work that needs no VM.
 
 ## Migration contents
 

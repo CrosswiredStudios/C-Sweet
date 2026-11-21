@@ -542,21 +542,7 @@ try {
         }
         Assert-DevelopmentOfficePayload (Get-Content -LiteralPath (Join-Path $payloadRoot 'runtime-manifest.json') -Raw | ConvertFrom-Json)
         } else { $payloadRoot = $preparedPayloadRoot }
-        # Reuse this setup session's UAC approval and progress channel. Image preparation
-        # is an application step, never a command the user has to run.
-        # Compute has its own on-demand preparation in Install-ComputeLocalProvider.ps1.
-        # Preserve eager preparation for first source installs. An existing Office
-        # update must not depend on rebuilding a separate application-test image;
-        # Compute prepares that image on demand through its own setup workflow.
-        if (-not $prebuiltRoot -and -not $isUpgrade) {
-            $headquartersRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
-            $computePreparation = Join-Path $headquartersRoot 'scripts\Ensure-ComputeLinuxImage.ps1'
-            if (-not (Test-Path -LiteralPath $computePreparation -PathType Leaf)) {
-                throw 'This C-Sweet build is missing its Linux preparation component. Update C-Sweet and retry setup.'
-            }
-            & $computePreparation -ProgressPath $progressPath -ProgressJobId $sessionId `
-                -ProgressHelperPath $progressHelper | Out-Host
-        }
+        # Compute owns its separate Linux image and prepares it on demand using its own storage selection.
         $officeInstaller = Join-Path $officeScriptRoot 'Install-CSweetOfficeRuntimeHost.ps1'
         if (-not (Test-Path -LiteralPath $officeInstaller -PathType Leaf)) {
             throw 'The C-Sweet Office installer is unavailable.'

@@ -31,6 +31,10 @@ public sealed partial class CSweetDbContext
     {
         ChangeTracker.DetectChanges();
         var changedOrganizations = new HashSet<Guid>();
+        foreach (var entry in ChangeTracker.Entries<ComputeLocalSetup>().Where(x =>
+            x.State is EntityState.Added or EntityState.Deleted ||
+            x.State == EntityState.Modified && (x.Property(s => s.State).IsModified || x.Property(s => s.ErrorCode).IsModified)))
+            changedOrganizations.Add(entry.Entity.OrganizationId);
         foreach (var request in ChangeTracker.Entries<OfficeComputeCapacityRequest>()
                      .Where(entry => entry.State is EntityState.Added or EntityState.Deleted))
             changedOrganizations.Add(request.Entity.OrganizationId);

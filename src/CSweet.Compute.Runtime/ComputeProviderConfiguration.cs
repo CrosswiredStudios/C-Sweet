@@ -10,7 +10,9 @@ namespace CSweet.Compute.Runtime;
 public sealed record ComputeProviderConfiguration(int Version, ComputeProviderEnrollment Enrollment,
     ComputeSigningIdentity NodeSigningIdentity, string CoreOrigin, string JournalDirectory, string WorkloadDirectory,
     ComputeProviderCapacity Capacity, string CertificateThumbprint, StoreLocation CertificateStoreLocation,
-    string? ProvisioningSettingsPath = null, string? CoreCertificateSha256 = null);
+    string? ProvisioningSettingsPath = null, string? CoreCertificateSha256 = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    string? WorkloadVolumeId = null);
 
 public static class ComputeProviderConfigurationLoader
 {
@@ -30,6 +32,12 @@ public static class ComputeProviderConfigurationLoader
         var configuration = JsonSerializer.Deserialize<ComputeProviderConfiguration>(bytes, ComputeProtocol.Json)
             ?? throw new InvalidDataException("Provider configuration is missing.");
         Validate(configuration);
+        if (configuration.WorkloadVolumeId is { } volume)
+        {
+            if (!ComputeVolumeStorage.IsVolumeWorkload(configuration.WorkloadDirectory, configuration.Enrollment.OrganizationId, configuration.Enrollment.NodeId))
+                throw new InvalidDataException("The configured workload path does not match the enrollment.");
+            ComputeVolumeStorage.VerifyMountedVolume(configuration.WorkloadDirectory, volume);
+        }
         if (Within(path, configuration.JournalDirectory) || Within(path, configuration.WorkloadDirectory))
             throw new InvalidDataException("Provider configuration must be separate from journal and workload roots.");
         protection(configuration.JournalDirectory); protection(configuration.WorkloadDirectory);

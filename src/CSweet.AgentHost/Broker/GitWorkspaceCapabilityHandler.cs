@@ -538,6 +538,10 @@ public sealed partial class GitWorkspaceCapabilityHandler(
         var context = await RequireWorkspaceContextAsync(
             organizationId, installationId, input.WorkspaceId,
             input.AssignmentRevision, GitWorkspaceCapabilities.Inspect, cancellationToken);
+        if (context.IsQualityReview && input.PushedCommitSha is { } localHead &&
+            !string.Equals(ValidateCommitSha(localHead), context.Workspace.BaseCommitSha, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                "The local Git HEAD differs from the assigned QA commit. Retry QA in a fresh runtime to download the assigned review snapshot.");
         return await gitHost.InspectAsync(
             Operation(context, $"inspect:{context.Workspace.Revision}") with
             {
@@ -884,7 +888,7 @@ public sealed partial class GitWorkspaceCapabilityHandler(
             var repo = await db.SourceControlRepositories.AsNoTracking().Include(x => x.Connection).SingleAsync(x => x.Id == review.RepositoryId && x.OrganizationId == organizationId && x.ArchivedAt == null && x.Status == SourceControlRepositoryStatus.Ready, cancellationToken);
             var access = await db.TeamRepositoryPolicies.AsNoTracking().SingleAsync(x => x.OrganizationId == organizationId && x.TeamId == origin.TeamId && x.RepositoryId == repo.Id && x.DisabledAt == null, cancellationToken);
             await RequireActiveTeamMemberAsync(organizationId, installationId, origin.TeamId, cancellationToken);
-            return new AssignmentContext(item, origin.TeamId, repo, access, review.CommitSha);
+            return new AssignmentContext(item, origin.TeamId, repo, access, review.CommitSha, IsQualityReview: true);
         }
         var personalPlan = string.IsNullOrWhiteSpace(item.PlanningSpecificationJson) ? null :
             JsonSerializer.Deserialize<WorkItemPlanningSpecification>(item.PlanningSpecificationJson, JsonOptions)?.PersonalPlan;
@@ -962,7 +966,7 @@ public sealed partial class GitWorkspaceCapabilityHandler(
                     .OrderByDescending(x => x.CreatedAt).Select(x => x.CandidateCommitSha).FirstOrDefaultAsync(cancellationToken)
                     ?? throw new InvalidOperationException("QA requires the exact story commit confirmed by trusted task integration.");
         }
-        return new AssignmentContext(item, teamId, repository, policy, expectedCommitSha);
+        return new AssignmentContext(item, teamId, repository, policy, expectedCommitSha, IsQualityReview: activeStageKey == "quality");
     }
 
     private async Task<WorkspaceContext> RequireWorkspaceContextAsync(
@@ -985,7 +989,9 @@ public sealed partial class GitWorkspaceCapabilityHandler(
         if (workspace.RepositoryId != assignment.Repository.Id ||
             workspace.TeamId != assignment.TeamId)
             throw new UnauthorizedAccessException("The source-control workspace no longer matches its assignment.");
-        return new WorkspaceContext(workspace, assignment.Repository);
+        if (assignment.IsQualityReview && !string.Equals(workspace.BaseCommitSha, assignment.ExpectedCommitSha, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The assigned QA commit changed. Prepare the current review snapshot before continuing.");
+        return new WorkspaceContext(workspace, assignment.Repository, assignment.IsQualityReview);
     }
 
     internal async Task<TeamLeadContext> RequireMergeReviewerAsync(
@@ -1125,9 +1131,9 @@ public sealed partial class GitWorkspaceCapabilityHandler(
             workspace.Status.ToString(),
             resumed)
         {
-            // Only internal repositories serve Git to a runtime. Without a branch name the SDK
-            // keeps using snapshots, so a GitHub-connected workspace is unaffected.
-            BranchName = _transferLimits.AgentGitDelivery &&
+            // QA reviews an exact commit. Naming the author's task branch would make the SDK
+            // resume that branch instead of downloading the prepared review snapshot.
+            BranchName = _transferLimits.AgentGitDelivery && !context.IsQualityReview &&
                          context.Repository.Connection?.Provider is SourceControlProvider.InternalGit
                 ? workspace.BranchName
                 : null
@@ -1250,11 +1256,13 @@ public sealed partial class GitWorkspaceCapabilityHandler(
         Guid TeamId,
         SourceControlRepository Repository,
         TeamRepositoryPolicy Policy,
-        string? ExpectedCommitSha);
+        string? ExpectedCommitSha,
+        bool IsQualityReview = false);
 
     private sealed record WorkspaceContext(
         SourceControlWorkspace Workspace,
-        SourceControlRepository Repository);
+        SourceControlRepository Repository,
+        bool IsQualityReview);
 
     internal sealed record TeamLeadContext(Guid TeamId, Guid OrganizationUserId);
 }

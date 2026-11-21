@@ -55,6 +55,8 @@
   "Communications.Decision.Unavailable": "Это решение больше недоступно. Обновите страницу, чтобы увидеть его текущий статус.",
   "Communications.Decision.ExplanationFailed": "Не удалось получить пояснение. Попробуйте ещё раз.",
   "Communications.Decision.ConfirmChoice": "Подтвердить выбор",
+  "Communications.Decision.YourChoice": "Ваш выбор",
+  "Communications.Decision.WhatThisMeans": "Что это значит",
   "Communications.Decision.ChooseAnswer": "Выбрать ответ",
   "Communications.Decision.Recommended": "РЕКОМЕНДУЕТСЯ",
   "Communications.Decision.SomethingElse": "Другое",

@@ -7,6 +7,13 @@ internal static class Program
     public static async Task<int> Main(string[] args)
     {
         Guid? businessId = null;
+        char? storageDrive = null;
+        if (args.Length >= 3 && args[0] is "configure-local" or "repair-local" && args[^2] == "-StorageDrive")
+        {
+            if (args[^1].Length != 1 || !char.IsAsciiLetter(args[^1][0])) return 2;
+            storageDrive = args[^1][0];
+            args = args[..^2];
+        }
         if (args.Length == 2 && args[0] is "service" or "validate-service")
         {
             if (!Guid.TryParseExact(args[1], "N", out var id) || id == Guid.Empty) return 2;
@@ -21,12 +28,12 @@ internal static class Program
                 if (!Guid.TryParseExact(args[3], "N", out var id) || id == Guid.Empty) return 2;
                 repairBusiness = id;
             }
-            try { await LocalComputeInstaller.ConfigureAsync(null, args[1], args[2], default, repairBusiness); return 0; }
+            try { await LocalComputeInstaller.ConfigureAsync(null, args[1], args[2], default, repairBusiness, storageDrive); return 0; }
             catch (Exception error) { Console.Error.WriteLine("compute-local-repair-failed: " + error.GetType().Name); return 1; }
         }
         if (args.Length == 4 && args[0] == "configure-local")
         {
-            try { await LocalComputeInstaller.ConfigureAsync(args[1], args[2], args[3], default); return 0; }
+            try { await LocalComputeInstaller.ConfigureAsync(args[1], args[2], args[3], default, storageDrive: storageDrive); return 0; }
             catch (System.Text.Json.JsonException) { Console.Error.WriteLine("compute-local-configuration-invalid"); return 10; }
             catch (Exception error) { Console.Error.WriteLine("compute-local-configuration-failed: " + error.GetType().Name); return 1; }
         }

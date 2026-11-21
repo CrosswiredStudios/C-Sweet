@@ -1,46 +1,72 @@
 @using CSweet.Contracts.Communications
+@implements IDisposable
+@inject HttpClient Http
 @inject IAppLocalizer L
 
 <div class="decision-response">
-    @if (Decision.Options.Any(IsListedOption))
+    @if (Decision.Options.Count > 0)
     {
-        <div class="decision-choices" role="radiogroup" aria-label="@L["AgentQuestionCard.YourResponse"]">
-            @foreach (var option in Decision.Options.Where(IsListedOption))
+        <div class="decision-layout">
+            <label class="decision-picker">
+                <span>@L["Communications.Decision.YourChoice"]</span>
+                <span class="select-field">
+                    <select @bind:get="@(Selected ?? "")" @bind:set="SelectAsync" disabled="@Disabled">
+                        <option value="" disabled hidden>@L["Communications.Decision.ChooseAnswer"]</option>
+                        @foreach (var option in Decision.Options.Where(IsListedOption))
+                        {
+                            <option @key="option.Id" value="@option.Id">@(option.Recommended && option.Id != Selected ? $"{option.Label} ({L["AgentQuestionCard.Recommended"]})" : option.Label)</option>
+                        }
+                        @if (Decision.AllowFreeText) { <option value="@Other">@L["Communications.Decision.CustomAnswer"]</option> }
+                    </select>
+                    <MudIcon Icon="@Icons.Material.Outlined.ExpandMore" aria-hidden="true" />
+                </span>
+            </label>
+            @if (Selected == Other && Decision.AllowFreeText)
             {
-                <div @key="option.Id" class="choice">
-                    @if (option.Recommended) { <small class="recommended">@L["AgentQuestionCard.Recommended"]</small> }
-                    <label>
-                        <input type="radio" name="@_group" value="@option.Id" checked="@(Selected == option.Id)" disabled="@Disabled"
-                               @onchange="() => SelectedChanged.InvokeAsync(option.Id)" />
-                        <span class="choice-copy"><strong>@option.Label</strong>
-                            @if (!string.IsNullOrWhiteSpace(option.Description)) { <span class="choice-summary">@option.Description</span> }
-                        </span>
-                    </label>
-                    <DecisionExplanation OrganizationId="OrganizationId" ConversationId="ConversationId" DecisionId="Decision.Id" Option="option" />
-                </div>
+                <section class="option-detail" aria-label="@L["Communications.Decision.CustomAnswer"]">
+                    <p>@L["Communications.Decision.CustomImpact"]</p>
+                    @DirectionInput
+                </section>
+            }
+            else if (SelectedOption is { } choice)
+            {
+                <section class="option-detail" aria-label="@choice.Label">
+                    <div class="detail-heading">
+                        <MudIcon Icon="@Icons.Material.Outlined.Lightbulb" Size="Size.Small" aria-hidden="true" />
+                        <strong>@choice.Label</strong>
+                        @if (choice.Recommended) { <small>@L["AgentQuestionCard.Recommended"]</small> }
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(choice.Description) && choice.Description != choice.Impact)
+                    {
+                        <p>@choice.Description</p>
+                    }
+                    <div class="choice-impact" aria-live="polite">
+                        <h4>@L["Communications.Decision.WhatThisMeans"]</h4>
+                        @if (!string.IsNullOrWhiteSpace(choice.Impact)) { <p>@choice.Impact</p> }
+                        else if (_impacts.GetValueOrDefault(choice) is { } result)
+                        {
+                            @if (result.ErrorKey is { } error)
+                            {
+                                <p>@L[error]</p>
+                                <MudButton Size="Size.Small" OnClick="@(() => LoadImpactAsync(choice))">@L["Common.Retry"]</MudButton>
+                            }
+                            else { <p>@result.Answer</p> }
+                        }
+                        else { <p>@L["Communications.Decision.Asking"]</p> }
+                    </div>
+                </section>
             }
         </div>
     }
-    @DirectionInput
-    <div class="decision-actions">
-        @if (Decision.AllowFreeText && Decision.Options.Count > 0)
-        {
-            <div class="custom-direction">
-                <button type="button" disabled="@Disabled" aria-pressed="@(Selected == Other ? "true" : "false")"
-                        @onclick="() => SelectedChanged.InvokeAsync(Other)">@L["Communications.Decision.CustomAnswer"]</button>
-                <DecisionExplanation OrganizationId="OrganizationId" ConversationId="ConversationId" DecisionId="Decision.Id" Option="CustomOption" />
-            </div>
-        }
-        <div class="decision-submit">
-            <DecisionExplanation OrganizationId="OrganizationId" ConversationId="ConversationId" DecisionId="Decision.Id" />
-            @ConfirmButton
-        </div>
+    else { @DirectionInput }
+    <div class="decision-submit">
+        <DecisionExplanation OrganizationId="OrganizationId" ConversationId="ConversationId" DecisionId="Decision.Id" Option="SelectedOption" />
+        @ConfirmButton
     </div>
 </div>
 
 @code {
     public const string Other = "__other__";
-    private readonly string _group = $"choices-{Guid.NewGuid():N}";
     [Parameter] public Guid OrganizationId { get; set; }
     [Parameter] public Guid ConversationId { get; set; }
     [Parameter, EditorRequired] public ExecutiveDecisionCardResponse Decision { get; set; } = default!;
@@ -49,6 +75,27 @@
     [Parameter] public EventCallback<string> SelectedChanged { get; set; }
     [Parameter] public RenderFragment? DirectionInput { get; set; }
     [Parameter, EditorRequired] public RenderFragment? ConfirmButton { get; set; }
+
+    private readonly Dictionary<ExecutiveDecisionOptionResponse, DecisionExplanationResult?> _impacts = [];
+    private readonly CancellationTokenSource _lifetime = new();
+    private ExecutiveDecisionOptionResponse? SelectedOption => Decision.Options.FirstOrDefault(o => o.Id == Selected && IsListedOption(o));
     private bool IsListedOption(ExecutiveDecisionOptionResponse option) => !Decision.AllowFreeText || option.Id != "provide-direction";
-    private ExecutiveDecisionOptionResponse CustomOption => new(Other, L["Communications.Decision.CustomAnswer"], null, false) { Impact = L["Communications.Decision.CustomImpact"] };
+    private Task SelectAsync(string value) => SelectedChanged.InvokeAsync(value);
+
+    protected override Task OnParametersSetAsync()
+    {
+        if (SelectedOption is { } choice && string.IsNullOrWhiteSpace(choice.Impact) && !_impacts.ContainsKey(choice))
+            return LoadImpactAsync(choice);
+        return Task.CompletedTask;
+    }
+
+    private async Task LoadImpactAsync(ExecutiveDecisionOptionResponse choice)
+    {
+        // Store each result against the option that requested it, even if the user switches while it loads.
+        _impacts[choice] = null;
+        _impacts[choice] = await DecisionExplanationResult.RequestAsync(Http, OrganizationId, ConversationId, Decision.Id,
+            new(L["Communications.Decision.ExplainOption"], choice.Id), _lifetime.Token);
+    }
+
+    public void Dispose() { _lifetime.Cancel(); _lifetime.Dispose(); }
 }

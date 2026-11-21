@@ -16,6 +16,12 @@ The user can reopen **View preparation**. A manual toggle cancels the scheduled 
 ordinary refreshes do not collapse the details again. Non-ready state/attempt changes expand the panel,
 and organization changes replace the component and cancel its timer.
 
+When Linux preparation fails, **Needs Your Attention** shows the business owner one card with the
+cause, the impact on work such as browser QA, and an **Open Compute** link for that business.
+`OverviewAttentionItems.FailedComputePreparation` reads the current setup on page load, on
+reconnect and after `ComputeChanged`. Repeated QA waits share the same card. Starting another
+preparation clears the failed state and removes the card.
+
 `ComputeManagementEndpoints` provides owner-authenticated setup, creation options and instance
 requests. `ComputeDefaultsService.ListCreationOptionsAsync` lists at most 100 current agent/project
 pairs. `CreateAsync` rechecks project authority through `ReadProjectAsync` and provisions through
@@ -84,6 +90,18 @@ Existing compute-available and broker outboxes continue to wake agents; current 
 state reads remain authoritative.
 
 ## Installation-owned base images
+
+On Windows, **Settings → Storage → Compute drive** controls bulk storage on subsequent local
+setups. `HostStorageSettings` saves the host administrator's volume ID in the Headquarters
+profile and `ComputeLocalSetupWorker` includes the effective choice in its installer handoff.
+The default uses the registered Office volume. `Initialize-ComputeStorage` revalidates the
+mounted disk and protects `<drive>:\CSweetCompute` independently of Office removal. Under that
+directory, `prepared` holds verified images, `build` holds downloads and retained Packer
+exports, and `base` holds digest-addressed installed images. Fresh enrollments create a private
+`workloads-<business>-<node>` directory. Existing providers retain their workload paths on
+repair. Service binaries, journals and retirement receipts use the protected ProgramData layout.
+Changing the preference schedules no migration or deletion. The legacy layout below also
+applies when neither an explicit selection nor an Office registration exists.
 
 `ComputeSharedImageStore` in `CSweet.Compute.HyperV` publishes verified VHDX images to
 `%ProgramData%\CSweet\ComputeImages\<sha256>.vhdx`. This protected directory is a sibling of

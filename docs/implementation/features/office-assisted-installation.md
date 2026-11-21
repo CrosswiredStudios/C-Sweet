@@ -5,6 +5,41 @@ Last updated: 2026-09-20
 
 ## Office drive selection (2026-10-24)
 
+**Inspecting local disk usage.** Settings → Storage reports the Headquarters host's local paths and
+their owners. **Measure disk usage** sums logical file lengths, marks inaccessible or partial
+trees, and skips links. The Docker Desktop VHDX is shared by all Docker workloads. Its length
+includes space from other apps and can exceed the current content. On the Docker host,
+`docker system df -v` reports individual named volume sizes, images and build cache. Models in
+Docker volumes appear there. A separately installed WSL distribution owns its own filesystem.
+
+Run `scripts/Get-CSweetVmStorage.ps1` in an administrator PowerShell on the Windows
+host to measure protected Office and Compute folders. It reports file sizes, VHD(X)
+counts and VHD(X) sizes without opening virtual disks or changing services.
+
+The source Office installer in Office 0.15.3 passes its selected certification directory to the
+Linux builder for Ubuntu downloads, Packer tools and VM exports. Headquarters prepares the
+separate Compute image when Compute is requested. The **Compute drive** setting defaults to the
+registered Office volume. An administrator can choose a different eligible fixed volume. Without
+a choice or a registered Office, existing checkout and ProgramData defaults apply. An unavailable
+explicit volume stops preparation. See [Compute storage](../compute-page.md#installation-owned-base-images).
+
+For Aspire, `CSweet.AppHost/Program.cs` accepts the following deployment configuration keys.
+Use dedicated absolute host directories. Moving a populated store requires a maintenance window
+and migration or restore before starting the services with the new paths.
+
+| Data | AppHost configuration |
+| --- | --- |
+| PostgreSQL | `CSweet:Postgres:DataDirectory` (default Docker volume `csweet-aspire-postgres`). The bind mount must support PostgreSQL ownership and permissions inside the Linux container. |
+| SearXNG cache | `CSweet:Search:Searxng:CacheDirectory` (default Docker volume `csweet-searxng-cache`) |
+| Reports and process dumps | `CSweet:Diagnostics:CrashDirectory` |
+| Generated media | `CSweet:GenAi:MediaRoot` |
+| Workspace snapshots, source archives, build logs | `CSweet:AgentRuntime:WorkspaceSnapshotStorePath`, `SourceArchiveStorePath` and `BuildLogStorePath` in the same section |
+| Filesystem execution artifacts | `CSweet:AgentRuntime:Artifacts:RootPath` |
+| Git repositories, temporary clones, LFS and backups | `CSweet:SourceControl:Storage` on GitHost. Settings → Source control reports the effective locations. |
+
+Service registrations, machine keys, setup receipts and the Headquarters profile retain their
+platform locations. Compose deployments configure their volume mounts in Compose.
+
 `AgentHostOnboardingStep` displays host volume inventory before the capacity profiles, shows final
 service/data paths, and recalculates limits using the selected volume's capacity. Refresh uses
 `RefreshOfficeStorageAsync`. `LocalOfficeStorageProbe` reads Windows volumes and their backing

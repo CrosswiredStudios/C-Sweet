@@ -22,6 +22,36 @@ namespace CSweet.UnitTests;
 public sealed class CompanyDashboardRealtimeTests
 {
     [Theory]
+    [InlineData("compute_checks_build_failed", "Stopped", "Linux compute preparation failed", "compile the checks")]
+    [InlineData("administrator_approval_required", "NeedsPermission", "Linux compute needs administrator approval", "administrator permission")]
+    [InlineData("unrecognized-private-diagnostic", "Stopped", "Linux compute preparation failed", "setup stopped")]
+    public async Task FailedComputePreparationShowsOneOwnerCardUntilRecovery(string failureCode, string health, string title, string explanation)
+    {
+        var org = Guid.NewGuid();
+        var handler = new Handler { ItemCount = 0, Issues = new([]) };
+        await using var fixture = new Fixture(handler);
+        var output = await fixture.RenderAsync(org);
+        handler.Setup = new("Failed", "Checking the compute service", DateTimeOffset.UtcNow, null, failureCode) { Health = health };
+        for (var refresh = 0; refresh < 2; refresh++)
+        {
+            await fixture.Renderer.Dispatcher.InvokeAsync(() => fixture.Publish(org, AppRealtimeEvents.ComputeChanged));
+            var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
+            Assert.Contains(title, html);
+            Assert.Contains(explanation, html);
+            Assert.Contains("browser QA", html);
+            Assert.DoesNotContain(failureCode, html);
+            Assert.Contains($"href=\"/organizations/{org:D}/compute\"", html);
+            Assert.Contains("1 pending", html);
+            Assert.Single(System.Text.RegularExpressions.Regex.Matches(html, "attention-request compute"));
+        }
+        handler.Setup = handler.Setup with { State = "Ready", FailureCode = null };
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => fixture.Publish(org, AppRealtimeEvents.ComputeChanged));
+        var recovered = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
+        Assert.DoesNotContain(title, recovered);
+        Assert.Contains("Nothing needs your attention", recovered);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task RecoveredIncidentClearsThroughRealtimeOrAttentionRefresh(bool manual)
@@ -320,6 +350,7 @@ public sealed class CompanyDashboardRealtimeTests
         public IReadOnlyList<PendingAgentQuestionResponse> Questions { get; set; } = [];
         public int IssueReads { get; private set; }
         public bool IncludeCompute { get; set; }
+        public ComputeSetupStatus? Setup { get; set; }
         public bool IncludeIncident { get; set; }
         public bool ComputeAllowed { get; set; }
         public int ComputeReads { get; private set; }
@@ -368,7 +399,7 @@ public sealed class CompanyDashboardRealtimeTests
             else if (path.EndsWith("/compute"))
             {
                 ComputeReads++;
-                result = new ComputeDashboard(DateTimeOffset.UtcNow, null, IncludeCompute
+                result = new ComputeDashboard(DateTimeOffset.UtcNow, Setup, IncludeCompute
                     ? [new(_environmentId, "Victor Lin", "Prismatic Break", "Ready", "Running", "linux", 2, 2048, 20480,
                         DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1), null, ComputeAllowed) { LocalLinkRequested = true }] : [], false, true);
             }

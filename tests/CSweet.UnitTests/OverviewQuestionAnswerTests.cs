@@ -77,7 +77,7 @@ public sealed class OverviewQuestionAnswerTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task ReviewShowsTheRequestingAgentAndIndependentImpactControls(bool grouped)
+    public async Task ReviewShowsTheRequestingAgentAndOneDropdownBeforeSelection(bool grouped)
     {
         await using var fixture = new Fixture();
         fixture.Api.Grouped = grouped;
@@ -87,10 +87,11 @@ public sealed class OverviewQuestionAnswerTests
         Assert.Contains("Custom agent name", html);
         Assert.Contains("Creative Director", html);
         Assert.Contains("Which direction?", html);
-        Assert.Equal(3, fixture.Activator.Info.Count(button => button.Class == "explain-option"));
-        Assert.DoesNotContain("Choose an answer", html);
+        Assert.Contains("<select", html);
+        Assert.Contains("Choose an answer", html);
+        Assert.DoesNotContain("option-detail", html);
         Assert.DoesNotContain("Work can start today.", html);
-        Assert.Contains("Explain this option", html);
+        Assert.DoesNotContain("type=\"radio\"", html);
         Assert.Contains("Ask a follow-up", html);
         Assert.Contains("Give different direction", html);
         Assert.DoesNotContain("Something Else", html);
@@ -171,35 +172,84 @@ public sealed class OverviewQuestionAnswerTests
     }
 
     [Fact]
-    public async Task LegacyImpactIsLoadedOnceWithoutChoosingTheOption()
+    public async Task SwitchingOptionsShowsOnlyTheCurrentImpactAndReusesTheLegacyExplanation()
     {
         await using var fixture = new Fixture();
-        await fixture.RenderAsync();
+        var output = await fixture.RenderAsync();
         var choices = fixture.Activator.Choices!;
-        await fixture.Renderer.Dispatcher.InvokeAsync(() => choices.SelectedChanged.InvokeAsync("a"));
-        var info = Assert.Single(fixture.Activator.Info, button => button.Class == "explain-option" && button.UserAttributes["aria-label"].ToString()!.EndsWith("Wait"));
+        async Task<string> Select(string id) => await fixture.Renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            await choices.SelectedChanged.InvokeAsync(id);
+            return output.ToHtmlString();
+        });
+
+        var saved = await Select("a");
+        Assert.Contains("Keep moving", saved);
+        Assert.Contains("Work can start today.", saved);
         Assert.Empty(fixture.Api.Questions);
-        await fixture.Renderer.Dispatcher.InvokeAsync(() => info.OnClick.InvokeAsync(new MouseEventArgs()));
-        Assert.Contains("It needs separate approval.", await fixture.RenderDialogAsync());
-        await fixture.Renderer.Dispatcher.InvokeAsync(() => fixture.Activator.Dialog!.VisibleChanged.InvokeAsync(false));
-        await fixture.Renderer.Dispatcher.InvokeAsync(() => info.OnClick.InvokeAsync(new MouseEventArgs()));
-        Assert.Contains("It needs separate approval.", await fixture.RenderDialogAsync());
+
+        var legacy = await Select("b");
+        Assert.Contains("It needs separate approval.", legacy);
+        Assert.DoesNotContain("Work can start today.", legacy);
+        Assert.DoesNotContain("It needs separate approval.", await Select("a"));
+        Assert.Contains("It needs separate approval.", await Select("b"));
         Assert.Equal("b", Assert.Single(fixture.Api.Questions).OptionId);
-        Assert.Equal("a", choices.Selected);
         Assert.Empty(fixture.Api.Answers);
     }
 
     [Fact]
-    public async Task OpeningSavedImpactShowsItsModalWithoutRequestingAnExplanationOrSelectingIt()
+    public async Task LateLegacyExplanationDoesNotReplaceTheNewSelection()
     {
         await using var fixture = new Fixture();
-        await fixture.RenderAsync();
-        var info = Assert.Single(fixture.Activator.Info, button => button.Class == "explain-option" && button.UserAttributes["aria-label"].ToString()!.EndsWith("Proceed"));
-        await fixture.Renderer.Dispatcher.InvokeAsync(() => info.OnClick.InvokeAsync(new MouseEventArgs()));
-        Assert.Contains("Work can start today.", await fixture.RenderDialogAsync());
-        Assert.Empty(fixture.Api.Questions);
+        var output = await fixture.RenderAsync();
+        var choices = fixture.Activator.Choices!;
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Api.ExplanationDelay = release.Task;
+        var loading = fixture.Renderer.Dispatcher.InvokeAsync(() => choices.SetParametersAsync(
+            ParameterView.FromDictionary(new Dictionary<string, object?> { [nameof(DecisionChoices.Selected)] = "b" })));
+        try
+        {
+            Assert.Contains("Getting explanation", await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString));
+            await fixture.Renderer.Dispatcher.InvokeAsync(() => choices.SelectedChanged.InvokeAsync("a"));
+        }
+        finally { release.TrySetResult(); }
+        await loading;
+        var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
+        Assert.Contains("Work can start today.", html);
+        Assert.DoesNotContain("It needs separate approval.", html);
+        Assert.Equal("b", Assert.Single(fixture.Api.Questions).OptionId);
         Assert.Empty(fixture.Api.Answers);
-        Assert.Null(fixture.Activator.Choices!.Selected);
+    }
+
+    [Fact]
+    public async Task FollowUpsRetainPreviousAnswersInTheDialogAndPreserveTheSelectedOption()
+    {
+        await using var fixture = new Fixture();
+        var output = await fixture.RenderAsync();
+        var choices = fixture.Activator.Choices!;
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => choices.SelectedChanged.InvokeAsync("a"));
+        var help = Assert.Single(fixture.Activator.Help);
+        var toggle = Assert.Single(fixture.Activator.Buttons, b => b.Class == "ask-follow-up");
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => toggle.OnClick.InvokeAsync(new MouseEventArgs()));
+        foreach (var question in new[] { "When can we start?", "Do we need approval?" })
+        {
+            await fixture.RenderDialogAsync();
+            var ask = fixture.Activator.Buttons.Last(b => b.Variant == Variant.Outlined);
+            await fixture.Renderer.Dispatcher.InvokeAsync(async () =>
+            {
+                typeof(DecisionExplanation).GetField("_question", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(help, question);
+                await ask.OnClick.InvokeAsync(new MouseEventArgs());
+            });
+        }
+        var dialog = await fixture.RenderDialogAsync();
+        Assert.Contains("When can we start?", dialog);
+        Assert.Contains("Do we need approval?", dialog);
+        Assert.Equal(2, dialog.Split("It needs separate approval.").Length - 1);
+        Assert.Equal(2, fixture.Api.Questions.Count);
+        Assert.All(fixture.Api.Questions, q => Assert.Equal("a", q.OptionId));
+        Assert.DoesNotContain("It needs separate approval.", await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString));
+        Assert.Equal("a", choices.Selected);
+        Assert.Empty(fixture.Api.Answers);
     }
 
     private sealed class Fixture : IAsyncDisposable
@@ -251,7 +301,6 @@ public sealed class OverviewQuestionAnswerTests
     private sealed class CapturingActivator : IComponentActivator
     {
         public MudDialog? Dialog { get; private set; }
-        public List<MudIconButton> Info { get; } = [];
         public DecisionChoices? Choices { get; private set; }
         public List<DecisionExplanation> Help { get; } = [];
         public AgentQuestionCard? Card { get; private set; }
@@ -260,7 +309,6 @@ public sealed class OverviewQuestionAnswerTests
         {
             var component = (IComponent)System.Activator.CreateInstance(type)!;
             if (component is MudDialog dialog) Dialog = dialog;
-            if (component is MudIconButton icon) Info.Add(icon);
             if (component is DecisionChoices choices) Choices = choices;
             if (component is DecisionExplanation followUp) Help.Add(followUp);
             if (component is AgentQuestionCard card) Card = card;
@@ -276,6 +324,7 @@ public sealed class OverviewQuestionAnswerTests
         public List<AnswerExecutiveDecisionRequest> Answers { get; } = [];
         public List<DecisionQuestionRequest> Questions { get; } = [];
         public List<string> AnswerUris { get; } = [];
+        public Task ExplanationDelay { get; set; } = Task.CompletedTask;
         public bool FailFirst { get; set; }
         public bool Grouped { get; set; }
         public bool ReturnStaleQuestions { get; set; }
@@ -288,6 +337,7 @@ public sealed class OverviewQuestionAnswerTests
             if (request.Method == HttpMethod.Post && path.EndsWith($"/chats/{Question.ConversationId}/decisions/{Question.Decision.Id}/explain"))
             {
                 Questions.Add((await request.Content!.ReadFromJsonAsync<DecisionQuestionRequest>(token))!);
+                await ExplanationDelay.WaitAsync(token);
                 return new(HttpStatusCode.OK) { Content = JsonContent.Create(new DecisionExplanationResponse("It needs separate approval.")) };
             }
             if (request.Method == HttpMethod.Post)

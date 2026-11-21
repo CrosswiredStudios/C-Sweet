@@ -106,10 +106,21 @@ public sealed class HostedSetupCoordinatorTests
         Assert.Equal("invalid_installation_name", error.Code);
     }
 
-    private HostedSetupCoordinator Coordinator(FakeIssuer issuer)
+    [Fact]
+    public async Task Purchased_headquarters_rejects_another_verified_subject()
+    {
+        var issuer = new FakeIssuer();
+        using var setup = Coordinator(issuer, "different-market-owner");
+        var started = await setup.StartAsync("Purchased HQ");
+        _time.Advance(TimeSpan.FromSeconds(5));
+        Assert.Equal(HostedSetupState.Denied, (await setup.PollAsync(started.AttemptId))!.State);
+        Assert.Null(setup.GetApproval(started.AttemptId));
+    }
+
+    private HostedSetupCoordinator Coordinator(FakeIssuer issuer, string? owner = null)
     {
         issuer.Now = _time.GetUtcNow;
-        return new(new HostedAccountClient(new HttpClient(issuer), Options.Create(new HostedAccountOptions { Issuer = HostedAccountClientTests.Issuer }), _time), _time);
+        return new(new HostedAccountClient(new HttpClient(issuer), Options.Create(new HostedAccountOptions { Issuer = HostedAccountClientTests.Issuer }), _time), _time, owner);
     }
 
     internal sealed class ManualTime(DateTimeOffset now) : TimeProvider

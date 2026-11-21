@@ -15,6 +15,7 @@ public static class SettingsSections
         new("Settings.Group.Agents", "Settings.Section.InstalledAgents.Title", "/settings/agents", "Settings.Section.InstalledAgents.Description", Icons.Material.Outlined.SmartToy),
         new("Settings.Group.Agents", "Settings.Section.Runtime.Title", "/settings/agents/runtime", "Settings.Section.Runtime.Description", Icons.Material.Outlined.Memory),
         new("Settings.Group.Platform", "Settings.Section.Offices.Title", "/settings/offices", "Settings.Section.Offices.Description", Icons.Material.Outlined.Hub),
+        new("Settings.Group.Platform", "Settings.Section.Storage.Title", "/settings/storage", "Settings.Section.Storage.Description", Icons.Material.Outlined.Storage),
         new("Settings.Group.Platform", "Settings.Section.SourceControl.Title", "/settings/source-control", "Settings.Section.SourceControl.Description", Icons.Material.Outlined.AccountTree),
         new("Settings.Group.Platform", "Settings.Section.Plugins.Title", "/settings/plugins", "Settings.Section.Plugins.Description", Icons.Material.Outlined.Extension),
         new("Settings.Group.Platform", "Settings.Section.ToolchainSetup.Title", "/settings/toolchains", "Settings.Section.ToolchainSetup.Description", Icons.Material.Outlined.Build),

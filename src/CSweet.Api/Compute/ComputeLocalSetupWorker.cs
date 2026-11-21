@@ -57,10 +57,10 @@ public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfig
                     .SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow), token);
         }
         // Recover a lost installer or declined UAC without repeatedly launching administrator prompts.
-        await db.Set<ComputeLocalSetup>().Where(x => x.State == "Running" && x.HandoffExpiresAt < DateTimeOffset.UtcNow)
-            .ExecuteUpdateAsync(s => s.SetProperty(x => x.State, "Failed").SetProperty(x => x.ErrorCode, "setup_interrupted")
-                .SetProperty(x => x.HandoffHash, (string?)null).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow)
-                .SetProperty(x => x.Revision, x => x.Revision + 1), token);
+        var expired = await db.Set<ComputeLocalSetup>().Where(x => x.State == "Running" && x.HandoffExpiresAt < DateTimeOffset.UtcNow)
+            .OrderBy(x => x.HandoffExpiresAt).Take(100).ToListAsync(token);
+        foreach (var stale in expired) MarkFailed(stale, "setup_interrupted");
+        if (expired.Count > 0) await db.SaveChangesAsync(token);
         var defaults = scope.ServiceProvider.GetRequiredService<ComputeDefaultsService>();
         var allowInteractiveSetup = InteractiveSetupEnabled(environment, configuration);
         foreach (var ready in await db.Set<ComputeLocalSetup>().Where(x => x.State == "Ready").Take(100).ToListAsync(token))
@@ -119,7 +119,8 @@ public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfig
             var retirement = await scope.ServiceProvider.GetRequiredService<ComputeProviderRetirementService>()
                 .PrepareAsync(setup.OrganizationId, setup.Id, token);
             await File.WriteAllTextAsync(handoff, JsonSerializer.Serialize(new ComputeLocalSetupHandoff(1, setup.Id,
-                setup.OrganizationId, secret, endpoint.GetLeftPart(UriPartial.Authority) + "/", pin, signing, root, attemptId, retirement),
+                setup.OrganizationId, secret, endpoint.GetLeftPart(UriPartial.Authority) + "/", pin, signing, root, attemptId, retirement,
+                CSweet.Api.Setup.HostStorageSettings.EffectiveComputeVolume()),
                 ComputeProtocol.Json), token);
             // Deletion may proceed while UAC/the installer runs, but it now sees the durable
             // Running setup and pending machine-cleanup receipt before any privileged launch.
@@ -148,7 +149,7 @@ public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfig
                 if (request is not null) { request.CompletedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync(token); }
             }
         }
-        catch (Exception error) when (error is not OperationCanceledException)
+        catch (Exception error) when (error is not (OperationCanceledException or DbUpdateConcurrencyException))
         {
             logger.LogWarning(error, "Local compute setup {SetupId} failed.", setup.Id);
             await FailAsync(db, setup, "local_setup_failed", token);
@@ -176,12 +177,30 @@ public sealed class ComputeLocalSetupWorker(IServiceScopeFactory scopes, IConfig
         await db.SaveChangesAsync(ct);
     }
 
-    private static Task<int> FailAsync(CSweetDbContext db, ComputeLocalSetup setup, string code, CancellationToken token) =>
-        db.Set<ComputeLocalSetup>().Where(x => x.Id == setup.Id && x.State == setup.State &&
-            x.PreparationAttemptId == setup.PreparationAttemptId).ExecuteUpdateAsync(s =>
-            s.SetProperty(x => x.State, "Failed").SetProperty(x => x.ErrorCode, code)
-                .SetProperty(x => x.HandoffHash, (string?)null).SetProperty(x => x.HandoffExpiresAt, (DateTimeOffset?)null)
-                .SetProperty(x => x.Revision, x => x.Revision + 1).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow), token);
+    internal static async Task FailAsync(CSweetDbContext db, ComputeLocalSetup observed, string code, CancellationToken token)
+    {
+        var expectedState = observed.State;
+        var expectedAttempt = observed.PreparationAttemptId;
+        var setups = db.Set<ComputeLocalSetup>();
+        // The worker may already track the row from scheduling an upgrade. The installer claim uses a bulk update.
+        if (setups.Local.FindEntry(observed.Id) is { } cached) await cached.ReloadAsync(token);
+        var current = await setups.FindAsync([observed.Id], token);
+        if (current is null || current.State is not ("Pending" or "Running") ||
+            current.State != expectedState || current.PreparationAttemptId != expectedAttempt) return;
+        MarkFailed(current, code);
+        // The revision check and the Overview refresh event commit with the failure.
+        await db.SaveChangesAsync(token);
+    }
+
+    private static void MarkFailed(ComputeLocalSetup current, string code)
+    {
+        current.State = "Failed";
+        current.ErrorCode = code;
+        current.HandoffHash = null;
+        current.HandoffExpiresAt = null;
+        current.UpdatedAt = DateTimeOffset.UtcNow;
+        current.Revision++;
+    }
 
     /// <summary>
     /// QA stages waiting for browser compute preparation resume as soon as an installation completes, instead of at

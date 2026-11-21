@@ -3,6 +3,10 @@ using CSweet.Contracts.Auth;
 using CSweet.Api.Agents;
 using CSweet.HostedAccount;
 using Microsoft.Extensions.Options;
+using Microsoft.EntityFrameworkCore;
+using CSweet.Infrastructure.Persistence;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace CSweet.Api.Auth;
 
@@ -19,6 +23,27 @@ public static class HostedSetupEndpoints
     public static IEndpointRouteBuilder MapHostedSetupEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup(CookiePath).AllowAnonymous();
+
+        // A unique key on the guest's deployment media proves that the public route
+        // reaches this order's owner-reserved installation. Never return the owner ID.
+        group.MapGet("/readiness", async (string nonce, IConfiguration config, IOptions<HostedAccountOptions> settings,
+            CSweetDbContext db, HttpContext http, CancellationToken ct) =>
+        {
+            var owner = settings.Value.ReservedOwnerSubject;
+            var key = config["Installation:ReadinessKey"];
+            if (!settings.Value.LinkingEnabled || string.IsNullOrEmpty(owner) || key?.Length != 64)
+                return Results.NotFound();
+            if (nonce.Length != 32 || !nonce.All(Uri.IsHexDigit)) return Results.BadRequest();
+            var root = await db.Users.Where(x => x.IsInitialAdministrator).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
+            if (root.HasValue && !await db.UserLogins.AnyAsync(x => x.UserId == root && x.ProviderKey == owner
+                    && x.LoginProvider == settings.Value.Issuer, ct))
+                return Results.StatusCode(503);
+            var message = string.Join("\n", config["Installation:DeploymentId"], owner,
+                config["Installation:Hostname"], config["Installation:Release"], nonce);
+            http.Response.Headers.CacheControl = "no-store";
+            return Results.Ok(new { proof = Convert.ToHexStringLower(HMACSHA256.HashData(
+                Convert.FromHexString(key), Encoding.UTF8.GetBytes(message))) });
+        }).RequireRateLimiting(AgentRateLimiting.AuthPolicy);
 
         group.MapPost("/start", async (StartHostedSetupRequest request, HttpContext http, IAuthenticationService auth,
             IOptions<HostedAccountOptions> options, HostedSetupCoordinator setup, CancellationToken ct) =>

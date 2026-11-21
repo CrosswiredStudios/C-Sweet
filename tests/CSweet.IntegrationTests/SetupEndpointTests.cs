@@ -74,6 +74,31 @@ public class SetupEndpointTests
     }
 
     [Fact]
+    public async Task StorageReportListsHeadquartersStoresWithoutMeasuringOnPageLoad()
+    {
+        await using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        var report = await client.GetFromJsonAsync<HostStorageReport>("/api/setup/storage");
+
+        Assert.NotNull(report);
+        Assert.Contains(report.Locations, location => location.Name == "Generated media");
+        Assert.Contains(report.Locations, location => location.Name == "Workspace snapshots");
+        Assert.All(report.Locations, location => Assert.Null(location.Bytes));
+    }
+
+    [Fact]
+    public async Task StorageInspectionAndDriveChangesRequireHostAdministration()
+    {
+        // The Testing host normally permits every request through named policies.
+        await using var factory = CreateFactory().WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+            services.AddAuthorization(options => options.AddPolicy("HostAdministration", policy =>
+                policy.RequireAuthenticatedUser().RequireRole(CSweet.Infrastructure.Auth.AuthenticationService.AdministratorRole)))));
+        var client = factory.CreateClient();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/setup/storage?measure=true")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PutAsJsonAsync("/api/setup/storage/compute", new ComputeStoragePreference(null))).StatusCode);
+    }
+
+    [Fact]
     public async Task AssistedLocalRedemption_IsAnonymousButRejectsUnknownHandoff()
     {
         await using var factory = CreateFactory();

@@ -55,6 +55,8 @@
   "Communications.Decision.Unavailable": "이 결정은 더 이상 이용할 수 없습니다. 새로 고침하여 현재 상태를 확인하세요.",
   "Communications.Decision.ExplanationFailed": "설명을 가져오지 못했습니다. 다시 시도해 주세요.",
   "Communications.Decision.ConfirmChoice": "선택 확정",
+  "Communications.Decision.YourChoice": "선택 항목",
+  "Communications.Decision.WhatThisMeans": "이 선택의 의미",
   "Communications.Decision.ChooseAnswer": "답변 선택",
   "Communications.Decision.Recommended": "추천",
   "Communications.Decision.SomethingElse": "기타",

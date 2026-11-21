@@ -56,6 +56,8 @@
   "Communications.Decision.Unavailable": "This decision is no longer available. Refresh to see its current status.",
   "Communications.Decision.ExplanationFailed": "Couldn’t get an explanation. You can try again.",
   "Communications.Decision.ConfirmChoice": "Confirm choice",
+  "Communications.Decision.YourChoice": "Your choice",
+  "Communications.Decision.WhatThisMeans": "What this means",
   "Communications.Decision.ChooseAnswer": "Choose an answer",
   "Communications.Decision.Recommended": "RECOMMENDED",
   "Communications.Decision.SomethingElse": "Something else",
