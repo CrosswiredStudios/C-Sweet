@@ -108,7 +108,8 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
             x.SetupState == PluginSetupState.Ready, token) ?? throw new UnauthorizedAccessException();
         var approved = Approved(installation);
         if (!approved.Contains(InfrastructureActions.Read)) throw new UnauthorizedAccessException();
-        if (await db.Set<OfficeComputeCapacityRequest>().AnyAsync(x => x.OrganizationId == organizationId && x.InstallationId == installationId, token))
+        if (preparation?.LegacyInteractive != true && await db.Set<OfficeComputeCapacityRequest>()
+            .AnyAsync(x => x.OrganizationId == organizationId && x.InstallationId == installationId, token))
             return new("Pending", projectId, null, OfficeComputeCapacityRequest.WaitingReason);
         var setup = await db.Set<ComputeLocalSetup>().SingleOrDefaultAsync(x => x.OrganizationId == organizationId, token);
         if (setup is not { State: "Ready", TemplateId: not null }) return new(setup?.State ?? "Pending", projectId, null, setup?.ErrorCode);
