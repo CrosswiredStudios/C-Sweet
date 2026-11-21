@@ -11,6 +11,8 @@ The Game Engineer and Software Developer regression `Hired_developer_prepares_on
 
 In `Hired_developer_consumes_the_Headquarters_wake_and_claims_one_Office_workspace`, each real developer agent consumed the Headquarters outbox event through a fresh agent host. Both cases passed. Each agent used the SDK and the production compute capability handler to request its environment, wrote its workspace state once across replay, and produced one operation that only the assigned Office could claim. V1b's post-reboot hire with Office 0.17.0 still needs a physical run. [Acceptance setup and script](07-windows-compute.md)
 
+On 2026-11-21, the combined 0.0.6 test installer built from Headquarters `c45737ea` and Office 0.17.0 (`4439263`). Signature verification passed for the bundle, the two MSIs and all 30 Office cabinets using the temporary test publisher. A fresh Windows Server 2025 guest booted with nested Hyper-V. Its prerequisite setup created the test business, team and project through Headquarters. The combined installation, post-reboot hire, guest command and Windows sign-in and consent audit on this build are still pending.
+
 ### Windows transport and packaging evidence, 2026-11-20
 
 A signed create and a separately signed command ran against a real Hyper-V Linux guest
