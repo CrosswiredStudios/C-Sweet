@@ -3,7 +3,7 @@ Describe 'Automatic Linux preparation' {
     BeforeEach {
         $caseRoot = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         $repo = Join-Path $caseRoot 'csweet'
-        foreach ($relative in @('src/CSweet.Compute.Guest','src/CSweet.Compute.Contracts','src/CSweet.Domain/Compute','build/compute-linux','scripts')) {
+        foreach ($relative in @('src/CSweet.Compute.Guest','build/compute-linux','scripts')) {
             New-Item -ItemType Directory -Path (Join-Path $repo $relative) -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $repo "$relative/fixture.txt") -Value 'input'
         }

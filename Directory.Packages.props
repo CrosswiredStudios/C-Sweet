@@ -11,6 +11,8 @@
     <PackageVersion Include="CSweet.ConnectionService.Protocol" Version="0.7.0" />
     <PackageVersion Include="CSweet.WorkManagement.Contracts" Version="5.12.0" />
     <PackageVersion Include="CSweet.Office.Contracts" Version="0.14.1" />
+    <PackageVersion Include="CSweet.Compute.Contracts" Version="0.1.0" />
+    <PackageVersion Include="CSweet.Compute.Provider" Version="0.1.0" />
     <PackageVersion Include="CSweet.Isolation.HyperV" Version="0.1.0" />
     <PackageVersion Include="CSweet.Memory" Version="0.5.0" />
     <PackageVersion Include="CSweet.Memory.Broker" Version="0.5.1" />

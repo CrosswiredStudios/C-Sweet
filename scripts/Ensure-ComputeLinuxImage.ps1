@@ -48,8 +48,6 @@ try {
     & $report 'checking' 'Checking the Linux test environment.'
     $roots = @(
         (Join-Path $repositoryRoot 'src\CSweet.Compute.Guest'),
-        (Join-Path $repositoryRoot 'src\CSweet.Compute.Contracts'),
-        (Join-Path $repositoryRoot 'src\CSweet.Domain\Compute'),
         (Join-Path $repositoryRoot 'build\compute-linux'),
         (Join-Path $isolationRoot 'tools\LinuxImage')
     )

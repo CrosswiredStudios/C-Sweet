@@ -108,7 +108,9 @@ signed payloads. Apply the package versioning rules to the resulting public chan
   nothing calls them.
 - `src/CSweet.UI/Components/ComputePreparation.razor`: replace with Office capacity status.
 - Delete `src/CSweet.Compute.HyperV`, the compute installer scripts under `scripts/`, and most of
-  `src/CSweet.Compute.Runtime`. Keep `src/CSweet.Compute.Contracts` for the agent-facing types.
+  `src/CSweet.Compute.Runtime`. Headquarters and Office both consume the agent-facing types
+  from the `CSweet.Compute.Contracts` NuGet package and shared provider code from
+  `CSweet.Compute.Provider`. The `CSweet.Compute` repository publishes both packages.
 - In `ExecutionFleetService.LocalSetupLaunchMethod`, route post-install repair and upgrade to
   Maintenance even on a configured development machine. If unavailable, surface repair status
   in the app. Allow interactive elevation only from an explicitly started first install.

@@ -6,4 +6,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="CSweet.Compute.Contracts" />
+  </ItemGroup>
+
 </Project>
