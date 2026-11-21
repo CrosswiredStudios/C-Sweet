@@ -26,13 +26,19 @@ if($NetworkAcceptance){
 }
 $taskManifest=Get-Content -LiteralPath (Join-Path $taskPayload 'sha256.json') -Raw | ConvertFrom-Json
 $taskNames=@('CSweet.Compute.Contracts.dll','CSweet.Compute.Runtime.dll','CSweet.Compute.HyperV.dll')
-if((@($taskManifest.PSObject.Properties.Name | Sort-Object) -join '|') -cne (($taskNames | Sort-Object) -join '|')){throw 'The runtime update manifest must contain exactly the three compute assemblies.'}
+. (Join-Path $PSScriptRoot 'Get-ComputeLocalInstallation.ps1')
+$taskInstallation=Get-ComputeLocalInstallation -OrganizationId $OrganizationId
+$taskRuntime=[IO.Path]::GetFullPath((Join-Path $taskInstallation.Root 'runtime'))
+$sharedProvider='CSweet.Compute.Provider.dll'
+$installedProvider=Test-Path -LiteralPath (Join-Path $taskRuntime $sharedProvider) -PathType Leaf
+$payloadProvider=Test-Path -LiteralPath (Join-Path $taskPayload $sharedProvider) -PathType Leaf
+if($installedProvider -ne $payloadProvider){throw 'The compute assembly layout changed. Use Install-ComputeLocalProvider.ps1 to upgrade the complete runtime and its dependency manifest.'}
+if($installedProvider){$taskNames += $sharedProvider}
+if((@($taskManifest.PSObject.Properties.Name | Sort-Object) -join '|') -cne (($taskNames | Sort-Object) -join '|')){throw 'The runtime update manifest must contain exactly the compute assemblies for the installed layout.'}
 foreach($taskName in $taskNames){
     $taskFile=Get-Item -LiteralPath (Join-Path $taskPayload $taskName)
     if($taskFile.Attributes -band [IO.FileAttributes]::ReparsePoint -or (Get-FileHash -LiteralPath $taskFile.FullName).Hash -cne $taskManifest.$taskName){throw 'Runtime payload verification failed.'}
 }
-. (Join-Path $PSScriptRoot 'Get-ComputeLocalInstallation.ps1')
-$taskInstallation=Get-ComputeLocalInstallation -OrganizationId $OrganizationId
 $taskConfigurationPath=Join-Path $taskInstallation.Root 'provider.json'
 $taskConfiguration=Get-Content -LiteralPath $taskConfigurationPath -Raw | ConvertFrom-Json
 $taskConfigurationHash=(Get-FileHash -LiteralPath $taskConfigurationPath).Hash
@@ -42,7 +48,6 @@ $taskCatalog=Get-Content -LiteralPath $taskSettings.catalogPath -Raw | ConvertFr
 $taskTemplates=@($taskCatalog.templates)
 if($taskTemplates.Count -ne 1){throw 'The retained repair requires one unchanged installed template.'}
 $taskImage=$taskTemplates[0].imagePath
-$taskRuntime=[IO.Path]::GetFullPath((Join-Path $taskInstallation.Root 'runtime'))
 $taskExecutable=Join-Path $taskRuntime 'CSweet.Compute.HyperV.exe'
 $taskService=Get-CimInstance Win32_Service -Filter "Name='$($taskInstallation.ServiceName)'"
 if($null -eq $taskService -or $taskService.PathName -cne ('"'+$taskExecutable+'" '+$taskInstallation.ServiceArguments)){throw 'The installed compute service identity differs from the protected installation.'}
