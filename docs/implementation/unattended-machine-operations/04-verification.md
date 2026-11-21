@@ -48,6 +48,15 @@ listed eight services and the UI returned HTTP 200. The Office Maintenance servi
 absent from the Service Control Manager. These installs ran through a pre-elevated
 deployment channel. Counting interactive UAC prompts requires a separate interactive launch.
 
+For the interactive install, prepare a clean Hyper-V guest with
+[`Test-CombinedWindowsElevation.ps1 -Prepare`](../../../scripts/tests/Test-CombinedWindowsElevation.ps1).
+From its ordinary Windows desktop, run the same script with `-Bundle`, the expected
+`-Sha256` and a new `-WitnessPath`, then respond to Windows consent. From the lab's
+administrative deployment session, pass those same arguments with `-Verify`. The check
+correlates the installer PID with process-creation audit event 4688, counts consent
+processes during installation, and waits for both products' nine services. Reserve
+the guest for this test so another administrator's prompts cannot affect the count.
+
 The debug-signed combined installer `0.0.4` (Headquarters `b60a5c97`, Office
 `0.16.0` at `192d469`) installed both products with exit code 0 and generated the
 installation's nonexportable Office certificate issuer. On a subsequent normal Windows
@@ -88,6 +97,15 @@ Office `01068017-b8d3-42a1-abb2-da519449193e` reported a fresh heartbeat at
 used the debug-signed 0.16.1 Maintenance executable from `496a47f` with the
 installed 0.16.0 configurator and runtime. The harness restored the original
 service executable and confirmed Maintenance was running after the test.
+
+For the upgrade candidate, the Hyper-V runner from Office `3b03ba3` ran the
+`csweet-hardware-vm-smoke-v16-ipv4` suite with the 0.16.1 helper and the same
+signed guest image. All 25 checks enabled for IPv4 passed. The runner preserved
+the host's installed guest socket registration and removed its disposable VMs.
+The evidence SHA-256 was `a78cc6dfebf759e01b619c3aaf8a7886d8d3b0a2755cd4845b91f8da002e6cc9`.
+The resulting Office 0.16.1 MSI, its fourteen cabinets, and the update manifest
+were signed with the local test publisher. Combined bundle 0.0.5 contains this
+Office and the same Headquarters MSI used in the 0.0.4 run.
 
 The [update preparation harness](../../../scripts/tests/Test-AutomaticOfficeUpdatePreparation.ps1)
 passed five Headquarters checks and seven installed Office helper checks. The Office

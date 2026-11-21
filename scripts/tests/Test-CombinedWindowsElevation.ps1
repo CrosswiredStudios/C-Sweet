@@ -1,0 +1,76 @@
+[CmdletBinding(DefaultParameterSetName='Launch')]
+param(
+    [Parameter(Mandatory, ParameterSetName='Prepare')][switch]$Prepare,
+    [Parameter(Mandatory, ParameterSetName='Verify')]
+    [Parameter(Mandatory, ParameterSetName='Launch')][string]$Bundle,
+    [Parameter(Mandatory, ParameterSetName='Verify')]
+    [Parameter(Mandatory, ParameterSetName='Launch')][ValidatePattern('^[a-fA-F0-9]{64}$')][string]$Sha256,
+    [Parameter(Mandatory, ParameterSetName='Verify')][switch]$Verify,
+    [Parameter(Mandatory, ParameterSetName='Verify')]
+    [Parameter(Mandatory, ParameterSetName='Launch')][string]$WitnessPath
+)
+$ErrorActionPreference = 'Stop'
+$admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator)
+if ((Get-CimInstance Win32_ComputerSystem).Model -ne 'Virtual Machine') {
+    throw 'Run this first-install test on a dedicated Hyper-V guest.'
+}
+$policy = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
+if ($policy.EnableLUA -ne 1 -or $policy.PromptOnSecureDesktop -ne 1 -or $policy.ConsentPromptBehaviorAdmin -eq 0) {
+    throw 'This test needs Windows UAC and secure desktop prompts enabled.'
+}
+$services = @('CSweet.Api','CSweet.AgentHost','CSweet.WorkerHost','CSweet.ExecutionGateway',
+    'CSweet.GitHost','CSweet.SourceControlProvisionerHost','CSweet.Office.Node','CSweet.Office.RuntimeHost','CSweet.Office.Maintenance')
+if ($Prepare) {
+    if (!$admin) { throw 'Prepare the guest from an administrative deployment session.' }
+    if (@(Get-Service -Name $services -ErrorAction SilentlyContinue).Count) { throw 'First install requires a clean guest.' }
+    & "$env:SystemRoot\System32\auditpol.exe" /set '/subcategory:{0CCE922B-69AE-11D9-BED3-505054503030}' /success:enable | Out-Null
+    if ($LASTEXITCODE) { throw 'Windows could not enable process creation auditing.' }
+    return
+}
+$file = Get-Item -LiteralPath $Bundle
+if ($file.Name -ine 'C-Sweet-Setup.exe' -or (Get-FileHash -LiteralPath $file.FullName).Hash -ine $Sha256 -or
+    (Get-AuthenticodeSignature -LiteralPath $file.FullName).Status -ne 'Valid') { throw 'Unexpected combined installer.' }
+if (!$Verify) {
+    if ($admin -or [Diagnostics.Process]::GetCurrentProcess().SessionId -eq 0 -or ![Environment]::UserInteractive) {
+        throw 'Launch from an ordinary interactive Windows desktop.'
+    }
+    if (@(Get-Service -Name $services -ErrorAction SilentlyContinue).Count) { throw 'First install requires a clean guest.' }
+    $stream = [IO.File]::Open($WitnessPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
+    try {
+        $started = [DateTimeOffset]::UtcNow
+        $process = Start-Process -FilePath $file.FullName -ArgumentList '/quiet','/norestart' -PassThru -Wait
+        $result = [ordered]@{ computer=$env:COMPUTERNAME; bundle=$file.FullName; sha256=$Sha256
+            processId=$process.Id; started=$started.ToString('o'); finished=[DateTimeOffset]::UtcNow.ToString('o')
+            exitCode=$process.ExitCode }
+        $bytes = [Text.Encoding]::UTF8.GetBytes(($result | ConvertTo-Json))
+        $stream.Write($bytes,0,$bytes.Length)
+        if ($process.ExitCode -ne 0) { throw "Combined install exited with $($process.ExitCode)." }
+    } finally { $stream.Dispose() }
+    return
+}
+if (!$admin) { throw 'Verify the Windows Security audit from an administrative deployment session.' }
+$result = Get-Content -LiteralPath $WitnessPath -Raw | ConvertFrom-Json
+$started = [DateTimeOffset]$result.started
+$finished = [DateTimeOffset]$result.finished
+if ($result.computer -cne $env:COMPUTERNAME -or $result.exitCode -ne 0 -or $finished -le $started -or
+    $result.processId -le 0 -or $result.bundle -ine $file.FullName -or $result.sha256 -ine $Sha256) {
+    throw 'The install witness and bundle must match this successful guest run.'
+}
+$launches = 0
+$prompts = 0
+foreach ($event in Get-WinEvent -FilterHashtable @{LogName='Security';Id=4688;StartTime=$started.LocalDateTime;EndTime=$finished.LocalDateTime}) {
+    $data = @{}
+    foreach ($field in ([xml]$event.ToXml()).Event.EventData.Data) { $data[$field.Name] = $field.'#text' }
+    if ($data.NewProcessName -ieq (Join-Path $env:SystemRoot 'System32\consent.exe')) { $prompts++ }
+    if ($data.NewProcessName -ieq $result.bundle -and [Convert]::ToInt64($data.NewProcessId,16) -eq $result.processId) {
+        if ($data.TokenElevationType -notin '%%1936','%%1938') { throw 'Windows did not record an unelevated installer launch.' }
+        $launches++
+    }
+}
+if ($launches -ne 1 -or $prompts -ne 1) { throw "Windows recorded $launches matching installer launches and $prompts consent prompts." }
+foreach ($name in $services) {
+    $service = Get-Service -Name $name
+    $service.WaitForStatus('Running',[TimeSpan]::FromSeconds(90))
+}
+[pscustomobject]@{ BundleSha256=$result.sha256; InstallerExitCode=$result.exitCode; ConsentPrompts=$prompts; RunningServices=$services.Count }
