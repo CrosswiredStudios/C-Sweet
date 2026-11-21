@@ -8,9 +8,9 @@
   },
   {
     "repository": "https://github.com/CrosswiredStudios/CSweet.Office.Contracts.git",
-    "commit": "79a09912d73fe74299baebbb302c32a0f411621b",
+    "commit": "7c37175fe078ba9fe16f9b331679547856ce60ab",
     "project": "src/CSweet.Office.Contracts/CSweet.Office.Contracts.csproj",
     "package": "CSweet.Office.Contracts",
-    "version": "0.13.0"
+    "version": "0.14.1"
   }
 ]
