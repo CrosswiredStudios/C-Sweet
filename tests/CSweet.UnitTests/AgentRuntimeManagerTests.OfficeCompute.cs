@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using CSweet.Agent.SDK;
 using CSweet.Agent.Testing;
 using CSweet.Compute.Contracts;
@@ -63,6 +65,8 @@ public sealed partial class AgentRuntimeManagerTests
             var defaults = new ComputeDefaultsService(db, TimeProvider.System,
                 new ComputeGrantAdministration(db, TimeProvider.System, new AuditExecutionContextAccessor()),
                 preparation: new ComputePreparationMode(legacy));
+            var beforeDelivery = await ReadFromHiredAgentAsync(fixture, defaults, delivery);
+            Assert.Equal(legacy ? template.Id : null, beforeDelivery.TemplateId);
             await defaults.EnsureRequestedAsync(fixture.Installation, default);
             var observed = await ReadFromHiredAgentAsync(fixture, defaults, delivery);
             Assert.Equal(legacy ? "Ready" : "Pending", observed.State);
@@ -93,6 +97,105 @@ public sealed partial class AgentRuntimeManagerTests
         public CSweet.Agent.SDK.Compute.ComputeDefaults? Observed { get; private set; }
         public async Task HandleEventAsync(AgentEventEnvelope message, AgentRuntimeContext context, CancellationToken token) =>
             Observed = await context.Platform.Compute.GetProjectDefaultsAsync(project, token);
+        public Task<AgentWorkResult> ExecuteCapabilityAsync(AgentCapabilityRequest request, AgentRuntimeContext context, CancellationToken token) =>
+            throw new NotSupportedException();
+    }
+
+    [Fact, Trait("Category", "AgentHarness")]
+    public async Task Hired_employee_replays_office_availability_and_only_the_assigned_office_claims_the_vm()
+        => await VerifyHiredOfficePlacementAsync(new ComputeBrokerTests.Fixture());
+
+    internal static async Task VerifyHiredOfficePlacementAsync(ComputeBrokerTests.Fixture storage)
+    {
+        await using var fixture = storage;
+        await fixture.SeedAsync();
+        using var nodeKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var clock = TimeProvider.System;
+        var now = clock.GetUtcNow();
+        using var cert = new CertificateRequest("CN=Office-test", nodeKey, HashAlgorithmName.SHA256)
+            .CreateSelfSigned(now.AddDays(-1), now.AddDays(1));
+        var pool = new ExecutionPool { Id = Guid.NewGuid(), AllowedBusinessIdsJson = JsonSerializer.Serialize(new[] { fixture.Organization }) };
+        var office = new ExecutionNode { Id = Guid.NewGuid(), ExecutionPoolId = pool.Id, ApprovedAt = now,
+            Status = ExecutionNodeStatus.Ready, LastHeartbeatAt = now, CertificateExpiresAt = now.AddDays(1),
+            IssuedCertificateBase64 = Convert.ToBase64String(cert.RawData), CertificateThumbprint = cert.Thumbprint };
+        var db = fixture.Db;
+        db.ExecutionPools.Add(pool);
+        db.ExecutionNodes.Add(office);
+        db.AgentSchedules.Add(new AgentSchedule { Id = Guid.NewGuid(), AgentInstallationId = fixture.Installation,
+            ActivationMode = ActivationMode.OnDemand, IsEnabled = true });
+        (await db.Workstreams.SingleAsync()).Status = WorkstreamStatus.Active;
+        await db.SaveChangesAsync();
+        ComputeDefaultsService Defaults(CSweetDbContext store) => new(store, clock,
+            new ComputeGrantAdministration(store, clock, new AuditExecutionContextAccessor()));
+        var defaults = Defaults(db);
+        Assert.True(await CreateManager(db, new FakeRunner(), computeDefaults: defaults)
+            .EnsureRuntimeQueuedAsync(fixture.Installation, "Hired employee"));
+        var digest = "sha256:" + new string('a', 64);
+        var template = OfficeComputePlacement.TemplateId(digest);
+        var offer = new Office.Contracts.ControlPlane.OfficeComputeOffer { OrganizationId = fixture.Organization.ToString("D"),
+            TemplateId = template, ImageDigest = digest, MaximumEnvironments = 1, CpuCount = 2, MemoryMib = 2048, DiskMib = 20480 };
+        offer.Features.Add("docker");
+        await OfficeComputePlacement.ApplyOfferAsync(db, office, offer, now, default);
+        Assert.Null(office.ComputeTemplateId);
+        await OfficeComputePlacement.ApplyOfferAsync(db, office, offer, now, default,
+            new() { ApprovedImages = [new(fixture.Organization, digest, ["docker"])] });
+        Assert.Equal(template, office.ComputeTemplateId);
+        await OfficeComputePlacement.WakeWaitingAsync(db, fixture.Organization, office.Id, 1, template, now, default);
+        await db.SaveChangesAsync();
+        await OfficeComputePlacement.WakeWaitingAsync(db, fixture.Organization, office.Id, 1, template, now, default);
+        await db.SaveChangesAsync();
+        var wake = await db.AgentPlatformEventOutbox.SingleAsync(x => x.EventType == "com.csweet.compute.available.v1");
+        Assert.Equal(fixture.Installation, wake.TargetInstallationId);
+        using var signer = new ComputeDispatchTests.Signer();
+        for (var delivery = 0; delivery < 2; delivery++)
+        {
+            await using var restarted = new CSweetDbContext(fixture.Options);
+            var registry = new ComputeRegistry(restarted, clock, new AuditExecutionContextAccessor());
+            var broker = new ComputeBroker(restarted, registry, clock, fixture.Ledger);
+            var platform = new AgentTestRuntime()
+                .RegisterCapability<JsonElement, CSweet.Application.Compute.ComputeDefaults>(InfrastructureActions.Read,
+                    (_, ct) => Defaults(restarted).ReadAsync(fixture.Organization, fixture.Installation, ct))
+                .RegisterCapability<JsonElement, object>(InfrastructureActions.Provision, async (request, ct) =>
+                {
+                    var environment = await broker.RequestAsync(fixture.Organization, fixture.Installation,
+                        request.Deserialize<CSweet.Application.Compute.RequestComputeEnvironment>(ComputeProtocol.Json)!, ct);
+                    return JsonSerializer.SerializeToElement(environment, ComputeProtocol.Json);
+                });
+            var host = new AgentTestHost(new ProjectWorkspaceRequester(), platform,
+                businessId: fixture.Organization.ToString("D"), installationId: fixture.Installation.ToString("D"));
+            var reply = await host.DeliverEventAsync(wake.EventType, JsonSerializer.Deserialize<JsonElement>(wake.DataJson), wake.Id);
+            Assert.True(reply.Succeeded, reply.Error);
+            var op = await restarted.ComputeOperations.SingleAsync();
+            var authorizer = new ComputeDispatchAuthorizer(restarted, broker, signer, clock);
+            Assert.Null(await authorizer.ClaimAsync(op.Id, default));
+            Assert.Null(await authorizer.ClaimOfficeWorkAsync(Guid.NewGuid(), signer, default));
+            var packet = await authorizer.ClaimOfficeWorkAsync(office.Id, signer, default);
+            Assert.Equal(delivery == 0, packet is not null);
+            var claim = Assert.Single(signer.Claims);
+            var env = await restarted.ComputeEnvironments.SingleAsync();
+            Assert.Null(await registry.ResolveAsync(fixture.Organization, template, default));
+            Assert.Equal(office.Id, env.ProviderNodeId);
+            Assert.Equal(fixture.Workstream, env.WorkstreamId);
+            Assert.Equal(env.Id, claim.EnvironmentId);
+            Assert.Equal(fixture.Installation, claim.InstallationId);
+            Assert.Equal(office.Id, claim.NodeId);
+            Assert.Equal(claim.DispatchId, op.DispatchLeaseId);
+        }
+    }
+
+    private sealed class ProjectWorkspaceRequester : ICSweetAgent
+    {
+        public string AgentId => "office-compute-test";
+        public string Version => "1.0.0";
+        public async Task HandleEventAsync(AgentEventEnvelope message, AgentRuntimeContext context, CancellationToken token)
+        {
+            var defaults = await context.Platform.Compute.GetDefaultsAsync(token);
+            Assert.Equal("Ready", defaults.State);
+            var project = defaults.WorkstreamId!.Value;
+            var key = $"project:{project:N}:developer:{context.InstallationId}:generation:0";
+            await context.Platform.Compute.ProvisionAsync(new(project, key, key,
+                new("linux", "x64", defaults.TemplateId!, new(2, 2048, 20480), 0)), token);
+        }
         public Task<AgentWorkResult> ExecuteCapabilityAsync(AgentCapabilityRequest request, AgentRuntimeContext context, CancellationToken token) =>
             throw new NotSupportedException();
     }

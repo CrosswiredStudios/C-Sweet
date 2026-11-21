@@ -82,7 +82,7 @@ public sealed partial class ComputeBroker(CSweetDbContext db, IComputeTemplateCa
                 if (transaction is not null) await transaction.CommitAsync(token);
                 return View(existing);
             }
-            var registered = await templates.ResolveAsync(organizationId, spec.TemplateId, token)
+            var registered = await templates.ResolveAsync(organizationId, spec, token)
                 ?? throw new InvalidOperationException("No approved compute template is available.");
             if (!ComputeSpecification.Identifier(registered.ProviderId) || registered.NodeId == Guid.Empty)
                 throw new InvalidOperationException("The compute template has no registered provider placement.");

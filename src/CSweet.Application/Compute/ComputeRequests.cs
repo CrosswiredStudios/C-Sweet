@@ -15,6 +15,8 @@ public sealed record RegisteredComputeTemplate(ComputeTemplate Template, string 
 public interface IComputeTemplateCatalog
 {
     Task<RegisteredComputeTemplate?> ResolveAsync(Guid organizationId, string templateId, CancellationToken token);
+    Task<RegisteredComputeTemplate?> ResolveAsync(Guid organizationId, ComputeSpecification request, CancellationToken token) =>
+        ResolveAsync(organizationId, request.TemplateId, token);
 }
 
 public sealed record RequestComputeWorkload(Guid EnvironmentId, long ExpectedGeneration, string IdempotencyKey, ComputeWorkload Workload);

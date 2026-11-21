@@ -2,6 +2,8 @@ using CSweet.AgentBroker;
 using CSweet.Office.Contracts.ControlPlane;
 using CSweet.Office.Contracts.Security;
 using CSweet.Application.Setup;
+using CSweet.Compute.Contracts;
+using CSweet.Infrastructure.Compute;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
@@ -23,7 +25,11 @@ public sealed partial class OfficeGatewayService(
     ExecutionArtifactGrantLeaseService artifactGrants,
     ExecutionAssignmentSigner signer,
     TimeProvider timeProvider,
-    ILogger<OfficeGatewayService> logger)
+    ILogger<OfficeGatewayService> logger,
+    ComputeDispatchAuthorizer? computeDispatch = null,
+    ComputeResultReconciler? computeResults = null,
+    IOptions<OfficeComputeCatalogOptions>? computeCatalog = null,
+    ComputeMaintenanceIngestor? computeMaintenance = null)
     : OfficeGateway.OfficeGatewayBase
 {
     public override async Task Connect(
@@ -59,6 +65,8 @@ public sealed partial class OfficeGatewayService(
             if (message.BodyCase == OfficeControlMessage.BodyOneofCase.Heartbeat)
             {
                 ValidateHeartbeat(message.Heartbeat);
+                await using var heartbeatTransaction = db.Database.IsRelational()
+                    ? await db.Database.BeginTransactionAsync(context.CancellationToken) : null;
                 var node = await db.ExecutionNodes.Include(x => x.Providers)
                     .SingleAsync(x => x.Id == nodeId, context.CancellationToken);
                 if (node.Status == ExecutionNodeStatus.Revoked)
@@ -77,9 +85,15 @@ public sealed partial class OfficeGatewayService(
                 node.UpdatedAt = timeProvider.GetUtcNow();
                 if (message.Heartbeat.Providers.Count > 0)
                     ReplaceProviderInventory(node, message.Heartbeat.Providers, timeProvider.GetUtcNow());
-                    ReplaceSecurityPosture(node, message.Heartbeat.SecurityPosture);
+                ReplaceSecurityPosture(node, message.Heartbeat.SecurityPosture);
                 if (node.ApprovedAt is not null && node.Status == ExecutionNodeStatus.Offline)
                     node.Status = ExecutionNodeStatus.Ready;
+                await OfficeComputePlacement.ApplyOfferAsync(db, node,
+                    message.Heartbeat.ComputeOffer, timeProvider.GetUtcNow(), context.CancellationToken, computeCatalog?.Value);
+                if (node.ComputeTemplateId is { } offered && node.Status == ExecutionNodeStatus.Ready && node.DrainingAt is null &&
+                    Guid.TryParse(message.Heartbeat.ComputeOffer.OrganizationId, out var business))
+                    await OfficeComputePlacement.WakeWaitingAsync(db, business, node.Id, sessionEpoch,
+                        offered, timeProvider.GetUtcNow(), context.CancellationToken);
                 if (node.ApprovedAt is not null)
                 {
                     var enrollment = await db.ExecutionNodeEnrollments.SingleOrDefaultAsync(
@@ -88,6 +102,7 @@ public sealed partial class OfficeGatewayService(
                     if (enrollment is not null) enrollment.ReceiptHash = null;
                 }
                 await db.SaveChangesAsync(context.CancellationToken);
+                if (heartbeatTransaction is not null) await heartbeatTransaction.CommitAsync(context.CancellationToken);
 
                 if (!helloDelivered)
                 {
@@ -125,6 +140,12 @@ public sealed partial class OfficeGatewayService(
                     deliveredDrainState = drain;
                 }
 
+                if (computeDispatch is not null &&
+                    await computeDispatch.ClaimOfficeWorkAsync(nodeId, signer, context.CancellationToken) is { } packet)
+                    await responseStream.WriteAsync(new HeadquartersControlMessage { OfficeId = nodeId.ToString("D"),
+                        ProtocolVersion = "1.0", SessionEpoch = sessionEpoch, ComputeDispatch = new OfficeComputeDispatch
+                        { PacketJson = ByteString.CopyFrom(JsonSerializer.SerializeToUtf8Bytes(packet, ComputeProtocol.Json)) } },
+                        context.CancellationToken);
                 stopDiscoveryOffset = await ReconcileStopsAsync(nodeId, sessionEpoch, stopDiscoveryOffset,
                     responseStream, context.CancellationToken);
                 var assignments = await orchestrator.GetNodeAssignmentsAsync(nodeId, sessionEpoch, context.CancellationToken);
@@ -202,6 +223,54 @@ public sealed partial class OfficeGatewayService(
                         assignment.LeaseExpiresAt);
                     delivered[assignment.AssignmentId] = assignment.FencingEpoch;
                 }
+            }
+            else if (message.BodyCase == OfficeControlMessage.BodyOneofCase.ComputeMaintenance && computeMaintenance is not null)
+            {
+                var bytes = message.ComputeMaintenance.SignedDeliveryJson;
+                if (bytes.Length is 0 or > ComputeMaintenanceTransport.MaximumRequestBytes)
+                    throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid maintenance evidence size."));
+                var signed = JsonSerializer.Deserialize<SignedComputeMaintenanceDelivery>(bytes.Span, ComputeProtocol.Json)
+                    ?? throw new InvalidDataException("Missing signed maintenance delivery.");
+                var delivery = JsonSerializer.Deserialize<ComputeMaintenanceDelivery>(signed.PayloadJson, ComputeProtocol.Json)
+                    ?? throw new InvalidDataException("Missing maintenance delivery.");
+                var evidence = JsonSerializer.Deserialize<ComputeMaintenanceEvent>(delivery.EventJson, ComputeProtocol.Json);
+                if (evidence?.NodeId != nodeId || evidence.ProviderId != OfficeComputePlacement.ProviderId)
+                    throw new RpcException(new Status(StatusCode.PermissionDenied, "Invalid Office maintenance identity."));
+                var eventId = await computeMaintenance.ApplyAsync(signed, context.CancellationToken);
+                if (eventId == evidence.EventId)
+                    await responseStream.WriteAsync(new HeadquartersControlMessage { OfficeId = nodeId.ToString("D"), ProtocolVersion = "1.0",
+                        SessionEpoch = sessionEpoch, ComputeMaintenanceReceipt = new() { OperationId = eventId.ToString("D"), Sequence = 1,
+                            PayloadDigest = delivery.EventDigest, Signature = ByteString.CopyFrom(signer.SignComputeMaintenanceReceipt(
+                                nodeId, eventId, delivery.EventDigest)) } }, context.CancellationToken);
+            }
+            else if (message.BodyCase == OfficeControlMessage.BodyOneofCase.ComputeResult && computeResults is not null)
+            {
+                var payload = message.ComputeResult.SignedResultJson;
+                if (payload.Length is 0 or > 4 * 1024 * 1024) throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid compute result size."));
+                var signed = JsonSerializer.Deserialize<SignedComputeProviderResult>(payload.Span, ComputeProtocol.Json)
+                    ?? throw new InvalidDataException("Missing signed compute result.");
+                var result = JsonSerializer.Deserialize<ComputeProviderResult>(signed.PayloadJson, ComputeProtocol.Json);
+                if (result?.NodeId != nodeId || result.ProviderId != OfficeComputePlacement.ProviderId)
+                    throw new RpcException(new Status(StatusCode.PermissionDenied, "Invalid Office compute identity."));
+                var digest = ComputeProtocol.Digest(signed.PayloadJson);
+                // Recover the exact committed receipt even if the evidence expired while disconnected.
+                async Task<bool> RecordedAsync() => await (from op in db.ComputeOperations.AsNoTracking()
+                    join env in db.ComputeEnvironments.AsNoTracking() on op.EnvironmentId equals env.Id
+                    where op.Id == result.OperationId && env.Id == result.EnvironmentId && env.ProviderNodeId == nodeId &&
+                        env.ProviderId == OfficeComputePlacement.ProviderId && env.OrganizationId == result.OrganizationId &&
+                        op.LastResultSequence == result.Sequence && op.LastResultDigest == digest select op.Id).AnyAsync(context.CancellationToken);
+                var recorded = await RecordedAsync();
+                if (!recorded && result.ExpiresAt > timeProvider.GetUtcNow())
+                {
+                    await computeResults.ApplyAsync(signed, context.CancellationToken);
+                    recorded = await RecordedAsync();
+                }
+                if (recorded)
+                    await responseStream.WriteAsync(new HeadquartersControlMessage { ProtocolVersion = "1.0",
+                        OfficeId = nodeId.ToString("D"), SessionEpoch = sessionEpoch, ComputeReceipt = new OfficeComputeReceipt {
+                            OperationId = result.OperationId.ToString("D"), Sequence = result.Sequence, PayloadDigest = digest,
+                            Signature = ByteString.CopyFrom(signer.SignComputeReceipt(nodeId, result.OperationId, result.Sequence, digest)) } },
+                        context.CancellationToken);
             }
             else if (message.BodyCase == OfficeControlMessage.BodyOneofCase.LeaseRenewal &&
                 Guid.TryParse(message.LeaseRenewal.AssignmentId, out var renewalId))

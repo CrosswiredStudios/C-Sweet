@@ -11374,6 +11374,13 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("ExecutionPoolId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("ComputeCapacityJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("ComputeTemplateId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("IssuedCertificateBase64")
                         .HasMaxLength(16384)
                         .HasColumnType("character varying(16384)");

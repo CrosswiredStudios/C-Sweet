@@ -5,6 +5,10 @@
 Mocked tests prove logic, not a bootable machine. Each row needs a real run, recorded with the
 builds used. Record results in the last column when a scenario is run.
 
+### Windows hire and placement
+
+The Game Engineer and Software Developer regression `Hired_developer_prepares_one_authorized_project_workspace_after_restart` passed both replay orderings in each agent. The Headquarters regression `Hired_employee_replays_office_availability_and_only_the_assigned_office_claims_the_vm` exercised the durable hire, wake and signed lease. Its PostgreSQL counterpart also exercised the relational scope and capacity filters. These results cover application behavior. V1b's post-reboot hire with Office 0.17.0 still needs a physical run. [Acceptance setup and script](07-windows-compute.md)
+
 ### Windows transport and packaging evidence, 2026-11-20
 
 A signed create and a separately signed command ran against a real Hyper-V Linux guest

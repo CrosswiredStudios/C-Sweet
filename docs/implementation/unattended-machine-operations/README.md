@@ -1,9 +1,10 @@
 # Unattended machine operations: review set
 
-**Implementation in progress.** Headquarters routes repair and upgrade to an enrolled Office
-and persists compute demand on hire. A managed hire currently waits for Office capacity.
-Placement and execution on an enrolled Office are still being implemented.
-See the [Windows installer and Hyper-V results](04-verification.md) for the hardware evidence.
+**Windows implementation and acceptance status.** Headquarters routes maintenance to the installed
+Office and can place a hired employee's workspace on an enrolled Windows Office. The Game Engineer
+requests one ephemeral Linux workspace for a single authorized project. The live post-reboot
+hire on the combined installer is still an open acceptance test.
+See [Windows Office compute setup](07-windows-compute.md) and the [verification record](04-verification.md).
 Initial source review on 2026-11-19, with a follow-up on 2026-11-20.
 
 Sources read: `csweet` at `c92a581f`, `CSweet.Office` 0.15.2 at `c5f3521`,

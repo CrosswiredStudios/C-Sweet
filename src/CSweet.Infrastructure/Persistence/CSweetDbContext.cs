@@ -1174,6 +1174,8 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
             entity.Property(x => x.CertificateSerialNumber).HasMaxLength(256).IsRequired();
             entity.Property(x => x.CertificateSigningRequestPem).HasMaxLength(16 * 1024).IsRequired();
             entity.Property(x => x.IssuedCertificateBase64).HasMaxLength(16 * 1024);
+            entity.Property(x => x.ComputeTemplateId).HasMaxLength(64);
+            entity.Property(x => x.ComputeCapacityJson).HasColumnType("jsonb");
             entity.Property(x => x.LabelsJson).HasColumnType("jsonb").IsRequired();
             entity.HasIndex(x => x.CertificateThumbprint).IsUnique();
             entity.HasIndex(x => new { x.ExecutionPoolId, x.Status });

@@ -1,11 +1,14 @@
 using System.Security.Cryptography;
 using System.Text;
 using CSweet.Office.Contracts.Security;
+using CSweet.Application.Compute;
+using CSweet.Compute.Contracts;
+using System.Text.Json;
 using Microsoft.Extensions.Options;
 
 namespace CSweet.ExecutionGateway;
 
-public sealed class ExecutionAssignmentSigner : IDisposable
+public sealed class ExecutionAssignmentSigner : IDisposable, IComputeDispatchSigner
 {
     private readonly ECDsa _key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
     public string KeyId { get; }
@@ -63,6 +66,23 @@ public sealed class ExecutionAssignmentSigner : IDisposable
             nodeId, assignmentId, workloadId, epoch, providerId, specificationDigest, issuedAt, expiry), HashAlgorithmName.SHA256);
 
     public string ExportPublicKeyBase64() => Convert.ToBase64String(_key.ExportSubjectPublicKeyInfo());
+
+    public byte[] SignComputeReceipt(Guid office, Guid operation, long sequence, string digest) =>
+        _key.SignData(OfficeComputeReceiptEncoding.Payload(office, operation, sequence, digest), HashAlgorithmName.SHA256);
+
+    public byte[] SignComputeMaintenanceReceipt(Guid office, Guid eventId, string digest) =>
+        _key.SignData(OfficeComputeReceiptEncoding.MaintenancePayload(office, eventId, digest), HashAlgorithmName.SHA256);
+
+    Task<SignedComputeDispatch> IComputeDispatchSigner.SignAsync(ComputeDispatchAuthorization authorization, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        var payload = JsonSerializer.Serialize(authorization, ComputeProtocol.Json);
+        return Task.FromResult(new SignedComputeDispatch(KeyId, payload,
+            Convert.ToBase64String(_key.SignData(ComputeProtocol.DispatchPayload(payload), HashAlgorithmName.SHA256))));
+    }
+
+    Task<ComputeSigningIdentity> IComputeDispatchSigner.GetIdentityAsync(CancellationToken token) =>
+        Task.FromResult(new ComputeSigningIdentity(KeyId, ExportPublicKeyBase64()));
 
     public void Dispose() => _key.Dispose();
 }

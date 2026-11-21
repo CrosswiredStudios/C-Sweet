@@ -63,7 +63,7 @@ public sealed class ComputeResultReconciler(CSweetDbContext db, ComputeProviderR
             {
                 var workload = operation.WorkloadJson is null ? null : JsonSerializer.Deserialize<ComputeWorkload>(operation.WorkloadJson, ComputeProtocol.Json);
                 var output = result.Workload ?? throw new UnauthorizedAccessException("Workload evidence is missing.");
-                if (output.ErrorCode is not (null or "outcome-unknown" or "guest-unavailable" or "dependency-authority-denied" or "dependency-fetch-failed" or "dependency-integrity-failed") ||
+                if (output.ErrorCode is not (null or "outcome-unknown" or "guest-unavailable" or "dependency-authority-denied" or "dependency-fetch-failed" or "dependency-integrity-failed" or "workload-unsupported") ||
                     output.ErrorCode is not null && (output.Command is not null || output.Url is not null || output.UrlExpiresAt is not null || output.Artifact is not null || output.BuildArchive is not null))
                     throw new UnauthorizedAccessException("Workload evidence has conflicting terms.");
                 if (output.ErrorCode?.StartsWith("dependency-", StringComparison.Ordinal) == true && workload?.NodeDependencies is null)

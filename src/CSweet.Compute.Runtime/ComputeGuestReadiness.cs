@@ -32,7 +32,7 @@ public static class ComputeGuestReadiness
                 response.OperatingSystem == operatingSystem && response.Architecture == architecture && response.AcceptingWork;
         }
         catch (Exception error) when (!token.IsCancellationRequested &&
-            error is IOException or JsonException or TimeoutException or OperationCanceledException) { return false; }
+            error is IOException or System.Net.Sockets.SocketException or JsonException or TimeoutException or OperationCanceledException) { return false; }
     }
 
     /// <summary>Guest-side handler. Readiness is supplied by the installed work runtime, never a request field.</summary>

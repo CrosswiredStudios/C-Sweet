@@ -30,7 +30,7 @@ public sealed class ComputeManagementTests
         new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["CSweet:Compute:Defaults:MaximumLifetimeSeconds"] = lifetime.ToString()
-        }).Build());
+        }).Build(), preparation: new(LegacyInteractive: true));
 
     private static async Task ReadyAsync(ComputeBrokerTests.Fixture fixture)
     {

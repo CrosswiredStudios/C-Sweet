@@ -92,9 +92,11 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
         // Never return a synthetic scope or guess between multiple projects.
         var projects = await ProjectScopes(organizationId, actor.Id).Select(x => x.Id).Take(2).ToListAsync(token);
         if (projects.Count == 1) return await ReadProjectAsync(organizationId, installationId, projects[0], token);
+        var projectError = projects.Count == 0 ? "project_required" : "project_selection_required";
+        if (preparation?.LegacyInteractive != true) return new("Pending", null, null, projectError);
         var setup = await db.Set<ComputeLocalSetup>().AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId, token);
         return new(setup?.State is "Failed" or "Running" ? setup.State : "Pending", null, null,
-            setup?.ErrorCode ?? (projects.Count == 0 ? "project_required" : "project_selection_required"));
+            setup?.ErrorCode ?? projectError);
     }
 
     public async Task<ComputeDefaults> ReadProjectAsync(Guid organizationId, Guid installationId, Guid projectId, CancellationToken token)
@@ -108,12 +110,24 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
             x.SetupState == PluginSetupState.Ready, token) ?? throw new UnauthorizedAccessException();
         var approved = Approved(installation);
         if (!approved.Contains(InfrastructureActions.Read)) throw new UnauthorizedAccessException();
-        if (preparation?.LegacyInteractive != true && await db.Set<OfficeComputeCapacityRequest>()
-            .AnyAsync(x => x.OrganizationId == organizationId && x.InstallationId == installationId, token))
-            return new("Pending", projectId, null, OfficeComputeCapacityRequest.WaitingReason);
-        var setup = await db.Set<ComputeLocalSetup>().SingleOrDefaultAsync(x => x.OrganizationId == organizationId, token);
-        if (setup is not { State: "Ready", TemplateId: not null }) return new(setup?.State ?? "Pending", projectId, null, setup?.ErrorCode);
-        var template = await db.ComputeTemplates.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId && x.TemplateId == setup.TemplateId, token);
+        ComputeTemplateRegistration? template;
+        if (preparation?.LegacyInteractive == true)
+        {
+            var setup = await db.Set<ComputeLocalSetup>().AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId, token);
+            if (setup is not { State: "Ready", TemplateId: not null }) return new(setup?.State ?? "Pending", projectId, null, setup?.ErrorCode);
+            template = await db.ComputeTemplates.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId && x.TemplateId == setup.TemplateId, token);
+        }
+        else
+        {
+            var held = await db.ComputeEnvironments.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
+                    x.InstallationId == installationId && x.WorkstreamId == projectId && x.TeardownConfirmedAt == null &&
+                    x.ProviderId == OfficeComputePlacement.ProviderId)
+                .OrderBy(x => x.CreatedAt).Select(x => new { x.ProviderNodeId, x.SpecificationJson }).FirstOrDefaultAsync(token);
+            var heldTemplate = held is null ? null : JsonSerializer.Deserialize<ComputeSpecification>(held.SpecificationJson, ComputeProtocol.Json)?.TemplateId;
+            template = (await OfficeComputePlacement.FindAsync(db, organizationId, clock.GetUtcNow(), token,
+                heldTemplate, held?.ProviderNodeId))?.Template;
+            if (template is null) return new("Pending", projectId, null, OfficeComputeCapacityRequest.WaitingReason);
+        }
         if (template is null || JsonSerializer.Deserialize<ComputeTemplate>(template.TemplateJson, ComputeProtocol.Json)?.Features.Contains("docker") != true)
             return new("Pending", projectId, null, "docker_preparation_pending");
         await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(token) : null;
@@ -121,7 +135,7 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
         await RequireProjectAsync(organizationId, installationId, actor.Id, projectId, token);
         var lifetime = configuration?.GetValue<int?>("CSweet:Compute:Defaults:MaximumLifetimeSeconds") ?? 0;
         if (lifetime < 0) throw new InvalidOperationException("Compute maximum lifetime must be zero (until released) or positive.");
-        var constraints = new ComputeGrantConstraints(1, new(2, 2048, 20480), 1, lifetime, ["linux"], ["x64"], [setup.TemplateId], AllowedPublishedPorts: [8080]);
+        var constraints = new ComputeGrantConstraints(1, new(2, 2048, 20480), 1, lifetime, ["linux"], ["x64"], [template.TemplateId], AllowedPublishedPorts: [8080]);
         foreach (var action in Actions.Where(approved.Contains))
         {
             var id = StableId($"project-compute:{projectId:D}:{installationId:D}:{action}");
@@ -130,11 +144,12 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
         }
         if (transaction is not null) await transaction.CommitAsync(token);
         var definition = JsonSerializer.Deserialize<ComputeTemplate>(template.TemplateJson, ComputeProtocol.Json)!;
-        return new("Ready", projectId, setup.TemplateId, null)
+        return new("Ready", projectId, template.TemplateId, null)
         {
             Features = definition.Features.Order(StringComparer.Ordinal).ToArray(),
             CachedImages = definition.Features.Contains("docker-apps-v1") ? ["csweet/python:3.12", "csweet/node:22"] : [],
-            LinkReachability = "local-machine", MaximumLifetimeSeconds = lifetime
+            LinkReachability = OfficeComputePlacement.IsOfficeTemplate(template.TemplateId) ? "unavailable" : "local-machine",
+            MaximumLifetimeSeconds = lifetime
         };
     }
 

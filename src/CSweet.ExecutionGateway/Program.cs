@@ -15,6 +15,7 @@ builder.WebHost.ConfigureKestrel(kestrel => kestrel.ConfigureHttpsDefaults(https
 }));
 builder.AddServiceDefaults();
 builder.AddCSweetInfrastructure();
+builder.Services.Configure<CSweet.Infrastructure.Compute.OfficeComputeCatalogOptions>(builder.Configuration.GetSection("CSweet:OfficeCompute"));
 builder.Services.AddOptions<CSweet.Infrastructure.SourceControl.WorkspaceSyncTransferOptions>()
     .ValidateOnStart();
 builder.Services.AddComputeProviderIngress();

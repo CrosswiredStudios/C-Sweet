@@ -20,15 +20,28 @@ public sealed class ComputeRegistry(CSweetDbContext db, TimeProvider clock, IAud
         return node is null ? null : new(node.KeyId, organizationId, node.Id, node.ProviderId, node.VerificationPublicKeyBase64);
     }
 
-    public async Task<RegisteredComputeTemplate?> ResolveAsync(Guid organizationId, string templateId, CancellationToken token)
+    public Task<RegisteredComputeTemplate?> ResolveAsync(Guid organizationId, ComputeSpecification request, CancellationToken token) =>
+        ResolveAsync(organizationId, request.TemplateId, request.Resources, token);
+
+    public Task<RegisteredComputeTemplate?> ResolveAsync(Guid organizationId, string templateId, CancellationToken token) =>
+        ResolveAsync(organizationId, templateId, OfficeComputePlacement.WorkspaceResources, token);
+
+    private async Task<RegisteredComputeTemplate?> ResolveAsync(Guid organizationId, string templateId, ComputeResources resources, CancellationToken token)
     {
+        if (OfficeComputePlacement.IsOfficeTemplate(templateId))
+        {
+            var placement = await OfficeComputePlacement.FindAsync(db, organizationId, clock.GetUtcNow(), token, templateId, requested: resources);
+            if (placement is not { } office) return null;
+            var image = JsonSerializer.Deserialize<ComputeTemplate>(office.Template.TemplateJson, ComputeBroker.Json);
+            return image is { Enabled: true } ? new(image, office.Node.ProviderId, office.Node.Id) : null;
+        }
         var template = await db.ComputeTemplates.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
             x.TemplateId == templateId && x.Enabled, token);
         if (template is null) return null;
         var node = await (from placement in db.ComputeTemplatePlacements.AsNoTracking()
             join candidate in db.ComputeNodes.AsNoTracking() on placement.NodeId equals candidate.Id
             where placement.TemplateRegistrationId == template.Id && placement.OrganizationId == organizationId &&
-                placement.Enabled && candidate.Enabled && candidate.OrganizationId == organizationId
+                placement.Enabled && candidate.Enabled && candidate.OrganizationId == organizationId && candidate.ProviderId != OfficeComputePlacement.ProviderId
             orderby candidate.Id
             select candidate).FirstOrDefaultAsync(token);
         if (node is null) return null;

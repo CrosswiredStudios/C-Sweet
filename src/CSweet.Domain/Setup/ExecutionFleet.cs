@@ -97,6 +97,8 @@ public sealed class ExecutionNode
     public DateTimeOffset? CertificateExpiresAt { get; set; }
     public string CertificateSigningRequestPem { get; set; } = string.Empty;
     public string? IssuedCertificateBase64 { get; set; }
+    public string? ComputeTemplateId { get; set; }
+    public string? ComputeCapacityJson { get; set; }
     public string LabelsJson { get; set; } = "{}";
     public int AllocatableCpuCount { get; set; }
     public int AllocatableMemoryMb { get; set; }

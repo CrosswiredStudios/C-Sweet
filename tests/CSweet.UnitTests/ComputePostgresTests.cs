@@ -19,6 +19,15 @@ namespace CSweet.UnitTests;
 // and removes its own database; no existing database is migrated or cleared.
 public sealed class ComputePostgresTests
 {
+    [PostgresTheory, Trait("Category", "AgentHarness")]
+    [InlineData("office-hyperv")]
+    public async Task Hired_employee_replays_office_placement_with_relational_capacity_and_scope_filters(string provider)
+    {
+        Assert.Equal(OfficeComputePlacement.ProviderId, provider);
+        await using var database = new Database();
+        await database.CreateAsync();
+        await AgentRuntimeManagerTests.VerifyHiredOfficePlacementAsync(new ComputeBrokerTests.Fixture(database.Options()));
+    }
     [PostgresTheory]
     [InlineData(0)]
     [InlineData(600)]

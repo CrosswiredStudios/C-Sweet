@@ -17,7 +17,30 @@ public sealed class ComputeDispatchAuthorizer(CSweetDbContext db, ComputeBroker 
     internal Task<ComputeDispatchPacket?> ClaimForNodeAsync(Guid operationId, ComputeProviderWorkRequest node, CancellationToken token) =>
         ClaimCoreAsync(operationId, node, token);
 
-    private async Task<ComputeDispatchPacket?> ClaimCoreAsync(Guid operationId, ComputeProviderWorkRequest? requestingNode, CancellationToken token)
+    public async Task<ComputeDispatchPacket?> ClaimOfficeWorkAsync(Guid officeId, IComputeDispatchSigner officeSigner, CancellationToken token)
+    {
+        var now = clock.GetUtcNow();
+        var due = await (from operation in db.ComputeOperations.AsNoTracking()
+                         join environment in db.ComputeEnvironments.AsNoTracking() on operation.EnvironmentId equals environment.Id
+                         where environment.ProviderNodeId == officeId && environment.ProviderId == OfficeComputePlacement.ProviderId &&
+                             environment.OrganizationId == operation.OrganizationId && environment.Generation == operation.Generation &&
+                             environment.TeardownConfirmedAt == null && operation.NextAttemptAt <= now &&
+                             (operation.Status == "Pending" || operation.Status == "Dispatching" || operation.Status == "Reconciling") &&
+                             (operation.DispatchLeaseExpiresAt == null || operation.DispatchLeaseExpiresAt <= now)
+                         orderby operation.NextAttemptAt, operation.Id
+                         select new { operation.Id, environment.OrganizationId }).Take(8).ToArrayAsync(token);
+        foreach (var item in due)
+        {
+            var scope = new ComputeProviderWorkRequest(item.OrganizationId, officeId, OfficeComputePlacement.ProviderId,
+                Guid.NewGuid(), now, now.AddMinutes(1), item.Id);
+            var packet = await ClaimCoreAsync(item.Id, scope, token, officeSigner);
+            if (packet is not null) return packet;
+        }
+        return null;
+    }
+
+    private async Task<ComputeDispatchPacket?> ClaimCoreAsync(Guid operationId, ComputeProviderWorkRequest? requestingNode,
+        CancellationToken token, IComputeDispatchSigner? officeSigner = null)
     {
         try
         {
@@ -28,6 +51,7 @@ public sealed class ComputeDispatchAuthorizer(CSweetDbContext db, ComputeBroker 
             if (operation is null || operation.Status is not ("Pending" or "Dispatching" or "Reconciling") ||
                 operation.NextAttemptAt > now || operation.DispatchLeaseExpiresAt > now) return null;
             var environment = await db.ComputeEnvironments.SingleAsync(x => x.Id == operation.EnvironmentId, token);
+            if ((environment.ProviderId == OfficeComputePlacement.ProviderId) != (officeSigner is not null)) return null;
             if (requestingNode is not null && (environment.OrganizationId != requestingNode.OrganizationId ||
                 environment.ProviderNodeId != requestingNode.NodeId || environment.ProviderId != requestingNode.ProviderId))
                 throw new UnauthorizedAccessException("The operation belongs to another provider placement.");
@@ -47,6 +71,10 @@ public sealed class ComputeDispatchAuthorizer(CSweetDbContext db, ComputeBroker 
                     ?? throw new UnauthorizedAccessException();
                 if (!spec.IsValid || operation.OrganizationId != environment.OrganizationId || operation.InstallationId != environment.InstallationId)
                     throw new UnauthorizedAccessException();
+                if (officeSigner is not null && mode == ComputeDispatchMode.Execute &&
+                    operation.Action is not (InfrastructureActions.Stop or InfrastructureActions.Destroy) &&
+                    await OfficeComputePlacement.FindAsync(db, environment.OrganizationId, now, token, spec.TemplateId, node.Id) is null)
+                    return null;
                 // Only immutable input transfer can resume physical effects in observation mode.
                 // It rechecks every recorded grant and verifies existing bytes before continuing.
                 var resumableInput = operation.WorkloadJson is not null &&
@@ -132,7 +160,7 @@ public sealed class ComputeDispatchAuthorizer(CSweetDbContext db, ComputeBroker 
                 environment.InstallationId, node.Id, node.ProviderId, environment.Generation, operation.Action, mode,
                 ComputeBroker.Digest(environment.SpecificationJson), template is null ? null : ComputeBroker.Digest(operation.TemplateJson),
                 environment.ProviderResourceId, now, expires, environment.LeaseExpiresAt, authority, workload is null ? null : ComputeBroker.Digest(JsonSerializer.Serialize(workload, ComputeBroker.Json)));
-            var signed = await signer.SignAsync(authorization, token);
+            var signed = await (officeSigner ?? signer).SignAsync(authorization, token);
             var dispatchLease = workload?.BuildArchive is not null ? now.AddMinutes(3) : workload?.NodeDependencies is null ? expires : now.AddMinutes(8);
             // Teardown remains authorized after the resource lease expires. Keep
             // its exclusive dispatch claim live until the signed packet expires.

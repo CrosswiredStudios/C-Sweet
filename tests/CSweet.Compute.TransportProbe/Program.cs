@@ -11,6 +11,23 @@ using CSweet.Isolation.HyperV;
 // One-shot hardware experiment. The receiver has no listener and accepts only its own test packets.
 // The production release pipeline supplies image certification separately.
 if (!OperatingSystem.IsWindows()) return 2;
+// Independent witness for an environment already created by the installed Office.
+// The acceptance harness resolves the exact Hyper-V ID from the HQ environment ID.
+if (args is ["check-office-guest", var physical] && Guid.TryParseExact(physical, "D", out var physicalId) && physicalId != Guid.Empty)
+{
+    using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+    var socket = new WindowsHyperVSocketTransport(new() { LinuxVsockPort = ComputeGuestWire.Port });
+    Task<Stream> Connect(CancellationToken ct) => socket.ConnectAsync(physicalId, ct);
+    if (!await ComputeGuestReadiness.ProbeAsync(Connect, "linux", "x64", deadline.Token)) return 1;
+    var marker = Guid.NewGuid().ToString("N");
+    var command = new ComputeGuestCommand(Guid.NewGuid(), "/usr/bin/python3", "/tmp",
+        ["-c", "import sys,tempfile; f=tempfile.TemporaryFile(); f.write(sys.argv[1].encode()); f.seek(0); print(f.read().decode())", marker],
+        10, 1024);
+    var receipt = await ComputeGuestCommandClient.ExecuteAsync(Connect, command, "linux", deadline.Token);
+    if (receipt.ExitCode != 0 || Encoding.UTF8.GetString(receipt.StandardOutput).TrimEnd('\r', '\n') != marker) return 1;
+    Console.WriteLine($"Linux guest {physicalId:D} executed the file round trip.");
+    return 0;
+}
 if (args is ["observe", var retainedId] && Guid.TryParseExact(retainedId, "N", out var retained))
 {
     var path = ProbeRoot(retained);

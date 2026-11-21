@@ -2295,7 +2295,8 @@ public sealed partial class ExecutionFleetService(
         if (node is null || !string.Equals(node.OperatingSystem, "windows", StringComparison.OrdinalIgnoreCase) ||
             node.Status != ExecutionNodeStatus.Draining || node.ApprovedAt is null || node.RevokedAt is not null ||
             node.CertificateExpiresAt is null || node.CertificateExpiresAt <= now || node.LastHeartbeatAt is null || node.LastHeartbeatAt < now.AddSeconds(-30)) return false;
-        return !await dbContext.ExecutionAssignmentAttempts.AnyAsync(x => x.ExecutionNodeId == officeId && x.StoppedAt == null, cancellationToken) &&
+        return !await HasUnsettledOfficeComputeAsync(officeId, cancellationToken) &&
+            !await dbContext.ExecutionAssignmentAttempts.AnyAsync(x => x.ExecutionNodeId == officeId && x.StoppedAt == null, cancellationToken) &&
             !await dbContext.ExecutionWorkloadAssignments.AnyAsync(x => x.ExecutionNodeId == officeId &&
             (x.Status == ExecutionAssignmentStatus.Pending || x.Status == ExecutionAssignmentStatus.Assigned ||
              x.Status == ExecutionAssignmentStatus.Starting || x.Status == ExecutionAssignmentStatus.Running ||

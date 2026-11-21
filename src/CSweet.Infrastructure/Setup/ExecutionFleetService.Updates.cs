@@ -314,10 +314,21 @@ public sealed partial class ExecutionFleetService
         CapacityQualifies(office, ExecutionWorkloadKind.Runtime);
 
     private async Task<bool> UpdateJobsStoppedAsync(LocalOfficeSetupSession session, CancellationToken ct) =>
+        !await HasUnsettledOfficeComputeAsync(session.UpgradeOfficeId, ct) &&
         !await dbContext.ExecutionAssignmentAttempts.AnyAsync(x => x.ExecutionNodeId == session.UpgradeOfficeId && x.StoppedAt == null, ct) &&
         !await dbContext.ExecutionWorkloadAssignments.AnyAsync(x => x.ExecutionNodeId == session.UpgradeOfficeId &&
             (x.Status == ExecutionAssignmentStatus.Pending || x.Status == ExecutionAssignmentStatus.Assigned || x.Status == ExecutionAssignmentStatus.Starting ||
              x.Status == ExecutionAssignmentStatus.Running || x.Status == ExecutionAssignmentStatus.Stopping), ct);
+
+    // Running Linux VMs retain their versioned parent disk when the Windows services restart.
+    // Wait for the physical receipt of work that already crossed the dispatch boundary.
+    private Task<bool> HasUnsettledOfficeComputeAsync(Guid? officeId, CancellationToken ct) =>
+        (from operation in dbContext.ComputeOperations.AsNoTracking()
+         join environment in dbContext.ComputeEnvironments on operation.EnvironmentId equals environment.Id
+         where environment.ProviderNodeId == officeId && environment.ProviderId == Compute.OfficeComputePlacement.ProviderId &&
+             environment.TeardownConfirmedAt == null && operation.Generation == environment.Generation &&
+             (operation.Status == "Dispatching" || operation.Status == "Reconciling")
+         select operation.Id).AnyAsync(ct);
 
     private async Task RecoverOfficeUpdateJobsAsync(LocalOfficeSetupSession session, CancellationToken ct)
     {
