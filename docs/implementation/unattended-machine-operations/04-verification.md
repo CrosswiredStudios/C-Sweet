@@ -25,6 +25,14 @@ and counts one create. A separate test reopens the RuntimeHost journal and check
 lost-response boundaries. All 290 Office tests passed with the packaged Contracts dependency.
 The physical probe above and these tests do not yet exercise a hired agent on that transport.
 
+Office commit `629ec54` also exercises redelivery through a fresh named-pipe client.
+Three cases initially failed when the original signed create reached an Office that
+had already recorded the attempt. On redelivery, the receiver now returns the
+observation response path for a matching live attempt. The client recovers the
+original handle, and the backend create count stays at one. The two receiver-restart
+cases cover loss on either side of the helper response. All 292 Office tests passed
+against packaged Contracts 0.13.0. The restart cases used an in-memory backend.
+
 Windows Installer also extracted the signed Office development MSI and its fourteen external
 cabinets with `msiexec /a`. Reassembling the thirteen image parts produced 6,937,378,816 bytes
 with SHA-256 `134492eef35949020d61abb289087e40282d40333e9a179cdbc49fc617faadd4`,
@@ -124,6 +132,15 @@ copy of the release downloader to read the local MSI layout. Release selection,
 publisher verification, installation and Headquarters communication ran against the
 real signed packages and enrolled Office. GitHub delivery and drain with an active
 workload need separate runs.
+
+Office commit `70489e0` keeps existing assignment activity markers visible while
+Node recovers its identity at startup. After reading its assignment journal,
+Node publishes outstanding assignment markers before removing stale ones.
+`InterruptedEnrollmentKeepsRetainedAssignmentVisibleToMaintenance` starts a new
+Office worker over retained state, interrupts enrollment and checks that the
+previously active assignment still blocks maintenance. All 292 Office tests
+passed with the packaged Contracts 0.13.0 dependency. The combined 0.0.5 test
+installer predates this change.
 
 The Headquarters `Hired_agent_waits_for_office_capacity_across_restart_without_local_setup`
 regression reopens the platform state, queues the same hired installation, and redelivers
