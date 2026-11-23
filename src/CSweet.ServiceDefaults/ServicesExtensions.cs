@@ -22,6 +22,7 @@ public static class ServicesExtensions
             var settings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
                 "CSweet", "Provisioning", builder.Environment.ApplicationName + ".json");
             builder.Configuration.AddJsonFile(settings, optional: true, reloadOnChange: false);
+            WindowsHeadquartersSettings.Apply(builder.Configuration, Path.ChangeExtension(settings, "defaults.json"));
             if (builder.Environment.ApplicationName == "CSweet.ExecutionGateway")
                 builder.Configuration.AddJsonFile(Path.Combine(Path.GetDirectoryName(settings)!, "combined-office-compute.json"),
                     optional: true, reloadOnChange: false);

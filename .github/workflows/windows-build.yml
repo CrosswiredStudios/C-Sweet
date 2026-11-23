@@ -39,6 +39,9 @@ jobs:
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           global-json-file: global.json
+      - name: Test Windows Installer service settings
+        shell: powershell
+        run: ./scripts/tests/Test-HeadquartersServiceSettings.ps1
       - name: Build Windows distribution
         env:
           REQUESTED_VERSION: ${{ inputs.version }}

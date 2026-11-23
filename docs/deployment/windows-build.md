@@ -94,6 +94,15 @@ gateway TLS and its assignment-signing key. For combined enrollment, `office.jso
 must contain the gateway HTTPS `controlPlaneUrl`, its lowercase
 `controlPlaneCertificateSha256`, and positive integer `allocatableCpuCount`,
 `allocatableMemoryMb`, `allocatableDiskMb` and `maximumConcurrentWorkloads`.
+For a single-machine MSI install, setup generates separate random keys for source-control
+services and the agent workspace broker. GitHost listens on loopback port 56173 and
+SourceControlProvisionerHost on 56172 by default. AgentHost can discover the API broker
+from a single loopback API endpoint in the API profile. For multiple endpoints or
+distributed services, supply the internal addresses and matching credentials in the
+participating service profiles. Explicit settings take precedence. Repair and upgrade
+reuse the keys in the administrator-only `local-service-keys.json`. Include this file
+in the same protected backup as the service profiles.
+
 The Migrator issues a normal one-use enrollment through Headquarters. The Office
 installer consumes it from protected machine storage. Headquarters automatically approves
 that enrollment when the local Office passes provider qualification. Remote enrollment

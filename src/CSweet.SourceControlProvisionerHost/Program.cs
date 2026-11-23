@@ -4,6 +4,9 @@ using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
+var trustedKeyFile = builder.Configuration["TrustedServiceAuthentication:KeyFile"];
+if (string.IsNullOrWhiteSpace(builder.Configuration["TrustedServiceAuthentication:SharedKeyBase64"]) && !string.IsNullOrWhiteSpace(trustedKeyFile))
+    builder.Configuration["TrustedServiceAuthentication:SharedKeyBase64"] = TrustedServiceKeyFile.Read(trustedKeyFile);
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddTrustedServiceAuthentication(builder.Configuration);
 builder.Services.AddGitHubAppClient(builder.Configuration);
