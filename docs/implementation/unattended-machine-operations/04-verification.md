@@ -9,6 +9,8 @@ builds used. Record results in the last column when a scenario is run.
 
 On 2026-11-23, the clean Windows Server 2025 VM installed Headquarters `de780b32` and Office `68fe296` (0.17.2) from the development-signed combined installer. Windows event 4688 matched the original unelevated process by PID and DVD device path and recorded one consent process during installation. The installer exited with code 0. All six long-running Headquarters services and the three Office services were running. The combined installer reserved the Linux workspace image `sha256:db90e4beb68deaf957becd5592a8a2b67d3477b3cfa5b1a5eb68192ab3248d19` for the test business.
 
+At 22:07 UTC on the same installation, Headquarters reported one enrolled Windows Office with a fresh heartbeat. The Hyper-V provider was available for builder and runtime workloads, and its image matched both deployment pins. The `launch-gate` check failed because `CSweet:ExecutionFleet:PublicLaunchEnabled` was off. `POST /api/setup/steps/agent-execution/complete` returned HTTP 400 before the test reached reboot or hire. The installer passed its one-prompt check. This run produced no workspace or post-reboot consent count.
+
 The 2026-11-23 fresh-install run on Windows Server 2025 used Headquarters `de780b32`,
 Office `4f8cb4a` (0.17.1) and the development-signed combined bundle. All six
 long-running Headquarters services started, including GitHost and SourceControlProvisionerHost.
