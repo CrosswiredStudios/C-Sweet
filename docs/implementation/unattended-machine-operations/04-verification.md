@@ -15,6 +15,12 @@ service account with its service SID enabled. RuntimeHost was stopped and the Of
 Node service was absent. The installer had not exited at the time of inspection.
 This run has no completed installation consent count or post-reboot hire result.
 
+The Office installer pipeline thread was blocked in PowerShell's
+`ConsoleControl.WriteConsole` after `sc.exe sidtype` succeeded. Office commit `68fe296`
+suppresses native tool console output during unattended setup. Its Windows PowerShell 5.1
+regression checked both successful service queries and Windows error 1060 with console
+writes blocked. The independent Office test suite passed all 293 cases.
+
 The Game Engineer and Software Developer regression `Hired_developer_prepares_one_authorized_project_workspace_after_restart` passed both replay orderings in each agent. The Headquarters regression `Hired_employee_replays_office_availability_and_only_the_assigned_office_claims_the_vm` exercised the durable hire, wake and signed lease. Its PostgreSQL counterpart also exercised the relational scope and capacity filters.
 
 In `Hired_developer_consumes_the_Headquarters_wake_and_claims_one_Office_workspace`, each real developer agent consumed the Headquarters outbox event through a fresh agent host. Both cases passed. Each agent used the SDK and the production compute capability handler to request its environment, wrote its workspace state once across replay, and produced one operation that only the assigned Office could claim. V1b's post-reboot hire with Office 0.17.0 still needs a physical run. [Acceptance setup and script](07-windows-compute.md)
