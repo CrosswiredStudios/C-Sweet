@@ -1,4 +1,5 @@
-# Run inside the disposable Windows Office through PowerShell Direct. Prepare before reboot.
+# Prepare before reboot. Run the hire from a noninteractive batch or service session.
+# Opening PowerShell Direct after boot can itself record an interactive Windows logon.
 [CmdletBinding(DefaultParameterSetName='Run')]
 param(
     [Parameter(Mandatory, ParameterSetName='Prepare')][switch] $Prepare,
@@ -17,14 +18,44 @@ $ErrorActionPreference = 'Stop'
 if ((Get-CimInstance Win32_ComputerSystem).Model -ne 'Virtual Machine') { throw 'A dedicated Hyper-V lab guest is required.' }
 $boot = (Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime()
 $subcategories = @('{0CCE9215-69AE-11D9-BED3-505054503030}', '{0CCE922B-69AE-11D9-BED3-505054503030}')
+if (-not ('CSweetAcceptance.HireAuditPolicy' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+namespace CSweetAcceptance {
+    public static class HireAuditPolicy {
+        [StructLayout(LayoutKind.Sequential)]
+        private struct Policy { public Guid Subcategory; public uint Flags; public Guid Category; }
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.U1)]
+        private static extern bool AuditQuerySystemPolicy(ref Guid subcategory, uint count, out IntPtr buffer);
+
+        [DllImport("advapi32.dll")]
+        private static extern void AuditFree(IntPtr buffer);
+
+        public static bool RecordsSuccess(Guid id) {
+            IntPtr buffer;
+            if (!AuditQuerySystemPolicy(ref id, 1, out buffer))
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            try {
+                var policy = (Policy)Marshal.PtrToStructure(buffer, typeof(Policy));
+                return policy.Subcategory == id && (policy.Flags & 1) != 0;
+            } finally { AuditFree(buffer); }
+        }
+    }
+}
+'@
+}
 foreach ($id in $subcategories) {
     if ($Prepare) {
         & auditpol.exe /set "/subcategory:$id" /success:enable | Out-Null
         if ($LASTEXITCODE) { throw 'Unable to enable logon and process auditing in the guest.' }
     }
-    $row = & auditpol.exe /get "/subcategory:$id" /r | ConvertFrom-Csv
-    if ($LASTEXITCODE -or @($row).Count -ne 1 -or [int](@($row.PSObject.Properties.Value)[-1]) -notin 1,3) {
-        throw 'Logon and process success auditing must both be active.'
+    if (-not [CSweetAcceptance.HireAuditPolicy]::RecordsSuccess([guid]$id)) {
+        throw "Windows success auditing is disabled for $id."
     }
 }
 if ($Prepare) { return $boot }
@@ -53,7 +84,7 @@ function Assert-UnattendedBoot {
         }
         if ($event.Id -eq 4624) {
             $logons++
-            if ($fields.LogonType -in '2','7','10','11','12','13' -and $fields.TargetUserName -notmatch '^(DWM|UMFD)-\d+$') {
+            if ($fields.LogonType -in '2','7','10','11','12','13' -and $fields.TargetUserSid -notmatch '^S-1-5-(18$|19$|20$|90-|96-)') {
                 throw 'An interactive user signed in after reboot.'
             }
         }
