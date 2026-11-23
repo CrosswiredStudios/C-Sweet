@@ -10,7 +10,9 @@ public sealed record AuthStatusResponse(
     bool EmailRecoveryAvailable,
     string? AntiforgeryToken = null,
     string? PreferredLanguage = null,
-    string? TimeZoneId = null);
+    string? TimeZoneId = null,
+    bool HostedWebSignIn = false,
+    bool HostedOfficesReviewed = false);
 
 /// <summary>
 /// Choices shown before the first administrator exists. Read from local configuration only:

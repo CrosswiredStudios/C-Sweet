@@ -1,0 +1,8 @@
+.office-overview { max-width: 64rem; margin: 2rem auto; padding: 0 1.25rem; }
+.office-overview h1 { font-size: 2rem; font-weight: 650; }
+.office-overview h2 { font-size: 1.3rem; font-weight: 600; }
+.office-overview p, .office-overview dl, .office-overview ul { margin: .75rem 0 1rem; }
+.office-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: 1rem; margin: 1.5rem 0; }
+.office-groups section { padding: 1.35rem; border: 1px solid var(--mud-palette-divider); border-radius: .75rem; background: var(--mud-palette-surface); }
+.office-groups dd { margin: 0 0 .5rem; }
+.office-actions { display: flex; justify-content: flex-end; gap: .75rem; margin: 1rem 0; }

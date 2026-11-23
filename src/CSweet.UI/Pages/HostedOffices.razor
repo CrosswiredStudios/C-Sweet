@@ -1,0 +1,125 @@
+@page "/offices"
+@using CSweet.Contracts.Setup
+@inject HttpClient Http
+@inject ISetupApiClient SetupApi
+@inject NavigationManager Navigation
+@implements IDisposable
+<PageTitle>Your offices · C-Sweet</PageTitle>
+
+<main class="office-overview">
+    <h1>Your offices</h1>
+    <p>Your Headquarters can use hosted Offices and computers you manage together. Add more here or anytime from the dashboard.</p>
+    @if (_error is not null)
+    {
+        <p role="alert">@_error</p>
+    }
+    @if (_overview?.PlanError == "signin")
+    {
+        <a href="/api/auth/account/start" data-enhance-nav="false">Continue with C-Sweet to check your plan</a>
+    }
+    else if (_overview?.PlanError is not null)
+    {
+        <p role="status">Your purchased capacity is temporarily unavailable.</p>
+    }
+    <div class="office-groups">
+        <section>
+            <h2>Hosted Offices</h2>
+            @if (_overview?.Plan is { } plan)
+            {
+                @if (plan.Standard + plan.Team == 0) { <p>No hosted Offices on this plan yet.</p> }
+                else
+                {
+                    <dl><dt>Standard Offices</dt><dd>@plan.Standard purchased</dd><dt>Team Offices</dt><dd>@plan.Team purchased</dd></dl>
+                    <p>Provisioning status is unavailable for these purchases.</p>
+                }
+            }
+            else { <p>Checking your plan</p> }
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(!CanManage)" Href="@ManageLink("hosted")">Add hosted Offices</MudButton>
+        </section>
+        <section>
+            <h2>Your devices</h2>
+            @if (_fleet is not null)
+            {
+                @if (Devices.Any())
+                {
+                    <ul>@foreach (var node in Devices) { <li><strong>@node.Name</strong> · @node.Status</li> }</ul>
+                }
+                else { <p>No devices connected yet.</p> }
+                @if (_overview?.Plan is not null) { <p>@SlotDescription</p> }
+            }
+            else { <p>Checking connected devices</p> }
+            @if (CanManage && _fleet is not null && (FreeSlots > 0 || _fleet.ActiveEnrollment is not null))
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="Pair">Connect a device</MudButton>
+            }
+            else
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(!CanManage)" Href="@ManageLink("devices")">Connect a device</MudButton>
+            }
+        </section>
+    </div>
+    @if (_pairing)
+    {
+        <AgentHostOnboardingStep RemoteOnly="true" OnBack="EndPairing" OnContinue="EndPairing" />
+    }
+    <div class="office-actions">
+        <MudButton Variant="Variant.Text" OnClick="RefreshAsync" Disabled="@_loading">Refresh</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ContinueAsync" Disabled="@(_overview is null || _continuing)">Continue to dashboard</MudButton>
+    </div>
+</main>
+
+@code {
+    private HostedOfficeOverview? _overview;
+    private ExecutionCapacityOnboardingResponse? _fleet;
+    private readonly CancellationTokenSource _stop = new();
+    private string? _error;
+    private bool _loading, _continuing, _pairing;
+    private IEnumerable<ExecutionNodeSummaryResponse> Devices => _fleet?.Nodes.Where(n => n.Status != "revoked") ?? [];
+    private bool CanManage => _overview?.Plan?.CanManage == true;
+    private int FreeSlots => Math.Max(0, (_overview?.Plan?.Linked ?? 0) - Devices.Count());
+    private string SlotDescription => FreeSlots == 1 ? "1 unused device slot" : $"{FreeSlots} unused device slots";
+    private string? ManageLink(string kind) => CanManage ? _overview!.ManageUrl + "?kind=" + kind : null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        _ = PollAsync();
+    }
+
+    private async Task PollAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(20));
+        try { while (await timer.WaitForNextTickAsync(_stop.Token)) await InvokeAsync(RefreshAsync); }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_loading) return;
+        _loading = true;
+        try
+        {
+            _error = null;
+            _overview = await Http.GetFromJsonAsync<HostedOfficeOverview>("api/setup/hosted-offices", _stop.Token);
+            _fleet = await SetupApi.GetExecutionCapacityStatusAsync();
+        }
+        catch (Exception) when (!_stop.IsCancellationRequested) { _error = "Could not refresh your Office inventory. Please retry."; }
+        finally { _loading = false; if (!_stop.IsCancellationRequested) StateHasChanged(); }
+    }
+
+    private void Pair() => _pairing = true;
+    private async Task EndPairing() { _pairing = false; await RefreshAsync(); }
+    private async Task ContinueAsync()
+    {
+        _continuing = true;
+        try
+        {
+            using var result = await Http.PostAsync("api/setup/hosted-offices/continue", null);
+            result.EnsureSuccessStatusCode();
+            Navigation.NavigateTo("/", forceLoad: true);
+        }
+        catch (HttpRequestException) { _error = "Your progress could not be saved. Please retry."; }
+        finally { _continuing = false; }
+    }
+    public void Dispose() => _stop.Cancel();
+}

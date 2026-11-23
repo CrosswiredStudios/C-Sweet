@@ -22,7 +22,11 @@ public static class AuthenticationEndpoints
         {
             var userId = principal.GetApplicationUserId();
             var token = userId.HasValue ? antiforgery.GetAndStoreTokens(context).RequestToken : null;
-            return Results.Ok(await service.GetStatusAsync(userId, token, cancellationToken));
+            var status = await service.GetStatusAsync(userId, token, cancellationToken);
+            if (context.RequestServices.GetService<HostedWebTenant>() is null) return Results.Ok(status);
+            var reviewed = userId.HasValue && await CSweet.Api.Setup.HostedOfficeEndpoints.ReviewedAsync(
+                context.RequestServices.GetRequiredService<CSweet.Infrastructure.Persistence.CSweetDbContext>(), cancellationToken);
+            return Results.Ok(status with { HostedWebSignIn = true, HostedOfficesReviewed = reviewed });
         }).AllowAnonymous();
 
         // First-run hosting choice (Hosted or Private). Local configuration only; no outbound calls.

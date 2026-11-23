@@ -19,6 +19,11 @@
     {
         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">@L["Login.Reason.Expired"]</MudAlert>
     }
+    @if (Reason == "account")
+    {
+        <MudAlert Severity="Severity.Warning">C-Sweet could not sign you in to this Headquarters. Check that you are using its purchasing account or an invited account.</MudAlert>
+        <MudButton Href="/api/auth/account/start" ForceLoad="true">Continue with C-Sweet</MudButton>
+    }
     <EditForm Model="_model" OnValidSubmit="LoginAsync" Class="auth-form">
         <DataAnnotationsValidator />
         <MudTextField Label="@L["Login.Email"]" InputType="InputType.Email" @bind-Value="_model.Email" For="@(() => _model.Email)" Variant="Variant.Outlined" Required="true" />

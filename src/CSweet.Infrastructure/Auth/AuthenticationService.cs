@@ -159,7 +159,7 @@ public sealed class AuthenticationService : IAuthenticationService
                     });
                     await _dbContext.SaveChangesAsync(token);
                     return IdentityResult.Success;
-                });
+                }, passwordless: link.Passwordless);
 
                 if (result.Succeeded && transaction is not null)
                 {
@@ -266,7 +266,7 @@ public sealed class AuthenticationService : IAuthenticationService
     private async Task<AuthActionResponse> RegisterCoreAsync(
         RegisterAdminRequest request,
         CancellationToken cancellationToken,
-        Func<ApplicationUser, CancellationToken, Task<IdentityResult>>? afterCreate = null)
+        Func<ApplicationUser, CancellationToken, Task<IdentityResult>>? afterCreate = null, bool passwordless = false)
     {
         var displayName = request.DisplayName.Trim();
         if (string.IsNullOrWhiteSpace(displayName) || displayName.Length > 160)
@@ -301,7 +301,7 @@ public sealed class AuthenticationService : IAuthenticationService
         IdentityResult created;
         try
         {
-            created = await _userManager.CreateAsync(user, request.Password);
+            created = passwordless ? await _userManager.CreateAsync(user) : await _userManager.CreateAsync(user, request.Password);
         }
         catch (DbUpdateException)
         {
@@ -330,8 +330,8 @@ public sealed class AuthenticationService : IAuthenticationService
             }
         }
 
-        var recoveryCodes = await ReplaceRecoveryCodesAsync(user, cancellationToken);
-        await _signInManager.SignInAsync(user, isPersistent: false);
+        var recoveryCodes = passwordless ? Array.Empty<string>() : await ReplaceRecoveryCodesAsync(user, cancellationToken);
+        if (!passwordless) await _signInManager.SignInAsync(user, isPersistent: false);
 
         await _auditWriter.WriteAsync(
             "authentication.admin_registered",

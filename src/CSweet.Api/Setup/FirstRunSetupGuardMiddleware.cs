@@ -40,7 +40,8 @@ public sealed class FirstRunSetupGuardMiddleware
 
         var status = await setupService.GetStatusAsync(context.RequestAborted);
 
-        if (status.IsFirstRunComplete)
+        if (status.IsFirstRunComplete || (context.RequestServices.GetService<CSweet.Api.Auth.HostedWebTenant>() is not null &&
+            await HostedOfficeEndpoints.ReviewedAsync(context.RequestServices.GetRequiredService<CSweet.Infrastructure.Persistence.CSweetDbContext>(), context.RequestAborted)))
         {
             await _next(context);
             return;

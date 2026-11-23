@@ -77,6 +77,14 @@
             return;
         }
 
+        if (auth.HostedWebSignIn && !auth.IsAuthenticated)
+        {
+            // Keep recovery and explicit sign-in errors reachable. Normal workspace navigation uses SSO.
+            if (!isPublicAccountRoute || path.Equals("login", StringComparison.OrdinalIgnoreCase))
+                Navigation.NavigateTo("/api/auth/account/start", forceLoad: true);
+            return;
+        }
+
         if (auth.RegistrationOpen)
         {
             RedirectUnless(path, "register", "/register");
@@ -98,6 +106,11 @@
             return;
         }
 
+        if (auth.HostedWebSignIn)
+        {
+            if (!auth.HostedOfficesReviewed) RedirectUnless(path, "offices", "/offices");
+            return;
+        }
         try
         {
             var status = await Http.GetFromJsonAsync<SetupStatusResponse>("api/setup/status", cancellationToken);
