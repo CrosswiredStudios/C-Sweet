@@ -162,7 +162,10 @@ public sealed class OverviewQuestionAnswerTests
                 .Invoke(followUp, null);
         });
         await fixture.Renderer.Dispatcher.InvokeAsync(() => ask.OnClick.InvokeAsync(new MouseEventArgs()));
-        Assert.Equal(new DecisionQuestionRequest("Does this approve spending?", null), Assert.Single(fixture.Api.Questions));
+        var submitted = Assert.Single(fixture.Api.Questions);
+        Assert.Equal("Does this approve spending?", submitted.Question);
+        Assert.Null(submitted.OptionId);
+        Assert.True(submitted.RequestId.HasValue && submitted.RequestId != Guid.Empty);
         Assert.Empty(fixture.Api.Answers);
         Assert.Null(fixture.Activator.Choices!.Selected);
         var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
@@ -250,17 +253,26 @@ public sealed class OverviewQuestionAnswerTests
         Assert.DoesNotContain("It needs separate approval.", await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString));
         Assert.Equal("a", choices.Selected);
         Assert.Empty(fixture.Api.Answers);
+        await using var reopened = new Fixture(fixture.Api);
+        await reopened.RenderAsync();
+        var open = Assert.Single(reopened.Activator.Buttons, b => b.Class == "ask-follow-up");
+        await reopened.Renderer.Dispatcher.InvokeAsync(() => open.OnClick.InvokeAsync(new MouseEventArgs()));
+        var restored = await reopened.RenderDialogAsync();
+        Assert.Contains("Do we need approval?", restored);
+        Assert.Contains("When can we start?", restored);
+        Assert.Equal(2, fixture.Api.Questions.Count);
     }
 
     private sealed class Fixture : IAsyncDisposable
     {
         private readonly ServiceProvider _services;
-        public ApiHandler Api { get; } = new();
+        public ApiHandler Api { get; }
         public CapturingActivator Activator { get; } = new();
         public TestNavigation Navigation { get; } = new();
         public HtmlRenderer Renderer { get; }
-        public Fixture()
+        public Fixture(ApiHandler? api = null)
         {
+            Api = api ?? new();
             var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();
             services.AddSingleton<IComponentActivator>(Activator);
             services.AddSingleton<IJSRuntime, NoJavaScript>();
@@ -334,6 +346,15 @@ public sealed class OverviewQuestionAnswerTests
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             var path = request.RequestUri!.AbsolutePath;
+            if (path.EndsWith($"/chats/{Question.ConversationId}/decisions/{Question.Decision.Id}/follow-ups"))
+            {
+                if (request.Method == HttpMethod.Get)
+                    return new(HttpStatusCode.OK) { Content = JsonContent.Create(Questions.Select(q =>
+                        new DecisionFollowUpExchange(q.RequestId!.Value, q.Question, "Proceed", "Completed", "It needs separate approval.", null))) };
+                Questions.Add((await request.Content!.ReadFromJsonAsync<DecisionQuestionRequest>(token))!);
+                await ExplanationDelay.WaitAsync(token);
+                return new(HttpStatusCode.Accepted) { Content = JsonContent.Create(Questions.Last().RequestId) };
+            }
             if (request.Method == HttpMethod.Post && path.EndsWith($"/chats/{Question.ConversationId}/decisions/{Question.Decision.Id}/explain"))
             {
                 Questions.Add((await request.Content!.ReadFromJsonAsync<DecisionQuestionRequest>(token))!);

@@ -288,8 +288,14 @@ public sealed record AnswerExecutiveDecisionRequest(
     string? SomethingElse,
     [property: Required, MaxLength(160)] string IdempotencyKey);
 
-public sealed record DecisionQuestionRequest([property: Required, MaxLength(4000)] string Question, string? OptionId = null);
+public sealed record DecisionQuestionRequest([property: Required, MaxLength(4000)] string Question, string? OptionId = null)
+{
+    public Guid? RequestId { get; init; }
+}
+public sealed record DecisionFollowUpExchange(Guid TurnId, string Question, string? OptionLabel,
+    string Status, string? Answer, string? Clarification);
 public sealed record DecisionExplanationResponse(string Explanation);
+
 
 public sealed record AnswerExecutiveDecisionResponse(
     bool Succeeded,
@@ -336,7 +342,11 @@ public sealed record SendCommunicationMessageRequest(
     [property: MaxLength(32768)] string Content,
     [property: MaxLength(160)] string? IdempotencyKey = null,
     IReadOnlyList<CommunicationMessageMentionInput>? Mentions = null,
-    IReadOnlyList<Guid>? AttachmentMediaAssetIds = null);
+    IReadOnlyList<Guid>? AttachmentMediaAssetIds = null)
+{
+    public Guid? FollowUpDecisionId { get; init; }
+    public string? FollowUpOptionId { get; init; }
+}
 
 public sealed record CommunicationHubActionResponse(
     bool Succeeded,

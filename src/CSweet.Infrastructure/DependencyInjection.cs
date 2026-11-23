@@ -610,6 +610,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IUserActionWorkflowResolver, ApprovalUserActionWorkflowResolver>();
         builder.Services.AddScoped<IExecutiveDecisionService, ExecutiveDecisionService>();
         builder.Services.AddScoped<DecisionExplanationService>();
+        builder.Services.AddScoped<DecisionFollowUpService>();
         builder.Services.AddScoped<IChiefLeadershipService, ChiefLeadershipService>();
         builder.Services.AddScoped<IAgentCommunicationOnboardingService, AgentCommunicationOnboardingService>();
         builder.Services.AddScoped<IApplicationRealtimeOutboxDispatcher, ApplicationRealtimeOutboxDispatcher>();

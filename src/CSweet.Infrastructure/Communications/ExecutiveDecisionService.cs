@@ -436,6 +436,8 @@ public sealed partial class ExecutiveDecisionService(
     }
 
     // Legacy decisions stored a bare options array. New decisions also retain their typed action.
+    internal static Guid? LinkedProjectDecision(ExecutiveDecision decision) => ReadDecisionOptions(decision.OptionsJson).WorkstreamDecisionId;
+
     private static StoredDecisionOptions ReadDecisionOptions(string json)
     {
         using var document = JsonDocument.Parse(json);

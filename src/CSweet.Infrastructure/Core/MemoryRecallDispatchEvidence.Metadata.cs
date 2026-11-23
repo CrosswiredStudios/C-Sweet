@@ -92,6 +92,12 @@ public sealed partial class MemoryRecallDispatchEvidence
         }
         AgentWorkContext? workContext = null; string? workstreamHash = null;
         Guid? sourceWorkstreamId = conversation.WorkstreamId;
+        if (message.SourceProvider == CSweet.Infrastructure.Communications.DecisionFollowUpService.Provider)
+        {
+            var inquiry = await CSweet.Infrastructure.Communications.DecisionInquiryEvidence.ReadAsync(db, binding.OrganizationId,
+                message, binding.EmployeeId, token) ?? throw Denied();
+            context[CSweet.Agent.SDK.DecisionInquiryContext.ContextKey] = JsonSerializer.Serialize(inquiry, Json);
+        }
         // Bind recovery routing to the persisted answer/turn, never a user-written message prefix.
         var resolutionTurnIds = await ProjectHealthService.ResolutionTurnLineageAsync(db, binding.OrganizationId, binding.TurnId, binding.EmployeeId, token);
         var incidentDecision = await db.ExecutiveDecisions.AsNoTracking().SingleOrDefaultAsync(x =>

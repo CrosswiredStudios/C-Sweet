@@ -37,14 +37,25 @@ public sealed class AgentCoordinationService(
         Guid? initiatorRuntimeId = null)
     {
         ValidateStart(request);
+        await using var transaction = db.Database.CurrentTransaction is null && db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        if (db.Database.IsNpgsql())
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({"coordination-start:" + organizationId + ":" + request.IdempotencyKey.Trim()},0))", cancellationToken);
         var canonicalSource = await db.CoreConversations.Where(x => x.OrganizationId == organizationId &&
             x.Id == request.SourceConversationId).Select(x => x.MergedIntoConversationId).SingleOrDefaultAsync(cancellationToken);
         if (canonicalSource.HasValue) request = request with { SourceConversationId = canonicalSource.Value };
         var existing = await QuerySession().SingleOrDefaultAsync(x =>
-            x.OrganizationId == organizationId && x.IdempotencyKey == request.IdempotencyKey,
+            x.OrganizationId == organizationId && x.IdempotencyKey == request.IdempotencyKey.Trim(),
             cancellationToken);
+        if (existing is not null && (existing.InitiatorOrganizationUserId != initiatorOrganizationUserId ||
+            existing.InitiatorInstallationId != initiatorInstallationId || existing.TargetOrganizationUserId != request.TargetOrganizationUserId ||
+            existing.SourceMessageId != request.SourceMessageId || existing.SourceConversationId != request.SourceConversationId ||
+            existing.SourceChatTurnId != request.SourceChatTurnId))
+            throw new UnauthorizedAccessException("This collaboration belongs to another source or participant.");
         if (existing is not null)
+        {
+            await ReadInquiryAsync(existing, cancellationToken);
             return await MapAsync(existing, cancellationToken);
+        }
 
         var source = await db.ChatTurns.SingleOrDefaultAsync(x =>
             x.Id == request.SourceChatTurnId && x.OrganizationId == organizationId &&
@@ -75,6 +86,22 @@ public sealed class AgentCoordinationService(
             throw new InvalidOperationException(
                 "The source chat turn does not belong to the initiating agent or target the requested collaborator.");
 
+        var inquiry = await DecisionInquiryEvidence.ReadAsync(db, organizationId, sourceMessage, initiatorOrganizationUserId, cancellationToken);
+        if (inquiry is not null && (!isInboundSource || !inquiry.Contacts.Any(c => c.EmployeeId == request.TargetOrganizationUserId)))
+            throw new UnauthorizedAccessException("This employee is outside the decision's clarification contacts.");
+        if (inquiry is not null)
+        {
+            var target = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(p => p.OrganizationId == organizationId &&
+                p.Id == request.TargetOrganizationUserId && p.IsActive, cancellationToken);
+            var sharedDocuments = new List<IncidentDocumentReference>();
+            foreach (var document in inquiry.Documents)
+                if (await DecisionInquiryEvidence.CanReadDocumentAsync(db, organizationId, document.ArtifactId, [target], cancellationToken))
+                    sharedDocuments.Add(document);
+            var sharedIncident = await ShareableIncidentAsync(inquiry.IncidentId, target, cancellationToken);
+            request = request with { WorkContext = null, SourceIntakeId = null,
+                Artifact = new("csweet.decision-inquiry.v1", "1.0", inquiry.DecisionId.ToString("N"), 1, true,
+                    JsonSerializer.SerializeToElement(new { inquiry.DecisionId, incidentId = sharedIncident, sharedDocuments }, JsonOptions)) };
+        }
         var targetInstallationId = await ResolveParticipantsAsync(
             organizationId, initiatorOrganizationUserId, initiatorInstallationId,
             request.TargetOrganizationUserId, cancellationToken);
@@ -87,7 +114,7 @@ public sealed class AgentCoordinationService(
                 true,
                 true,
                 [request.TargetOrganizationUserId],
-                AudienceWorkstreamIds: request.WorkContext?.WorkstreamId is { } contextWorkstreamId ? [contextWorkstreamId] : null)
+                AudienceWorkstreamIds: inquiry is null && request.WorkContext?.WorkstreamId is { } contextWorkstreamId ? [contextWorkstreamId] : null)
             {
                 WorkstreamId = request.WorkContext?.WorkstreamId,
                 TeamId = request.WorkContext?.TeamId
@@ -95,7 +122,6 @@ public sealed class AgentCoordinationService(
             cancellationToken);
         var chat = chatAction.Chat ?? throw new InvalidOperationException(chatAction.Message);
 
-        await using var transaction = db.Database.CurrentTransaction is null && db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
         var now = DateTimeOffset.UtcNow;
         var session = new DomainSession
         {
@@ -104,7 +130,7 @@ public sealed class AgentCoordinationService(
             WorkstreamId = request.WorkContext?.WorkstreamId,
             TeamId = request.WorkContext?.TeamId,
             ConversationId = chat.Id,
-            SourceKind = request.SourceIntakeId.HasValue ? "ProjectIntake" : "Chat",
+            SourceKind = inquiry is not null ? DecisionInquiryContext.SourceKind : request.SourceIntakeId.HasValue ? "ProjectIntake" : "Chat",
             SourceIntakeId = request.SourceIntakeId,
             SourceConversationId = request.SourceConversationId,
             SourceChatTurnId = request.SourceChatTurnId,
@@ -406,12 +432,17 @@ public sealed class AgentCoordinationService(
     {
         ValidateResponse(request);
         await using var transaction = db.Database.CurrentTransaction is null && db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        if (db.Database.IsNpgsql())
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({"coordination-reply:" + request.SessionId},0))", cancellationToken);
         var session = await QuerySession().SingleOrDefaultAsync(x =>
             x.Id == request.SessionId && x.OrganizationId == organizationId,
             cancellationToken) ?? throw new KeyNotFoundException("The coordination session was not found.");
-        var duplicate = session.Turns.SingleOrDefault(x => x.IdempotencyKey == request.IdempotencyKey);
+        var duplicate = session.Turns.SingleOrDefault(x => x.IdempotencyKey == request.IdempotencyKey.Trim());
         if (duplicate is not null)
         {
+            if (duplicate.SpeakerOrganizationUserId != actorOrganizationUserId || InstallationFor(session, actorOrganizationUserId) != actorInstallationId)
+                throw new UnauthorizedAccessException("This response belongs to another participant.");
+            await ReadInquiryAsync(session, cancellationToken);
             if (transaction is not null) await transaction.RollbackAsync(cancellationToken);
             return await MapAsync(session, cancellationToken);
         }
@@ -423,6 +454,7 @@ public sealed class AgentCoordinationService(
         if (session.CurrentOrganizationUserId != actorOrganizationUserId ||
             InstallationFor(session, actorOrganizationUserId) != actorInstallationId)
             throw new UnauthorizedAccessException("This agent does not own the current coordination turn.");
+        if (session.SourceKind == DecisionInquiryContext.SourceKind) await ReadInquiryAsync(session, cancellationToken);
         if (request.Disposition == AgentCoordinationDispositions.Continue && session.IsFinalization)
             throw new InvalidOperationException("A finalization turn cannot continue the session.");
         if (request.Disposition == AgentCoordinationDispositions.Continue &&
@@ -862,6 +894,7 @@ public sealed class AgentCoordinationService(
         DomainSession session, Guid currentUserId, CancellationToken cancellationToken)
     {
         var mapped = await MapAsync(session, cancellationToken);
+        var inquiry = await ReadInquiryAsync(session, cancellationToken);
         var self = mapped.Initiator.OrganizationUserId == currentUserId ? mapped.Initiator : mapped.Target;
         var other = mapped.Initiator.OrganizationUserId == currentUserId ? mapped.Target : mapped.Initiator;
         return new AgentCoordinationTurnRequest(
@@ -870,11 +903,43 @@ public sealed class AgentCoordinationService(
             self, other, session.IsFinalization, mapped.Turns)
         {
             SourceKind = mapped.SourceKind,
+            InquiryIncidentId = inquiry?.IncidentId,
+            InquiryDocuments = inquiry?.Documents,
             WorkSource = mapped.WorkSource,
             BoardSource = mapped.BoardSource,
             MaximumTurns = mapped.MaximumTurns,
             WorkContext = mapped.WorkContext
         };
+    }
+
+    private async Task<DecisionInquiryContext?> ReadInquiryAsync(DomainSession session, CancellationToken token)
+    {
+        if (session.SourceKind != DecisionInquiryContext.SourceKind) return null;
+        var source = await db.CoreConversationMessages.AsNoTracking().SingleAsync(m => m.Id == session.SourceMessageId &&
+            m.ConversationId == session.SourceConversationId, token);
+        var inquiry = await DecisionInquiryEvidence.ReadAsync(db, session.OrganizationId, source, session.InitiatorOrganizationUserId, token)
+            ?? throw new UnauthorizedAccessException();
+        var original = session.Turns.Single(t => t.Ordinal == 0);
+        using var origin = JsonDocument.Parse(original.ArtifactPayloadJson!);
+        var documents = origin.RootElement.GetProperty("sharedDocuments").Deserialize<IncidentDocumentReference[]>(JsonOptions) ?? [];
+        var incident = origin.RootElement.GetProperty("incidentId").Deserialize<Guid?>();
+        var target = await db.CoreOrganizationUsers.AsNoTracking().SingleAsync(p => p.OrganizationId == session.OrganizationId && p.Id == session.TargetOrganizationUserId, token);
+        if (incident.HasValue && (inquiry.IncidentId != incident || await ShareableIncidentAsync(incident, target, token) != incident) ||
+            documents.Except(inquiry.Documents).Any() ||
+            !inquiry.Contacts.Any(c => c.EmployeeId == session.TargetOrganizationUserId))
+            throw new UnauthorizedAccessException("The evidence or clarification contact is no longer available to this conversation.");
+        foreach (var document in documents)
+            if (!await DecisionInquiryEvidence.CanReadDocumentAsync(db, session.OrganizationId, document.ArtifactId, [target], token))
+                throw new UnauthorizedAccessException("Document access changed during this clarification.");
+        return inquiry with { IncidentId = incident, Documents = documents };
+    }
+
+    private async Task<Guid?> ShareableIncidentAsync(Guid? id, OrganizationUser target, CancellationToken token)
+    {
+        if (id is null) return null;
+        var incident = await db.ProjectIncidents.AsNoTracking().SingleOrDefaultAsync(i => i.Id == id && i.OrganizationId == target.OrganizationId, token);
+        var health = new Core.ProjectHealthService(db, new(db, TimeProvider.System), TimeProvider.System);
+        return incident is not null && await health.CanShareDiagnosticsAsync(incident, target, [target], token) ? id : null;
     }
 
     private ConversationMessage AppendMessage(

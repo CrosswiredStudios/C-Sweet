@@ -17,13 +17,14 @@ public static class CommunicationEvents
     public const string MessageDeleted = "com.csweet.communication.message.deleted.v1";
     public const string MessageMentioned = "com.csweet.communication.message.mentioned.v1";
     public const string DecisionUpdated = "com.csweet.communication.decision.updated.v1";
+    public const string DecisionFollowUpUpdated = "com.csweet.communication.decision.follow-up.updated.v1";
     public const string ReadUpdated = "com.csweet.communication.read.updated.v1";
 
     public static readonly IReadOnlyList<string> All =
     [
         ChatCreated, ChatUpdated, ChatArchived, ChatDeleted,
         ParticipantAdded, ParticipantUpdated, ParticipantRemoved,
-        MessageCreated, MessageUpdated, MessageDeleted, MessageMentioned, ReadUpdated, DecisionUpdated
+        MessageCreated, MessageUpdated, MessageDeleted, MessageMentioned, ReadUpdated, DecisionUpdated, DecisionFollowUpUpdated
     ];
 
     public static string Subject(Guid organizationId, Guid chatId) =>

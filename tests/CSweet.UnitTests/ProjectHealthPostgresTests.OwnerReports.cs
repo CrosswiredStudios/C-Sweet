@@ -99,6 +99,24 @@ public sealed partial class ProjectHealthPostgresTests
             savedTicket = await db.CoreWorkTasks.SingleAsync(x => x.Id == ticket.Id);
             savedTicket.Revision = previousRevision; savedTicket.BlockReason = previousReason;
             await db.SaveChangesAsync(); await health.DeliverAsync(default);
+            var question = new DecisionQuestionRequest("Which logistics facts are missing?", "evidence") { RequestId = Guid.NewGuid() };
+            async Task<Guid?> Ask()
+            {
+                await using var concurrent = new CSweetDbContext(options, executionClock: clock);
+                var turns = new ChatTurnService(concurrent);
+                return await new DecisionFollowUpService(concurrent, turns, new ExecutiveDecisionService(concurrent, turns))
+                    .AskAsync(organization.Id, attention.ReportConversationId!.Value, attention.ResolutionDecision!.Id, owner.Id, question, default);
+            }
+            var questions = await Task.WhenAll(Ask(), Ask());
+            var questionTurn = Assert.IsType<Guid>(questions[0]);
+            Assert.Equal(questionTurn, questions[1]);
+            var chatTurns = new ChatTurnService(db);
+            var discussion = new DecisionFollowUpService(db, chatTurns, new ExecutiveDecisionService(db, chatTurns));
+            Assert.Equal(questionTurn, Assert.Single((await discussion.HistoryAsync(organization.Id,
+                attention.ReportConversationId!.Value, attention.ResolutionDecision!.Id, owner.Id, default))!).TurnId);
+            var sourceQuestion = await db.CoreConversationMessages.SingleAsync(m => m.ChatTurnId == questionTurn);
+            Assert.Equal(attention.ResolutionDecision.Id, (await DecisionInquiryEvidence.ReadAsync(db, organization.Id, sourceQuestion, reporter.Id, default))!.DecisionId);
+            Assert.True(await chatTurns.CancelAsync(organization.Id, questionTurn));
             async Task<AnswerExecutiveDecisionResponse> Answer()
             {
                 await using var concurrent = new CSweetDbContext(options, executionClock: clock);
@@ -107,7 +125,7 @@ public sealed partial class ProjectHealthPostgresTests
             }
             var answers = await Task.WhenAll(Answer(), Answer());
             Assert.All(answers, answer => Assert.True(answer.Succeeded, answer.Message));
-            Assert.Equal(answers[0].Turn!.Id, answers[1].Turn!.Id); Assert.Single(await db.ChatTurns.ToListAsync());
+            Assert.Equal(answers[0].Turn!.Id, answers[1].Turn!.Id); Assert.Equal(2, await db.ChatTurns.CountAsync());
             Assert.Equal("Open", (await db.ProjectIncidents.AsNoTracking().SingleAsync()).Status);
             var resolution = await health.ReadResolutionAsync(organization.Id, reporter.Id, new(attention.ResolutionDecision!.Id, answers[0].Turn.Id), default);
             Assert.Contains("accountable employee", resolution.IntendedOutcome);

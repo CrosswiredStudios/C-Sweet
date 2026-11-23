@@ -4,6 +4,7 @@ namespace CSweet.Domain.Communications;
 
 public static class CommunicationProviderKeys
 {
+    public const string DecisionFollowUp = "DecisionFollowUp";
     public const string Discord = "discord";
     public const string InApp = "in-app";
 }

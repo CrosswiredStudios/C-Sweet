@@ -1,10 +1,12 @@
 @using CSweet.Contracts.Communications
+@using CSweet.Contracts.Realtime
 @implements IAsyncDisposable
 @inject HttpClient Http
 @inject IAppLocalizer L
+@inject AppRealtimeState Realtime
 
 <MudButton Variant="Variant.Text" Size="Size.Small" Color="Color.Primary" Class="ask-follow-up"
-           StartIcon="@Icons.Material.Outlined.ChatBubbleOutline" aria-haspopup="dialog" OnClick="() => _open = true">@L["Communications.Decision.AskFollowUp"]</MudButton>
+           StartIcon="@Icons.Material.Outlined.ChatBubbleOutline" aria-haspopup="dialog" OnClick="OpenAsync">@L["Communications.Decision.AskFollowUp"]</MudButton>
 
 @if (_open)
 {
@@ -23,10 +25,14 @@
                     <div class="follow-up-answer">
                         @if (exchange.OptionLabel is not null) { <small>@exchange.OptionLabel</small> }
                         <strong>@exchange.Question</strong>
-                        <p>@exchange.Answer</p>
+                        @if (exchange.Answer is { Length: > 0 } answer) { <ChatMarkdown Content="@answer" /> }
+                        else if (exchange.Status is "Failed" or "Cancelled") { <p>@L["Communications.Decision.FollowUpStopped"]</p> }
+                        else { <p>@L["Communications.Decision.FollowUpQueued"]</p> }
+                        @if (exchange.Clarification is { Length: > 0 } clarification) { <ChatMarkdown Content="@clarification" /> }
                     </div>
                 }
             </div>
+            <a href="@DiscussionUrl">@L["Communications.Decision.OpenConversation"]</a>
         </DialogContent>
         <DialogActions>
             <MudButton Size="Size.Small" OnClick="CloseAsync">@L["Common.Close"]</MudButton>
@@ -42,37 +48,103 @@
     [Parameter] public ExecutiveDecisionOptionResponse? Option { get; set; }
     private static readonly DialogOptions DialogSettings = new() { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true, CloseOnEscapeKey = true };
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly List<Exchange> _exchanges = [];
+    private IReadOnlyList<DecisionFollowUpExchange> _exchanges = [];
     private MudDialog? _dialog;
     private bool _open, _busy;
     private string? _question, _errorKey;
+    private (string Question, string? Option, Guid Id)? _submission;
+    private int _readVersion;
+    private Guid _boundDecision;
+    private string Endpoint => $"api/organizations/{OrganizationId}/communications/hub/chats/{ConversationId}/decisions/{DecisionId}/follow-ups";
+    private string DiscussionUrl => $"/organizations/{OrganizationId}/communications/{ConversationId}?discuss={DecisionId:D}" +
+        (Option is null ? "" : "&option=" + Uri.EscapeDataString(Option.Id));
+
+    protected override void OnInitialized()
+    {
+        Realtime.EventReceived += OnEvent;
+        Realtime.Reconnected += OnReconnect;
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (_boundDecision == DecisionId) return;
+        ++_readVersion;
+        _boundDecision = DecisionId;
+        _exchanges = [];
+        _submission = null;
+        _question = _errorKey = null;
+        _open = false;
+    }
+
+    private async Task OpenAsync() { _open = true; await ReadAsync(); }
+
+    private async Task ReadAsync()
+    {
+        var version = ++_readVersion;
+        try
+        {
+            var history = await Http.GetFromJsonAsync<DecisionFollowUpExchange[]>(Endpoint, _lifetime.Token);
+            if (version == _readVersion)
+            {
+                _exchanges = history ?? [];
+                if (_errorKey == "Communications.Decision.ExplanationFailed") _errorKey = null;
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
+        {
+            if (version == _readVersion && !_lifetime.IsCancellationRequested) _errorKey = "Communications.Decision.ExplanationFailed";
+        }
+    }
+
+    private void OnEvent(AppRealtimeEventEnvelope e)
+    {
+        if (e.OrganizationId == OrganizationId && e.Subject == CommunicationEvents.Subject(OrganizationId, ConversationId) &&
+            e.EventType is CommunicationEvents.MessageCreated or CommunicationEvents.DecisionFollowUpUpdated) OnReconnect();
+    }
+    private void OnReconnect()
+    {
+        if (_open && !_lifetime.IsCancellationRequested) _ = InvokeAsync(async () => { await ReadAsync(); StateHasChanged(); });
+    }
 
     private async Task AskAsync()
     {
         if (_busy || string.IsNullOrWhiteSpace(_question)) return;
         var question = _question.Trim();
         var option = Option;
+        var decision = DecisionId;
+        if (_submission is not { } prior || prior.Question != question || prior.Option != option?.Id)
+            _submission = (question, option?.Id, Guid.NewGuid());
         _busy = true;
         _errorKey = null;
         try
         {
-            var result = await DecisionExplanationResult.RequestAsync(Http, OrganizationId, ConversationId, DecisionId,
-                new(question, option?.Id), _lifetime.Token);
-            _errorKey = result.ErrorKey;
-            if (result.Answer is { } answer)
+            using var response = await Http.PostAsJsonAsync(Endpoint, new DecisionQuestionRequest(question, option?.Id)
+                { RequestId = _submission.Value.Id }, _lifetime.Token);
+            if (decision != DecisionId) return;
+            if (!response.IsSuccessStatusCode)
             {
-                _exchanges.Insert(0, new(question, option?.Label, answer));
-                _question = null;
+                _errorKey = response.StatusCode switch {
+                    System.Net.HttpStatusCode.Conflict => "Communications.Decision.FollowUpBusy",
+                    System.Net.HttpStatusCode.NotFound => "Communications.Decision.Unavailable",
+                    _ => "Communications.Decision.ExplanationFailed" };
+                return;
             }
+            _question = null;
+            _submission = null;
+            await ReadAsync();
         }
+        catch (Exception e) when (e is HttpRequestException or OperationCanceledException)
+        { if (decision == DecisionId) _errorKey = "Communications.Decision.ExplanationFailed"; }
         finally { _busy = false; }
     }
 
-    private sealed record Exchange(string Question, string? OptionLabel, string Answer);
     private Task CloseAsync() => _dialog?.CloseAsync() ?? Task.CompletedTask;
 
     public async ValueTask DisposeAsync()
     {
+        ++_readVersion;
+        Realtime.EventReceived -= OnEvent;
+        Realtime.Reconnected -= OnReconnect;
         _lifetime.Cancel();
         _lifetime.Dispose();
         if (_open) await CloseAsync();

@@ -213,6 +213,31 @@ public static class CommunicationEndpoints
             }
         });
 
+        group.MapGet("/hub/chats/{chatId:guid}/decisions/{decisionId:guid}/follow-ups", async (
+            Guid organizationId, Guid chatId, Guid decisionId, HttpContext http, ICommunicationHubService hub,
+            CSweet.Infrastructure.Communications.DecisionFollowUpService inquiries, CancellationToken token) =>
+        {
+            var actor = await ResolveActorAsync(organizationId, http, hub, token);
+            if (actor is null) return Results.Forbid();
+            var history = await inquiries.HistoryAsync(organizationId, chatId, decisionId, actor.Value, token);
+            return history is null ? Results.NotFound() : Results.Ok(history);
+        });
+        group.MapPost("/hub/chats/{chatId:guid}/decisions/{decisionId:guid}/follow-ups", async (
+            Guid organizationId, Guid chatId, Guid decisionId, DecisionQuestionRequest request, HttpContext http,
+            ICommunicationHubService hub, CSweet.Infrastructure.Communications.DecisionFollowUpService inquiries, CancellationToken token) =>
+        {
+            var actor = await ResolveActorAsync(organizationId, http, hub, token);
+            if (actor is null) return Results.Forbid();
+            try
+            {
+                var turn = await inquiries.AskAsync(organizationId, chatId, decisionId, actor.Value, request, token);
+                return turn is null ? Results.NotFound() : Results.Accepted(
+                    $"/api/organizations/{organizationId}/communications/hub/chats/{chatId}/turns/{turn}", turn);
+            }
+            catch (ArgumentException e) { return Results.BadRequest(new { message = e.Message }); }
+            catch (InvalidOperationException e) { return Results.Conflict(new { message = e.Message }); }
+        }).AllowFromMobile(MobileAccess.Write, "Asking a question requires active membership of the decision conversation.");
+
         group.MapPost("/hub/chats/{chatId:guid}/decisions/{decisionId:guid}/explain", async (
             Guid organizationId, Guid chatId, Guid decisionId, DecisionQuestionRequest request, HttpContext http,
             ICommunicationHubService hub, CSweet.Infrastructure.Communications.DecisionExplanationService explanations,
