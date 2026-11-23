@@ -4,7 +4,7 @@ The csweet repository owns the Headquarters application image. CSweet.Hosting ow
 
 | When | What runs | Result |
 |---|---|---|
-| Reviewed source release | The [Linux Headquarters workflow](../../../.github/workflows/linux-headquarters.yml) publishes the Linux services and Blazor assets, builds the image and smoke-tests it against PostgreSQL. | A release tag or manual run publishes to GHCR. Copy the digest from the run summary into the provisioner's `HQ_IMAGE`. Pull requests run validation only. |
+| Reviewed source release | The [Linux Headquarters workflow](../../../.github/workflows/linux-headquarters.yml) publishes the Linux services and Blazor assets, builds the image and smoke-tests it against PostgreSQL. | A successful build on `main` publishes `ghcr.io/crosswiredstudios/csweet-headquarters:latest` and a commit tag. Version tags also publish the version. Set Hosting’s `HQ_IMAGE` to the immutable `image@sha256:…` reference in the run summary. Pull requests validate the image before publication. |
 | Once per OS template | The Hosting container's `prepare-template` command imports Canonical's verified Ubuntu amd64 cloud image into a new TrueNAS disk and creates a stopped VM. | A reusable Linux baseline without a customer account, application release or tunnel token. |
 | Per purchase | The Mac provisioner records the order and release, clones the VM, provides a per-order cloud-init seed, and creates an outbound tenant tunnel. | The guest migrates PostgreSQL, starts Headquarters and accepts first-run account linking only for the purchaser. |
 | After verification | Hosting probes health and requests a signed response tied to the order, buyer, hostname, release and a fresh challenge. | Market publishes the HTTPS link in My Headquarters. |
