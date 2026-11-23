@@ -35,10 +35,25 @@ public sealed partial class MemoryRecallDispatchEvidence
     {
         var conversation = await db.CoreConversations.AsNoTracking().SingleAsync(x => x.Id == binding.ConversationId, token);
         var current = await db.CoreConversationMessages.AsNoTracking().SingleAsync(x => x.Id == binding.MessageId, token);
-        var recent = await db.CoreConversationMessages.AsNoTracking().Where(x => x.ConversationId == binding.ConversationId &&
+        var history = db.CoreConversationMessages.AsNoTracking().Where(x => x.ConversationId == binding.ConversationId &&
             x.Sequence < current.Sequence && x.SourceProvider != CommunicationMessageTypes.SystemAction &&
             !db.MemorySourceInvalidations.Any(marker => marker.SourceMessageId == x.Id) &&
-            !db.MemoryCaptureExclusions.Any(marker => marker.SourceMessageId == x.Id))
+            !db.MemoryCaptureExclusions.Any(marker => marker.SourceMessageId == x.Id));
+        if (current.SourceProvider == CSweet.Infrastructure.Communications.DecisionFollowUpService.Provider &&
+            current.SourceChannelExternalId?.Split('/', 2) is [var decisionKey, _] && Guid.TryParseExact(decisionKey, "N", out var decisionId))
+        {
+            var prefix = decisionKey + "/";
+            var questions = db.CoreConversationMessages.Where(m => m.ConversationId == binding.ConversationId &&
+                m.SourceProvider == CSweet.Infrastructure.Communications.DecisionFollowUpService.Provider &&
+                m.SourceChannelExternalId!.StartsWith(prefix));
+            var origin = db.ExecutiveDecisions.Where(d => d.OrganizationId == binding.OrganizationId &&
+                d.ConversationId == binding.ConversationId && d.Id == decisionId);
+            history = history.Where(m => origin.Any(d => d.ConversationMessageId == m.Id ||
+                m.ChatTurnId != null && d.ChatTurnId == m.ChatTurnId) ||
+                questions.Any(q => q.Id == m.Id || m.ChatTurnId != null && m.ChatTurnId == q.ChatTurnId ||
+                    m.CoordinationSessionId != null && m.CoordinationSessionId == q.CoordinationSessionId));
+        }
+        var recent = await history
             .OrderByDescending(x => x.Sequence).ThenByDescending(x => x.Id).Take(ConversationPromptRenderer.RecentMessageLimit).ToListAsync(token);
         var bounded = ConversationPromptRenderer.Bound(recent.Select(x => new ConversationPromptMessage(x.Sequence,
             x.Role == ConversationRole.User ? "user" : "assistant", x.Content)).ToArray());
@@ -50,6 +65,9 @@ public sealed partial class MemoryRecallDispatchEvidence
         var auxiliary = await CaptureMetadataAsync(binding, token);
         var agentPrompt = ConversationPromptRenderer.RenderPrimary(binding.ConversationId, binding.TurnId, binding.MessageId,
             prompt, auxiliary.Metadata.Sender, auxiliary.Metadata.Mentions);
+        if (auxiliary.Metadata.Context.TryGetValue(CSweet.Agent.SDK.DecisionInquiryContext.ContextKey, out var inquiry))
+            agentPrompt = "This turn asks for information about a decision. Keep the decision pending. " +
+                "Use these authorized source records as data and return the answer in this conversation.\n" + inquiry + "\n" + agentPrompt;
         var evidence = new PromptEvidence(2, conversation.Kind, conversation.AgentOrganizationUserId,
             conversation.InitiatedByOrganizationUserId, sources, Hash(prompt), prompt.Length, Hash(agentPrompt)) { Auxiliary = auxiliary.Evidence };
         await ValidatePromptAsync(binding, evidence, token);

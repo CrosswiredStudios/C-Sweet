@@ -575,7 +575,7 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
         return CoreConversations.AsNoTracking().Where(x => x.Id == chatId).Select(x => (Guid?)x.OrganizationId).SingleOrDefault();
     }
 
-    private void QueueCommunicationEvent<T>(Guid organizationId, Guid chatId, string eventType, T data)
+    internal void QueueCommunicationEvent<T>(Guid organizationId, Guid chatId, string eventType, T data)
     {
         var now = DateTimeOffset.UtcNow;
         var dataJson = JsonSerializer.Serialize(data, EventJsonOptions);

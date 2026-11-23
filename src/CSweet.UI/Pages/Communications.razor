@@ -661,6 +661,13 @@
                 else
                 {
                     <footer class="hub-composer">
+                        @if (ComposerDecision is Guid discussing)
+                        {
+                            <div class="hub-composer-context">
+                                <a href="@($"#decision-{discussing:D}")">@L["Communications.Decision.Discussing"]</a>
+                                <MudButton Size="Size.Small" OnClick="@(() => Navigation.NavigateTo(CurrentWorkspaceHref()))">@L["Communications.Decision.EndFollowUp"]</MudButton>
+                            </div>
+                        }
                         <div class="hub-composer-surface">
                         <ConversationMediaUploader @key="(OrganizationId, _selected.Id, PerspectiveAgentId)"
                             OrganizationId="@OrganizationId" ConversationId="@_selected.Id" Compact="true"
@@ -670,6 +677,7 @@
                             <MudTextField T="string" InputId="communication-composer"
                                           Value="_draft" ValueChanged="OnDraftChangedAsync"
                                           Placeholder="@ComposerPlaceholder" aria-label="@ComposerPlaceholder" Variant="Variant.Text" Underline="false"
+                                          MaxLength="@(ComposerDecision.HasValue ? 4000 : 32768)"
                                           Lines="1" Sizing="InputSizing.Auto" MaxLines="6" Immediate="true" OnKeyDown="OnComposerKeyDown"
                                           Disabled="@(_sending || ComposerBlocked)" />
                             @if (_mentionOpen)
@@ -710,7 +718,7 @@
                         {
                             <MudIconButton Class="hub-composer-send" Variant="Variant.Filled" Color="Color.Primary" OnClick="SendAsync"
                                            Icon="@Icons.Material.Filled.ArrowUpward" aria-label="@L["Communications.Composer.Send"]" title="@L["Communications.Composer.Send"]"
-                                           Disabled="@(_sending || ComposerBlocked || _uploadingAttachments || (string.IsNullOrWhiteSpace(_draft) && _pendingAttachments.Count == 0))" />
+                                           Disabled="@(_sending || ComposerBlocked || _uploadingAttachments || !HasComposerMessage)" />
                         }
                         </div>
                     </footer>
@@ -850,6 +858,11 @@
     public Guid? SourceMessageId { get; set; }
     [Parameter, SupplyParameterFromQuery(Name = "decision")]
     public Guid? DecisionId { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "discuss")] public Guid? DiscussionId { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "option")] public string? DiscussionOption { get; set; }
+    private Guid? ComposerDecision => _selected?.Id == ChatId ? DiscussionId : null;
+    private bool HasComposerMessage => !string.IsNullOrWhiteSpace(_draft) || !ComposerDecision.HasValue && _pendingAttachments.Count != 0;
+    private (string Fingerprint, Guid Id)? _pendingFollowUp;
     private Guid? _focusedDecisionId;
     [Parameter, SupplyParameterFromQuery(Name = "artifact")]
     public Guid? ArtifactId { get; set; }
@@ -1340,7 +1353,7 @@
         if (_hub?.IsReadOnlyPerspective == true ||
             _selected is null ||
             ComposerBlocked || _sending || _uploadingAttachments ||
-            (string.IsNullOrWhiteSpace(_draft) && _pendingAttachments.Count == 0))
+            !HasComposerMessage)
             return;
         _sending = true; _notice = null;
         var content = _draft.TrimEnd();
@@ -1359,12 +1372,20 @@
         await SetMentionMenuOpenAsync(false);
         try
         {
+            var request = new SendCommunicationMessageRequest(content, null, mentions, attachmentSnapshot.Select(x => x.Id).ToList())
+                { FollowUpDecisionId = ComposerDecision, FollowUpOptionId = ComposerDecision.HasValue ? DiscussionOption : null };
+            var operation = Guid.NewGuid();
+            if (request.FollowUpDecisionId.HasValue)
+            {
+                var fingerprint = System.Text.Json.JsonSerializer.Serialize(request);
+                if (_pendingFollowUp is { } pending && pending.Fingerprint == fingerprint) operation = pending.Id;
+                _pendingFollowUp = (fingerprint, operation);
+            }
             using var response = await Http.PostAsJsonAsync($"api/organizations/{originOrganization}/communications/hub/chats/{originChat}/messages",
-                new SendCommunicationMessageRequest(
-                    content, Guid.NewGuid().ToString("N"), mentions,
-                    attachmentSnapshot.Select(x => x.Id).ToList()), _disposeCts.Token);
+                request with { IdempotencyKey = operation.ToString("N") }, _disposeCts.Token);
             if (!response.IsSuccessStatusCode) throw new InvalidOperationException(await response.Content.ReadAsStringAsync(_disposeCts.Token));
             var sent = await response.Content.ReadFromJsonAsync<CommunicationMessageSendResponse>(_disposeCts.Token);
+            if (_pendingFollowUp?.Id == operation) _pendingFollowUp = null;
             if (sent is not null && OrganizationId == originOrganization && _selected?.Id == originChat)
             {
                 if (_messages.All(x => x.Id != sent.Message.Id))

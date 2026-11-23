@@ -10,6 +10,7 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="CSweet.UnitTests" />
+    <InternalsVisibleTo Include="CSweet.GameRoleWorkflow.Tests" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="../../agents/CSweet.PersonalAssistant/csweet-plugin.json" LogicalName="PersonalAssistant/csweet-plugin.json" />

@@ -96,6 +96,7 @@ public sealed class IncidentResolutionChoicesTests
             var collection = new ServiceCollection().AddLogging(); collection.AddMudServices(); collection.AddCSweetLocalization();
             collection.AddSingleton<IComponentActivator>(Capture); collection.AddSingleton<IJSRuntime, NoJs>(); collection.AddSingleton<NavigationManager, Navigation>();
             collection.AddSingleton(new HttpClient(Handler) { BaseAddress = new("http://localhost/") });
+            collection.AddSingleton<AppRealtimeState>();
             services = collection.BuildServiceProvider(); Renderer = new(services, services.GetRequiredService<ILoggerFactory>());
         }
         public Task<Microsoft.AspNetCore.Components.Web.HtmlRendering.HtmlRootComponent> Render() => Renderer.Dispatcher.InvokeAsync(() =>

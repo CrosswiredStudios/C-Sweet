@@ -98,6 +98,8 @@ public sealed partial class ProjectHealthService
         var affectedId = incident.AffectedWorkItemId ?? IncidentSource(incident.Fingerprint, "ticket") ?? IncidentSource(incident.Fingerprint, "dependency-wait") ?? IncidentSource(incident.Fingerprint, "recovery-wait");
         var ticket = affectedId is { } id ? await db.CoreWorkTasks.AsNoTracking().SingleOrDefaultAsync(x =>
             x.Id == id && x.OrganizationId == incident.OrganizationId, token) : null;
+        var stopped = await StoppedCollaborationEvidenceAsync(incident, ticket, token);
+        facts.AddRange(stopped);
         if (ticket is not null && db.HealthProjectForTask(ticket) == project.Id)
             facts.Add(new("CurrentWorkItem", ticket.Id, ticket.UpdatedAt, ProjectHealthReader.Safe(
                 $"{ticket.Title}: {ticket.Status}. {ticket.BlockReason ?? ticket.WaitingReason ?? ticket.ResultSummary}"),
@@ -164,7 +166,11 @@ public sealed partial class ProjectHealthService
                 ticket.WaitingReason, ticket.ResultSummary, ticket.AssignedEmployeeId, ticket.AccountableOrganizationUserId },
             decisions = decisions.Select(x => new { x.Id, x.Revision, x.Status }), documents, operation, operationExecution,
             corrections = correctivePlans.Select(p => new { p.Id, p.Revision, p.Status, p.CorrectionsJson }) }, Json);
-        return new(Convert.ToHexString(SHA256.HashData(serialized)), project.Name, facts, documents);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData(serialized);
+        // Preserve existing decision bindings when the case has no additional collaboration evidence.
+        if (stopped.Length != 0) hash.AppendData(JsonSerializer.SerializeToUtf8Bytes(stopped, Json));
+        return new(Convert.ToHexString(hash.GetHashAndReset()), project.Name, facts, documents);
     }
 
     private async Task RequirePresentationAuthorAsync(ProjectIncident incident, Guid actor, CancellationToken token, bool allowClosedRead = false)

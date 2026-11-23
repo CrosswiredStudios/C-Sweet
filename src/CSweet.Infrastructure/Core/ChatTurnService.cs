@@ -130,6 +130,7 @@ public sealed class ChatTurnService(CSweetDbContext db, IOptions<MediaAssetStora
         turn.LeaseOwner = null; turn.LeaseUntil = null;
         await CancelPendingDecisionsAsync(turnId, cancellationToken);
         await CancelPendingActionsAsync(turnId, cancellationToken);
+        await NotifyFollowUpAsync(turn, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         return true;
     }
@@ -249,6 +250,7 @@ public sealed class ChatTurnService(CSweetDbContext db, IOptions<MediaAssetStora
         var nextStatus = Enum.Parse<ChatTurnStatus>(status, true);
         if (TerminalStatuses.Contains(turn.Status) && turn.Status != nextStatus)
             return;
+        var changed = turn.Status != nextStatus;
         turn.Status = nextStatus;
         turn.ErrorCode = errorCode; turn.ErrorMessage = errorMessage;
         if (nextStatus is ChatTurnStatus.Failed or ChatTurnStatus.Cancelled)
@@ -264,6 +266,7 @@ public sealed class ChatTurnService(CSweetDbContext db, IOptions<MediaAssetStora
         {
             turn.CompletedAt = turn.UpdatedAt;
             await HiringService.WakeAfterHiringAnswerAsync(db, turn, cancellationToken);
+            if (changed) await NotifyFollowUpAsync(turn, cancellationToken);
         }
         await db.SaveChangesAsync(cancellationToken);
     }
@@ -344,7 +347,17 @@ public sealed class ChatTurnService(CSweetDbContext db, IOptions<MediaAssetStora
         }
         await AttachSubmittedArtifactsAsync(turn, assistantMessageId, cancellationToken);
         await HiringService.WakeAfterHiringAnswerAsync(db, turn, cancellationToken);
+        await NotifyFollowUpAsync(turn, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task NotifyFollowUpAsync(ChatTurn turn, CancellationToken token)
+    {
+        if (await db.CoreConversationMessages.AnyAsync(m => m.Id == turn.UserMessageId &&
+            m.SourceProvider == DecisionFollowUpService.Provider, token))
+            db.QueueCommunicationEvent(turn.OrganizationId, turn.ConversationId,
+                Contracts.Communications.CommunicationEvents.DecisionFollowUpUpdated,
+                new { chatId = turn.ConversationId, turnId = turn.Id });
     }
 
     private async Task AttachSubmittedArtifactsAsync(

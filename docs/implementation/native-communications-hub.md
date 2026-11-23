@@ -63,9 +63,19 @@ New requirement drafts keep technical follow-through in the planning record. Old
 request a plain-English explanation and expose the full original wording.
 
 **Ask a follow-up** works in Overview, Approvals, incident cards and Communications, including
-questions with fixed answers. `DecisionExplanationService` reads the pending card for an active
-human chat member and asks the configured model to explain its facts without tools. The reply
-appears inside the card. Only an explicit answer goes to the response endpoint. Free-form direction
+questions with fixed answers. `DecisionFollowUpService.AskAsync` starts an idempotent employee chat turn.
+`DecisionInquiryEvidence.ReadAsync` binds the decision and selected option to the employee and current
+conversation audience. The shared SDK reads eligible documents and asks a responsible colleague for
+missing facts through `AgentCoordinationService`. The specialist’s reply and the final clarification
+remain in Communications. **Open conversation** carries the decision and selected option into the
+regular chat composer. **Return to regular messages** ends that context. The card reloads on open,
+new messages, completion or failure of a question, and reconnect. The existing `/explain` route continues to serve option previews and older clients.
+
+The common employee handler ships in `CSweet.Agent.SDK` 5.45.0. Publish that package and
+`CSweet.Agent.Testing` before building consumers. Deploy Headquarters and update employee bundles
+through Installed Agents. The authoring template declares the coordination subscription and capabilities.
+Custom protocol implementations receive the same evidence context and can implement the same handoff.
+Only an explicit answer goes to the response endpoint. Free-form direction
 is available once when permitted. Confirmed submissions dismiss the card using its stable answer
 key and refresh pending questions. A failed submission keeps the card available for retry.
 

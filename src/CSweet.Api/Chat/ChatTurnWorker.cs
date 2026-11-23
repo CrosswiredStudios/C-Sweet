@@ -827,6 +827,7 @@ public sealed class ChatTurnWorker(
     {
         userMessage ??= await db.CoreConversationMessages.SingleAsync(x => x.Id == turn.UserMessageId, cancellationToken);
         if (string.IsNullOrWhiteSpace(userMessage.SourceProvider) ||
+            userMessage.SourceProvider == CommunicationProviderKeys.DecisionFollowUp ||
             string.Equals(userMessage.SourceProvider, "InApp", StringComparison.OrdinalIgnoreCase) ||
             string.IsNullOrWhiteSpace(userMessage.SourceChannelExternalId)) return;
         var providerKey = userMessage.SourceProvider.Trim().ToLowerInvariant();

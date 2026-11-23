@@ -54,6 +54,17 @@ public sealed partial class ProjectHealthService
         return incident;
     }
 
+    internal async Task<bool> CanShareDiagnosticsAsync(ProjectIncident incident, OrganizationUser speaker,
+        IReadOnlyCollection<OrganizationUser> audience, CancellationToken token)
+    {
+        if (speaker.AgentInstallationId is not Guid installation) return false;
+        try { await RequireActorAsync(incident.OrganizationId, installation, ProjectHealthCapabilities.Diagnostics, token); }
+        catch (UnauthorizedAccessException) { return false; }
+        foreach (var member in audience)
+            if (!await CanReadAsync(incident.OrganizationId, member.Id, incident.WorkstreamId, incident, token)) return false;
+        return true;
+    }
+
     public async Task<ProjectHealthSnapshot> ReadAsync(Guid organization, Guid actor, ReadProjectHealth request, CancellationToken token)
     {
         var incident = await db.ProjectIncidents.AsNoTracking().FirstOrDefaultAsync(x => x.OrganizationId == organization && x.WorkstreamId == request.WorkstreamId, token);

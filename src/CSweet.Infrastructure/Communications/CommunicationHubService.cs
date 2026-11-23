@@ -540,6 +540,13 @@ public sealed class CommunicationHubService(
             ? null
             : request.IdempotencyKey.Trim();
         if (suppliedIdempotencyKey?.Length > 160) return null;
+        var followUp = request.FollowUpDecisionId.HasValue;
+        if (followUp && (suppliedIdempotencyKey is null || string.IsNullOrWhiteSpace(content) || content.Length > 4000 || decisions is null ||
+            actor.EmployeeType != EmployeeType.Human)) return null;
+        var channel = followUp ? $"{request.FollowUpDecisionId:N}/{request.FollowUpOptionId}" : null;
+        await using var inquiryTransaction = followUp && db.Database.CurrentTransaction is null && db.Database.IsRelational()
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        if (followUp) await Core.HiringOrganizationLock.AcquireAsync(db, organizationId, cancellationToken);
         var idempotencyKey = suppliedIdempotencyKey is null
             ? null
             : $"communication-message:{actor.Id:N}:{suppliedIdempotencyKey}";
@@ -552,11 +559,16 @@ public sealed class CommunicationHubService(
                 .SingleOrDefaultAsync(x => x.ConversationId == chat.Id &&
                     x.SenderOrganizationUserId == actor.Id && x.IdempotencyKey == idempotencyKey, cancellationToken);
             if (existing is not null)
+            {
+                if (followUp && (existing.SourceProvider != DecisionFollowUpService.Provider || existing.SourceChannelExternalId != channel ||
+                    existing.Content != content.Trim() || !existing.Attachments.Select(a => a.MediaAssetId).ToHashSet().SetEquals(attachmentAssetIds)))
+                    throw new InvalidOperationException("This message identity belongs to a different decision question.");
                 return new CommunicationMessageSendResponse(
                     MapMessage(existing, new Dictionary<Guid, OrganizationUser> { [actor.Id] = actor }),
                     existing.ChatTurnId.HasValue
                         ? await turns.GetAsync(organizationId, existing.ChatTurnId.Value, cancellationToken)
                         : null);
+            }
         }
 
         var directRecipientIds = chat.Kind == ConversationKind.DirectHumanAgent
@@ -574,6 +586,12 @@ public sealed class CommunicationHubService(
                 .Select(x => (Guid?)x.Id)
                 .SingleOrDefaultAsync(cancellationToken)
             : null;
+        if (request.FollowUpDecisionId is Guid decisionId)
+        {
+            targetAgentId = await new DecisionFollowUpService(db, turns, decisions!)
+                .PendingSpeakerAsync(organizationId, chatId, decisionId, actor.Id, request.FollowUpOptionId, cancellationToken);
+            if (targetAgentId is null) return null;
+        }
         if (targetAgentId.HasValue)
         {
             await using var mentionTransaction = mentions.Count > 0 &&
@@ -586,7 +604,8 @@ public sealed class CommunicationHubService(
                 targetAgentId.Value,
                 content,
                 actor.Id,
-                CommunicationProviderKeys.InApp,
+                followUp ? DecisionFollowUpService.Provider : CommunicationProviderKeys.InApp,
+                sourceChannelExternalId: channel,
                 idempotencyKey: idempotencyKey,
                 attachmentMediaAssetIds: attachmentAssetIds,
                 cancellationToken: cancellationToken);
@@ -597,10 +616,12 @@ public sealed class CommunicationHubService(
                 .ToListAsync(cancellationToken);
             await PersistMentionsAsync(
                 organizationId, chat, actor, started.UserMessage.Id, content, mentions, cancellationToken);
-            await TryRecordArtifactApprovalAsync(
+            if (!followUp) await TryRecordArtifactApprovalAsync(
                 organizationId, chat.Id, actor, started.UserMessage.Id, content, cancellationToken);
             if (mentionTransaction is not null)
                 await mentionTransaction.CommitAsync(cancellationToken);
+            if (inquiryTransaction is not null)
+                await inquiryTransaction.CommitAsync(cancellationToken);
             var response = new CommunicationMessageSendResponse(
                 new CommunicationHubMessageResponse(
                     started.UserMessage.Id,
