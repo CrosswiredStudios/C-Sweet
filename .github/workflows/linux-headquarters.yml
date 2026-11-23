@@ -10,6 +10,7 @@ on:
       - '.github/workflows/linux-headquarters.yml'
       - 'scripts/release/publish-linux-hq.sh'
       - 'scripts/release/test-linux-hq.sh'
+      - 'scripts/release/check-private-hq-package.py'
       - 'scripts/release/build-dependencies.json'
       - 'docker/hosted-headquarters.Dockerfile'
       - 'src/**'
@@ -39,7 +40,7 @@ jobs:
         run: bash scripts/release/publish-linux-hq.sh "$RUNNER_TEMP/hq"
       - name: Build and smoke-test the deployable image
         run: |
-          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/csweet-headquarters"
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/csweet-headquarters-hosted"
           echo "IMAGE=$image" >> "$GITHUB_ENV"
           docker build --platform linux/amd64 --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" --label "org.opencontainers.image.revision=$GITHUB_SHA" -t "$image:sha-$GITHUB_SHA" "$RUNNER_TEMP/hq"
           docker run --rm --entrypoint sh "$image:sha-$GITHUB_SHA" -ec 'test -s /srv/web/index.html; test -s /srv/CSweet.ExecutionGateway/CSweet.ExecutionGateway.dll; dotnet --list-runtimes'
@@ -49,6 +50,7 @@ jobs:
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          GH_TOKEN="$GHCR_TOKEN" python3 scripts/release/check-private-hq-package.py "$IMAGE"
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           docker push "$IMAGE:sha-$GITHUB_SHA"
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
