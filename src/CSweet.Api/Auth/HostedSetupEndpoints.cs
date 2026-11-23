@@ -52,7 +52,9 @@ public static class HostedSetupEndpoints
             if (http.Request.Cookies.TryGetValue(CookieName, out var previous)) setup.Remove(previous);
             try
             {
-                var snapshot = await setup.StartAsync(request.InstallationName, ct);
+                var snapshot = string.IsNullOrEmpty(options.Value.ReservedOwnerSubject)
+                    ? await setup.StartAsync(request.InstallationName, ct)
+                    : await setup.StartOwnerFirstAsync(ct);
                 http.Response.Cookies.Append(CookieName, snapshot.AttemptId, Cookie(http, snapshot.ExpiresAt));
                 return Results.Ok(Map(snapshot));
             }
@@ -79,7 +81,21 @@ public static class HostedSetupEndpoints
             IOptions<HostedAccountOptions> options, HostedSetupCoordinator setup, DirectoryPublicationSignal directory, CancellationToken ct) =>
         {
             if (!await IsAvailableAsync(auth, options.Value, ct)) return Results.NotFound();
-            if (!http.Request.Cookies.TryGetValue(CookieName, out var attemptId) || setup.GetApproval(attemptId) is not { } approval)
+            HostedSetupApproval? approval = null;
+            if (http.Request.Cookies.TryGetValue(CookieName, out var attemptId))
+            {
+                try
+                {
+                    approval = string.IsNullOrEmpty(options.Value.ReservedOwnerSubject)
+                        ? setup.GetApproval(attemptId)
+                        : await setup.FinishOwnerNamingAsync(attemptId, request.InstallationName, ct);
+                }
+                catch (HostedAccountException ex)
+                {
+                    return Results.BadRequest(new AuthActionResponse(false, ex.Code, ex.Message));
+                }
+            }
+            if (approval is null)
             {
                 return Results.Json(new AuthActionResponse(false, "hosted_not_approved", "Approve this Headquarters on C-Sweet first."),
                     statusCode: StatusCodes.Status409Conflict);
@@ -94,7 +110,7 @@ public static class HostedSetupEndpoints
                 approval.InstallationId, approval.InstallationName, approval.PrivateKey), ct);
             if (result.Succeeded)
             {
-                setup.Remove(attemptId);
+                setup.Remove(attemptId!);
                 http.Response.Cookies.Delete(CookieName, new CookieOptions { Path = CookiePath });
                 directory.Notify(); // publish the owner to "My Headquarters" now rather than on the next timer
             }

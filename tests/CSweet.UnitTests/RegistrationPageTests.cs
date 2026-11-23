@@ -198,6 +198,19 @@ public sealed class RegistrationPageTests
     }
 
     [Fact]
+    public async Task Purchased_site_shows_naming_only_after_the_owner_approves()
+    {
+        await using var h = await Harness.Create(configure: api => { api.HostedAvailable = true; api.HostedRequired = true; });
+        Assert.DoesNotContain("Name this Headquarters", await h.Html());
+        await h.Call("StartHostedAsync");
+        Assert.Equal("Hosted Headquarters", h.Api.StartedName);
+        Assert.DoesNotContain("Name this Headquarters", await h.Html());
+        h.Api.HostedPoll = new HostedSetupStatusResponse("approved", Email: "maya@example.com");
+        await h.Call("PollHostedOnceAsync");
+        Assert.Contains("Name this Headquarters", await h.Html());
+    }
+
+    [Fact]
     public async Task HostedSetupShowsTheCodeThenFinishesTheAdministratorAfterApproval()
     {
         await using var h = await Harness.Create(configure: api => api.HostedAvailable = true);
@@ -319,7 +332,7 @@ public sealed class RegistrationPageTests
     private sealed class Api : HttpMessageHandler
     {
         public int Registrations, Regenerations;
-        public bool Throw, HostedAvailable, OptionsFail, RegistrationOpen = true;
+        public bool Throw, HostedAvailable, HostedRequired, OptionsFail, RegistrationOpen = true;
         public List<string> Requests = [];
         public List<string> HostedRequests = [];
         public string? StartedName;
@@ -334,7 +347,7 @@ public sealed class RegistrationPageTests
             {
                 Requests.Add(request.RequestUri.AbsolutePath);
                 if (OptionsFail) throw new HttpRequestException("Offline");
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new RegistrationOptionsResponse(RegistrationOpen, RegistrationOpen && HostedAvailable)) });
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new RegistrationOptionsResponse(RegistrationOpen, RegistrationOpen && HostedAvailable, HostedRequired)) });
             }
             if (request.RequestUri.AbsolutePath.StartsWith("/api/auth/hosted/", StringComparison.Ordinal))
             {

@@ -122,12 +122,12 @@ public sealed class HostedAccountClient(HttpClient http, IOptions<HostedAccountO
     }
 
     /// <summary>Registers this installation. Safe to retry: the issuer returns the same installation for the same key.</summary>
-    public async Task<InstallationRegistration> RegisterInstallationAsync(string accessToken, InstallationKey key, CancellationToken ct = default)
+    public async Task<InstallationRegistration> RegisterInstallationAsync(string accessToken, InstallationKey key, CancellationToken ct = default, string? displayName = null)
     {
         var timestamp = time.GetUtcNow().ToUnixTimeSeconds();
         using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(options.Value.IssuerUri, "api/installations"))
         {
-            Content = JsonContent.Create(new { publicKey = key.PublicKey, timestamp, signature = key.SignRegistration(timestamp, accessToken) })
+            Content = JsonContent.Create(new { publicKey = key.PublicKey, timestamp, displayName, signature = key.SignRegistration(timestamp, accessToken, displayName) })
         };
         request.Headers.Authorization = new("Bearer", accessToken);
         using var response = await http.SendAsync(request, ct);

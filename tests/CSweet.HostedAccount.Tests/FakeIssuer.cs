@@ -63,7 +63,7 @@ internal sealed class FakeIssuer : HttpMessageHandler
                 RegistrationAuthorization = request.Headers.Authorization?.ToString();
                 RegistrationBody = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct)).RootElement.Clone();
                 return RegistrationStatus == HttpStatusCode.Created
-                    ? Json(new { installationId = InstallationId, displayName = "Northstar Headquarters", createdAt = DateTimeOffset.UtcNow }, HttpStatusCode.Created)
+                    ? Json(new { installationId = InstallationId, displayName = RegistrationBody.Value.TryGetProperty("displayName", out var name) ? name.GetString() ?? "Northstar Headquarters" : "Northstar Headquarters", createdAt = DateTimeOffset.UtcNow }, HttpStatusCode.Created)
                     : Json(new { title = "conflict" }, RegistrationStatus);
             case var relay when relay.EndsWith("/relay", StringComparison.Ordinal):
                 RelayBody = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct)).RootElement.Clone();

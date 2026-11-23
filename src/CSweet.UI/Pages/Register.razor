@@ -84,12 +84,15 @@
         {
             <p class="registration-error" role="alert">@ended</p>
         }
-        <div class="registration-field">
-            <label for="hosted-name">@L["Register.Hosted.NameLabel"]</label>
-            <input id="hosted-name" @bind="_installationName" @bind:event="oninput" maxlength="80" autocomplete="off" aria-describedby="hosted-name-hint" disabled="@_saving" />
-            <span id="hosted-name-hint" class="registration-hint">@L["Register.Hosted.NameHint"]</span>
-        </div>
-        <button type="button" class="registration-primary registration-spaced" disabled="@(_saving || string.IsNullOrWhiteSpace(_installationName))" @onclick="StartHostedAsync">
+        @if (!_hostedRequired)
+        {
+            <div class="registration-field">
+                <label for="hosted-name">@L["Register.Hosted.NameLabel"]</label>
+                <input id="hosted-name" @bind="_installationName" @bind:event="oninput" maxlength="80" autocomplete="off" aria-describedby="hosted-name-hint" disabled="@_saving" />
+                <span id="hosted-name-hint" class="registration-hint">@L["Register.Hosted.NameHint"]</span>
+            </div>
+        }
+        <button type="button" class="registration-primary registration-spaced" disabled="@(_saving || (!_hostedRequired && string.IsNullOrWhiteSpace(_installationName)))" @onclick="StartHostedAsync">
             <span role="status">@(_saving ? L["Register.Hosted.Starting"] : L["Register.Hosted.Start"])</span><MudIcon Icon="@Icons.Material.Outlined.ArrowForward" />
         </button>
         @if (!_hostedRequired)
@@ -127,6 +130,13 @@
         <EditForm EditContext="_editContext" OnSubmit="CompleteHostedAsync" class="registration-form" novalidate>
             <DataAnnotationsValidator />
             <fieldset disabled="@_saving">
+                @if (_hostedRequired)
+                {
+                    <div class="registration-field">
+                        <label for="approved-hosted-name">@L["Register.Hosted.NameLabel"]</label>
+                        <input id="approved-hosted-name" @bind="_installationName" @bind:event="oninput" maxlength="80" required />
+                    </div>
+                }
                 <div class="registration-field">
                     <label for="register-name">@L["Register.Form.Name"]</label>
                     <InputText id="register-name" @bind-Value="_model.DisplayName" autocomplete="name" maxlength="160" aria-required="true" aria-describedby="register-name-error" />
@@ -144,7 +154,7 @@
                 </div>
             </fieldset>
             @if (_error is not null) { <p class="registration-error" role="alert">@_error</p> }
-            <button type="submit" class="registration-primary" disabled="@_saving"><span role="status">@(_saving ? L["Register.Form.Creating"] : L["Register.Form.Submit"])</span><MudIcon Icon="@Icons.Material.Outlined.ArrowForward" /></button>
+            <button type="submit" class="registration-primary" disabled="@(_saving || (_hostedRequired && string.IsNullOrWhiteSpace(_installationName)))"><span role="status">@(_saving ? L["Register.Form.Creating"] : L["Register.Form.Submit"])</span><MudIcon Icon="@Icons.Material.Outlined.ArrowForward" /></button>
         </EditForm>
     }
     else
@@ -281,12 +291,12 @@
 
     private async Task StartHostedAsync()
     {
-        if (_saving || _step != RegistrationStep.Hosted || string.IsNullOrWhiteSpace(_installationName)) return;
+        if (_saving || _step != RegistrationStep.Hosted || (!_hostedRequired && string.IsNullOrWhiteSpace(_installationName))) return;
         _saving = true;
         _hostedStatus = null;
         try
         {
-            ApplyHostedStatus(await AuthenticationApi.StartHostedSetupAsync(new StartHostedSetupRequest(_installationName.Trim())));
+            ApplyHostedStatus(await AuthenticationApi.StartHostedSetupAsync(new StartHostedSetupRequest(_hostedRequired ? "Hosted Headquarters" : _installationName.Trim())));
         }
         catch (Exception)
         {
@@ -383,7 +393,7 @@
         try
         {
             var result = await AuthenticationApi.CompleteHostedSetupAsync(new CompleteHostedSetupRequest(_model.DisplayName, _model.Password, _model.ConfirmPassword,
-                Culture.CurrentCode, Culture.PreferredTimeZoneId ?? Culture.DeviceTimeZoneId));
+                Culture.CurrentCode, Culture.PreferredTimeZoneId ?? Culture.DeviceTimeZoneId, _hostedRequired ? _installationName.Trim() : null));
             if (result.ErrorCode == "hosted_not_approved")
             {
                 ApplyHostedStatus(new HostedSetupStatusResponse("expired"));

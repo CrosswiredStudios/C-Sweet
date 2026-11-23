@@ -32,7 +32,18 @@ public sealed class HostedSetupCoordinator(HostedAccountClient client, TimeProvi
     public const int MaximumAttempts = 20;
     private readonly ConcurrentDictionary<string, Attempt> _attempts = new(StringComparer.Ordinal);
 
-    public async Task<HostedSetupSnapshot> StartAsync(string installationName, CancellationToken ct = default)
+    public const string UnnamedHost = "Hosted Headquarters";
+
+    public Task<HostedSetupSnapshot> StartOwnerFirstAsync(CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(reservedOwnerSubject)) throw new InvalidOperationException("A purchaser is required.");
+        return StartCoreAsync(UnnamedHost, true, ct);
+    }
+
+    public Task<HostedSetupSnapshot> StartAsync(string installationName, CancellationToken ct = default) =>
+        StartCoreAsync(installationName, false, ct);
+
+    private async Task<HostedSetupSnapshot> StartCoreAsync(string installationName, bool ownerFirst, CancellationToken ct)
     {
         var name = installationName?.Trim() ?? string.Empty;
         if (name.Length is 0 or > 80 || name.Any(char.IsControl))
@@ -46,7 +57,7 @@ public sealed class HostedSetupCoordinator(HostedAccountClient client, TimeProvi
         {
             var device = await client.StartAsync(name, key, ct);
             var id = Base64Url.Encode(RandomNumberGenerator.GetBytes(32));
-            var attempt = new Attempt(device, key, name) { NextPollAt = time.GetUtcNow() + device.PollInterval, Interval = device.PollInterval };
+            var attempt = new Attempt(device, key, name, ownerFirst) { NextPollAt = time.GetUtcNow() + device.PollInterval, Interval = device.PollInterval };
             _attempts[id] = attempt;
             return Snapshot(id, attempt);
         }
@@ -100,6 +111,12 @@ public sealed class HostedSetupCoordinator(HostedAccountClient client, TimeProvi
                         break;
                     }
                     attempt.Identity = result.Identity;
+                    if (attempt.OwnerFirst)
+                    {
+                        attempt.AccessToken = result.AccessToken;
+                        attempt.State = HostedSetupState.Approved;
+                        break;
+                    }
                     try
                     {
                         var registration = await client.RegisterInstallationAsync(result.AccessToken!, attempt.Key, ct);
@@ -119,8 +136,33 @@ public sealed class HostedSetupCoordinator(HostedAccountClient client, TimeProvi
         finally { attempt.Lock.Release(); }
     }
 
+    public async Task<HostedSetupApproval?> FinishOwnerNamingAsync(string attemptId, string? displayName, CancellationToken ct)
+    {
+        if (!_attempts.TryGetValue(attemptId, out var attempt) || !attempt.OwnerFirst) return null;
+        await attempt.Lock.WaitAsync(ct);
+        try
+        {
+            if (attempt.State != HostedSetupState.Approved || attempt.Identity?.Subject != reservedOwnerSubject ||
+                attempt.Device.ExpiresAt <= time.GetUtcNow()) return null;
+            var name = displayName?.Trim();
+            if (string.IsNullOrEmpty(name) || name.Length > 80 || displayName!.Any(char.IsControl))
+                throw new HostedAccountException("invalid_installation_name", "Enter a Headquarters name of up to 80 characters.");
+            if (attempt.InstallationId == Guid.Empty)
+            {
+                var registration = await client.RegisterInstallationAsync(attempt.AccessToken!, attempt.Key, ct, name);
+                attempt.InstallationId = registration.InstallationId;
+                attempt.Name = registration.DisplayName;
+                attempt.AccessToken = null;
+            }
+            if (attempt.Name != name)
+                throw new HostedAccountException("installation_name_conflict", "This installation was registered with a different name. Start a new sign-in.");
+            return GetApproval(attemptId);
+        }
+        finally { attempt.Lock.Release(); }
+    }
+
     public HostedSetupApproval? GetApproval(string attemptId) =>
-        _attempts.TryGetValue(attemptId, out var attempt) && attempt.State == HostedSetupState.Approved && attempt.Identity is { } identity
+        _attempts.TryGetValue(attemptId, out var attempt) && attempt.State == HostedSetupState.Approved && attempt.InstallationId != Guid.Empty && attempt.Identity is { } identity
             ? new HostedSetupApproval(identity, attempt.InstallationId, attempt.Name, attempt.Key.ExportPrivateKey())
             : null;
 
@@ -145,11 +187,13 @@ public sealed class HostedSetupCoordinator(HostedAccountClient client, TimeProvi
         new(id, attempt.State, attempt.Device.UserCode, attempt.Device.VerificationUriComplete, attempt.Device.CreateAccountUri,
             attempt.Device.ExpiresAt, attempt.Interval, attempt.Name, attempt.Identity?.Email, attempt.Error);
 
-    private sealed class Attempt(DeviceAuthorization device, InstallationKey key, string name) : IDisposable
+    private sealed class Attempt(DeviceAuthorization device, InstallationKey key, string name, bool ownerFirst) : IDisposable
     {
         public DeviceAuthorization Device { get; } = device;
         public InstallationKey Key { get; } = key;
-        public string Name { get; } = name;
+        public string Name { get; set; } = name;
+        public bool OwnerFirst { get; } = ownerFirst;
+        public string? AccessToken { get; set; }
         public SemaphoreSlim Lock { get; } = new(1, 1);
         public HostedSetupState State { get; set; }
         public DateTimeOffset NextPollAt { get; set; }

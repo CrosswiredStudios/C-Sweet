@@ -30,8 +30,9 @@ public sealed class InstallationKey : IDisposable
 
     public string Thumbprint => Base64Url.Encode(SHA256.HashData(_key.ExportSubjectPublicKeyInfo()));
 
-    public string SignRegistration(long timestamp, string accessToken) =>
-        Sign($"csweet-installation-register\n{Thumbprint}\n{timestamp}\n{Base64Url.Encode(SHA256.HashData(Encoding.ASCII.GetBytes(accessToken)))}");
+    public string SignRegistration(long timestamp, string accessToken, string? displayName = null) =>
+        Sign($"csweet-installation-register\n{Thumbprint}\n{timestamp}\n{Base64Url.Encode(SHA256.HashData(Encoding.ASCII.GetBytes(accessToken)))}"
+            + (displayName is null ? string.Empty : "\n" + displayName));
 
     public string SignRetirement(Guid installationId, long timestamp) =>
         Sign($"csweet-installation-retire\n{installationId:D}\n{timestamp}");

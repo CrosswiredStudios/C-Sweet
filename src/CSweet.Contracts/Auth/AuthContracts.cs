@@ -58,7 +58,8 @@ public sealed record CompleteHostedSetupRequest(
     [property: Required] string Password,
     [property: Required] string ConfirmPassword,
     [property: MaxLength(16)] string? PreferredLanguage = null,
-    [property: MaxLength(64)] string? TimeZoneId = null);
+    [property: MaxLength(64)] string? TimeZoneId = null,
+    [property: MaxLength(80)] string? InstallationName = null);
 
 /// <summary>Per-user presentation preferences. Null values mean "follow the device".</summary>
 public sealed record UserPreferencesResponse(string? PreferredLanguage, string? TimeZoneId);

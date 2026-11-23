@@ -117,6 +117,33 @@ public sealed class HostedSetupCoordinatorTests
         Assert.Null(setup.GetApproval(started.AttemptId));
     }
 
+    [Theory]
+    [InlineData("market-user-1", true)]
+    [InlineData("another-subject", false)]
+    public async Task Purchased_first_run_accepts_a_name_only_after_buyer_verification(string owner, bool isBuyer)
+    {
+        var issuer = new FakeIssuer();
+        using var setup = Coordinator(issuer, owner);
+        var started = await setup.StartOwnerFirstAsync(default);
+        Assert.Equal("Hosted Headquarters", issuer.DeviceForm!["installation_name"]);
+        Assert.Null(await setup.FinishOwnerNamingAsync(started.AttemptId, "Test Headquarters", default));
+        _time.Advance(TimeSpan.FromSeconds(5));
+        var polled = await setup.PollAsync(started.AttemptId);
+        Assert.Null(issuer.RegistrationBody);
+        Assert.Null(setup.GetApproval(started.AttemptId));
+        if (!isBuyer)
+        {
+            Assert.Equal(HostedSetupState.Denied, polled!.State);
+            Assert.Null(await setup.FinishOwnerNamingAsync(started.AttemptId, "Test Headquarters", default));
+            return;
+        }
+        Assert.Equal(HostedSetupState.Approved, polled!.State);
+        var approval = await setup.FinishOwnerNamingAsync(started.AttemptId, "Test Headquarters", default);
+        Assert.Equal("Test Headquarters", approval!.InstallationName);
+        Assert.Equal(approval.InstallationId, (await setup.FinishOwnerNamingAsync(started.AttemptId, "Test Headquarters", default))!.InstallationId);
+        Assert.Equal("Test Headquarters", issuer.RegistrationBody!.Value.GetProperty("displayName").GetString());
+    }
+
     private HostedSetupCoordinator Coordinator(FakeIssuer issuer, string? owner = null)
     {
         issuer.Now = _time.GetUtcNow;
