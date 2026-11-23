@@ -98,6 +98,35 @@ public sealed class ComputeDashboardTests
     }
 
     [Fact]
+    public async Task OfficeDashboardShowsWhoIsWaitingUntilTheirWorkspaceIsPlaced()
+    {
+        await using var f = new ComputeBrokerTests.Fixture();
+        await f.SeedAsync();
+        var user = Guid.NewGuid();
+        f.Db.CoreOrganizationUsers.Add(new() { Id = Guid.NewGuid(), OrganizationId = f.Organization,
+            ApplicationUserId = user, EmployeeType = EmployeeType.Human, IsActive = true });
+        var employee = await f.Db.CoreOrganizationUsers.SingleAsync(x => x.AgentInstallationId == f.Installation);
+        employee.DisplayName = "Victor Lin";
+        var requestedAt = DateTimeOffset.UtcNow.AddMinutes(-10);
+        f.Db.Add(new OfficeComputeCapacityRequest { OrganizationId = f.Organization,
+            InstallationId = f.Installation, RequestedAt = requestedAt });
+        await f.Db.SaveChangesAsync();
+
+        async Task<CSweet.Contracts.Compute.ComputeDashboard> Read() =>
+            (await ComputeDashboardEndpoints.ReadAsync(f.Db, f.Organization, user, "", "", default))!;
+        var pending = await Read();
+        Assert.Equal("Pending", pending.Setup!.State);
+        Assert.Equal(new CSweet.Contracts.Compute.OfficeComputeCapacityStatus(false, 1, "Victor Lin", requestedAt),
+            pending.Setup.OfficeCapacity);
+
+        await f.Send();
+        var placed = await Read();
+        Assert.Single(placed.Resources);
+        Assert.Equal(0, placed.Setup!.OfficeCapacity!.WaitingEmployees);
+        Assert.Equal("Unavailable", placed.Setup.State);
+    }
+
+    [Fact]
     public void SetupReportsObservedDownloadProgressButDoesNotUseItAfterFailure()
     {
         var root = Path.Combine(Path.GetTempPath(), "compute-dashboard-" + Guid.NewGuid().ToString("N"));

@@ -70,10 +70,13 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
             return Failure("validation_error", "Organization name is required.");
         }
 
+        await using var transaction = _dbContext.Database.IsRelational() && _dbContext.Database.CurrentTransaction is null
+            ? await _dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
+        await Setup.FirstOfficeBusiness.LockAsync(_dbContext, cancellationToken);
         var now = DateTimeOffset.UtcNow;
         var org = new Organization
         {
-            Id = Guid.NewGuid(),
+            Id = await Setup.FirstOfficeBusiness.ConsumeAsync(_dbContext, applicationUserId, cancellationToken) ?? Guid.NewGuid(),
             Name = request.Name.Trim(),
             Industry = TrimOrNull(request.Industry),
             Mission = TrimOrNull(request.Mission),
@@ -101,6 +104,7 @@ public sealed class CoreOrganizationService : ICoreOrganizationService
             $"Organization '{org.Name}' created.",
             cancellationToken: cancellationToken);
 
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         return new CoreActionResponse(true, null, "Organization created successfully.", Organization: org.ToResponse());
     }
 

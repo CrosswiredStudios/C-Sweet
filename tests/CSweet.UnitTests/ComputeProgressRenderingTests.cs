@@ -166,6 +166,27 @@ public sealed class ComputeProgressRenderingTests
         Assert.DoesNotContain("Update compute service", ready);
     }
 
+    [Theory]
+    [InlineData("Pending", false, 1, "Workspace provisioning is blocked")]
+    [InlineData("Pending", true, 2, "Workspace provisioning is blocked")]
+    [InlineData("Unavailable", false, 0, "No Office capacity available")]
+    [InlineData("Ready", true, 0, "An Office can accept a Linux workspace")]
+    public async Task OfficeCapacitySeparatesAQueuedEmployeeFromIdleAndReady(string state, bool registered, int count, string heading)
+    {
+        var html = await Render(new(state, "", null, null, null)
+        {
+            OfficeCapacity = new(registered, count, count > 0 ? "Victor Lin" : null, count > 0 ? DateTimeOffset.UtcNow : null)
+        }, canManage: true, legacyLocalSetupEnabled: false);
+        Assert.Contains(heading, html);
+        Assert.Equal(count > 0, html.Contains("Victor Lin"));
+        Assert.Equal(count > 1, html.Contains("2 employees are awaiting placement"));
+        Assert.Equal(state != "Ready" && registered, html.Contains("An Office has registered compute, but none can accept"));
+        Assert.Equal(state != "Ready" && !registered, html.Contains("No Office has registered compute for this business"));
+        Assert.Equal(state == "Ready", html.Contains("Create instance"));
+        Assert.DoesNotContain("Prepare Linux to make instances available", html);
+        Assert.DoesNotContain("Download image", html);
+    }
+
     private static async Task<string> Render(ComputeSetupStatus? status, bool canManage = false, bool legacyLocalSetupEnabled = true)
     {
         var services = new ServiceCollection().AddLogging(); services.AddMudServices(); services.AddCSweetLocalization();

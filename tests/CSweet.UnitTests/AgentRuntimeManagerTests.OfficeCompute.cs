@@ -139,8 +139,15 @@ public sealed partial class AgentRuntimeManagerTests
         offer.Features.Add("docker");
         await OfficeComputePlacement.ApplyOfferAsync(db, office, offer, now, default);
         Assert.Null(office.ComputeTemplateId);
+        var installed = new OfficeComputeImageApproval(fixture.Organization, digest, ["docker"]);
         await OfficeComputePlacement.ApplyOfferAsync(db, office, offer, now, default,
-            new() { ApprovedImages = [new(fixture.Organization, digest, ["docker"])] });
+            new() { CombinedInstallImage = installed with { OrganizationId = Guid.NewGuid() } });
+        Assert.Null(office.ComputeTemplateId);
+        await OfficeComputePlacement.ApplyOfferAsync(db, office, offer, now, default,
+            new() { CombinedInstallImage = installed, ApprovedImages = [installed with { ImageDigest = "sha256:" + new string('b', 64) }] });
+        Assert.Null(office.ComputeTemplateId);
+        await OfficeComputePlacement.ApplyOfferAsync(db, office, offer, now, default,
+            new() { CombinedInstallImage = installed });
         Assert.Equal(template, office.ComputeTemplateId);
         await OfficeComputePlacement.WakeWaitingAsync(db, fixture.Organization, office.Id, 1, template, now, default);
         await db.SaveChangesAsync();

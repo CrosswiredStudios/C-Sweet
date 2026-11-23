@@ -95,8 +95,10 @@ must contain the gateway HTTPS `controlPlaneUrl`, its lowercase
 `controlPlaneCertificateSha256`, and positive integer `allocatableCpuCount`,
 `allocatableMemoryMb`, `allocatableDiskMb` and `maximumConcurrentWorkloads`.
 The Migrator issues a normal one-use enrollment through Headquarters. The Office
-installer consumes it from protected machine storage. Office approval in Headquarters
-and machine consent to compute are separate from those general Office allocations.
+installer consumes it from protected machine storage. Headquarters automatically approves
+that enrollment when the local Office passes provider qualification. Remote enrollment
+continues through the usual approval flow. See the [Windows Office compute setup](../implementation/unattended-machine-operations/07-windows-compute.md)
+for the workspace reservation and the allocation available to agent and build VMs.
 
 Give owners a trusted HTTPS address for the Headquarters API. Production uses secure
 session and antiforgery cookies for Office approval, repair and upgrade. When using

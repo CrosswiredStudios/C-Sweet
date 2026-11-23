@@ -5,6 +5,7 @@ namespace CSweet.Application.Setup;
 
 public interface IExecutionFleetService
 {
+    Task<OfficeComputeSetupPlan?> PrepareHostedComputeAsync(OfficeComputeSetupRequest request, CancellationToken token);
     Task<OfficeUpdatePreparationResponse> BeginOfficeUpdatePreparationAsync(
         BeginOfficeUpdatePreparationRequest request, CancellationToken cancellationToken = default);
     Task<OfficeUpdatePreparationResponse> AdvanceOfficeUpdatePreparationAsync(

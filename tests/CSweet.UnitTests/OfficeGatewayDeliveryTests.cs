@@ -101,6 +101,10 @@ public sealed class OfficeGatewayDeliveryTests
         Assert.Equal(35840, node.AllocatableMemoryMb);
         Assert.Equal(69632, node.AllocatableDiskMb);
         Assert.Equal(6, node.MaximumConcurrentWorkloads);
+        session.ComputeReservationBusinessId = Guid.NewGuid();
+        OfficeGatewayService.ApplyHeartbeatCapacity(node, heartbeat, session);
+        Assert.Equal((10, 33792, 49152, 5), (node.AllocatableCpuCount, node.AllocatableMemoryMb,
+            node.AllocatableDiskMb, node.MaximumConcurrentWorkloads));
     }
 
     [Fact]

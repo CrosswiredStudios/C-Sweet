@@ -19,12 +19,16 @@
           <Component Id="HqConfigurationScript" Guid="*">
             <File Source="$(var.ScriptRoot)\Initialize-Headquarters.ps1" KeyPath="yes" />
           </Component>
+          <Component Id="OfficeComputeProvisioning" Guid="*">
+            <File Source="$(var.ScriptRoot)\OfficeComputeProvisioning.ps1" KeyPath="yes" />
+          </Component>
         </Directory>
       </Directory>
     </StandardDirectory>
     <Feature Id="Headquarters" Title="C-Sweet Headquarters">
       <ComponentGroupRef Id="HeadquartersPayload" />
       <ComponentRef Id="HqConfigurationScript" />
+      <ComponentRef Id="OfficeComputeProvisioning" />
     </Feature>
   </Package>
 </Wix>

@@ -63,6 +63,24 @@ internal sealed class InstalledMigration(IServiceProvider services, IHostApplica
                 if (result.Enrollment?.EnrollmentToken is not { Length: > 0 } token)
                     throw new InvalidOperationException("The first Office enrollment could not be issued.");
                 await PublishAsync("enrollment.secret", token);
+                if (File.Exists(Path.Combine(root, "combined-enrollment.id")))
+                    await PublishAsync("combined-enrollment.id", result.Enrollment.Id.ToString("D"));
+                if (File.Exists(Path.Combine(root, "compute-business.id")))
+                {
+                    var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
+                    await using var tx = await db.Database.BeginTransactionAsync(stoppingToken);
+                    await CSweet.Infrastructure.Setup.FirstOfficeBusiness.LockAsync(db, stoppingToken);
+                    var businesses = await db.CoreOrganizations.AsNoTracking()
+                        .Where(x => x.Status == CSweet.Domain.Core.OrganizationStatus.Active ||
+                            x.Status == CSweet.Domain.Core.OrganizationStatus.Draft)
+                        .Select(x => x.Id).Take(2).ToListAsync(stoppingToken);
+                    // A shared Headquarters needs an explicitly scoped deployment policy.
+                    Guid? business = businesses.Count == 1 ? businesses[0] :
+                        await CSweet.Infrastructure.Setup.FirstOfficeBusiness.ReserveAsync(db, null, stoppingToken);
+                    await db.SaveChangesAsync(stoppingToken);
+                    await tx.CommitAsync(stoppingToken);
+                    if (business.HasValue) await PublishAsync("compute-business.id", business.Value.ToString("D"));
+                }
             }
             await PublishAsync("completed", "1");
         }

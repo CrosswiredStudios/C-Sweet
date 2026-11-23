@@ -1172,9 +1172,27 @@ public sealed partial class ExecutionFleetService(
         if (enrollment is null || enrollment.Status != ExecutionEnrollmentStatus.Available || enrollment.ExpiresAt <= now)
             return new ClaimOfficeResponse(false, "invalid_enrollment", "The enrollment is invalid, expired, or already used.", null, null);
 
+        // The signed combined installer names exactly one local enrollment, and hands
+        // its one-use secret to Office through an administrator-protected file.
+        var combined = Guid.TryParse(appConfiguration?["CSweet:CombinedInstallOfficeEnrollmentId"], out var combinedId) &&
+            combinedId == enrollment.Id;
+        if (combined && (!OperatingSystem.IsWindows() || !request.MachineName.Equals(Environment.MachineName, StringComparison.OrdinalIgnoreCase) ||
+            !request.OperatingSystem.Equals("windows", StringComparison.OrdinalIgnoreCase)))
+            return new(false, "combined_machine_mismatch", "This enrollment belongs to the combined Windows installation.", null, null);
+        await using var combinedClaim = combined && dbContext.Database.IsRelational()
+            ? await dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
+        if (combinedClaim is not null)
+        {
+            await new CSweet.Infrastructure.Core.ProjectWorkPolicy(dbContext, timeProvider).LockAsync(enrollment.Id, cancellationToken);
+            await dbContext.Entry(enrollment).ReloadAsync(cancellationToken);
+            if (enrollment.Status != ExecutionEnrollmentStatus.Available || enrollment.ExpiresAt <= timeProvider.GetUtcNow())
+                return new(false, "invalid_enrollment", "The enrollment is expired or already used.", null, null);
+        }
         var assistedSession = await dbContext.LocalOfficeSetupSessions.SingleOrDefaultAsync(x =>
             x.ExecutionNodeEnrollmentId == enrollment.Id &&
             x.Status == LocalOfficeSetupSessionStatus.Redeemed, cancellationToken);
+        if (combined && assistedSession is not null)
+            return new(false, "assisted_session_mismatch", "The combined enrollment cannot be used for an assisted session.", null, null);
         if (request.AssistedSetupSessionId is { } assistedSessionId &&
             assistedSession?.Id != assistedSessionId)
             return new ClaimOfficeResponse(false, "assisted_session_mismatch",
@@ -1188,10 +1206,11 @@ public sealed partial class ExecutionFleetService(
                     Encoding.ASCII.GetBytes(binding)))
                 return new ClaimOfficeResponse(false, "assisted_session_mismatch",
                     "The assisted setup session does not match this Office.", null, null);
-            if (request.AllocatableCpuCount != assistedSession.AllocatableCpuCount ||
-                request.AllocatableMemoryMb != assistedSession.AllocatableMemoryMb ||
-                request.AllocatableDiskMb != assistedSession.AllocatableDiskMb ||
-                request.MaximumConcurrentWorkloads != assistedSession.MaximumConcurrentWorkloads)
+            var reserved = assistedSession.ComputeReservationBusinessId.HasValue ? 1 : 0;
+            if (request.AllocatableCpuCount != assistedSession.AllocatableCpuCount - 2 * reserved ||
+                request.AllocatableMemoryMb != assistedSession.AllocatableMemoryMb - 2048 * reserved ||
+                request.AllocatableDiskMb != assistedSession.AllocatableDiskMb - 20480 * reserved ||
+                request.MaximumConcurrentWorkloads != assistedSession.MaximumConcurrentWorkloads - reserved)
                 return new ClaimOfficeResponse(false, "assisted_allocation_mismatch",
                     "The Office did not apply the CPU, memory, and storage selected during setup.", null, null);
         }
@@ -1241,6 +1260,14 @@ public sealed partial class ExecutionFleetService(
             nameof(ExecutionNode), node.Id,
             $"Office {node.Name} claimed enrollment {enrollment.Id} and is pending approval.",
             cancellationToken: cancellationToken);
+        if (combined)
+        {
+            var qualification = await ApproveNodeAsync(node.Id, cancellationToken);
+            if (!qualification.Succeeded)
+                return new(false, qualification.ErrorCode, qualification.Message, null, null);
+            if (combinedClaim is not null) await combinedClaim.CommitAsync(cancellationToken);
+            return new(true, null, "Combined Office approved. Waiting for its authenticated connection.", node.Id, receipt);
+        }
         if (assistedSession is not null)
         {
             var approval = await ApproveNodeAsync(node.Id, cancellationToken);

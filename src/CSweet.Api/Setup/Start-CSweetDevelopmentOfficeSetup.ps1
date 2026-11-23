@@ -542,7 +542,6 @@ try {
         }
         Assert-DevelopmentOfficePayload (Get-Content -LiteralPath (Join-Path $payloadRoot 'runtime-manifest.json') -Raw | ConvertFrom-Json)
         } else { $payloadRoot = $preparedPayloadRoot }
-        # Compute owns its separate Linux image and prepares it on demand using its own storage selection.
         $officeInstaller = Join-Path $officeScriptRoot 'Install-CSweetOfficeRuntimeHost.ps1'
         if (-not (Test-Path -LiteralPath $officeInstaller -PathType Leaf)) {
             throw 'The C-Sweet Office installer is unavailable.'
@@ -565,6 +564,17 @@ try {
             $storage = Resolve-CSweetOfficeStorage -VolumeId ([string]$returnedStorage.volumeId) -InstallRoot ([string]$returnedStorage.installRoot) -DataRoot ([string]$returnedStorage.dataRoot) -RequiredDiskMb $allocatableDiskMb
         }
         if ($null -ne $storage) { $storageArguments = @{ StorageVolumeId = $storage.VolumeId; InstallRoot = $storage.InstallRoot; DataRoot = $storage.DataRoot } }
+        $runtimeManifest = Get-Content -Raw -LiteralPath (Join-Path $payloadRoot 'runtime-manifest.json') | ConvertFrom-Json
+        if ($installerAction -eq 'none' -and $runtimeManifest.PSObject.Properties['computeImageDigest']) {
+            $computeRequest = @{
+                assistedSetupSessionId=$sessionId; setupReceipt=[string]$redemption.setupReceipt
+                machineName=[Environment]::MachineName; operatingSystem='windows'; architecture=$architecture
+                officeVersion=[string]$runtimeManifest.officeVersion; imageDigest=[string]$runtimeManifest.computeImageDigest
+            } | ConvertTo-Json -Compress
+            $plan = Invoke-CSweetPinnedRestMethod -Method Post -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/compute-plan') -Body $computeRequest
+            if ($plan.enabled -eq $true) { $storageArguments.ComputePolicy = $plan }
+            else { Write-Warning ("Office compute was not reserved: " + [string]$plan.reason) }
+        }
         & $officeInstaller @storageArguments -PayloadRoot $payloadRoot -ControlPlaneUserSid $identity.User.Value `
             -ControlPlaneUrl ([string]$redemption.controlPlaneUrl) `
             -ControlPlaneCertificateSha256 $controlPlaneCertificateSha256 `

@@ -14,6 +14,14 @@ public sealed record OfficeComputeImageApproval(Guid OrganizationId, string Imag
 public sealed class OfficeComputeCatalogOptions
 {
     public OfficeComputeImageApproval[] ApprovedImages { get; set; } = [];
+    public OfficeComputeImageApproval? CombinedInstallImage { get; set; }
+
+    public IEnumerable<OfficeComputeImageApproval> ForBusiness(Guid business)
+    {
+        var configured = ApprovedImages.Where(x => x.OrganizationId == business).ToArray();
+        if (configured.Length != 0) return configured;
+        return CombinedInstallImage is { } installed && installed.OrganizationId == business ? [installed] : [];
+    }
 }
 
 public static class OfficeComputePlacement
@@ -47,7 +55,16 @@ public static class OfficeComputePlacement
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({BitConverter.ToInt64(business.ToByteArray(), 0)})", token);
         var template = await db.ComputeTemplates.SingleOrDefaultAsync(x => x.OrganizationId == business &&
             x.TemplateId == offer.TemplateId, token);
-        if (template is null && catalog?.ApprovedImages.FirstOrDefault(x => x.OrganizationId == business &&
+        var approvals = catalog?.ForBusiness(business).ToArray() ?? [];
+        if (template is null && approvals.Length == 0 && await db.LocalOfficeSetupSessions.AsNoTracking().AnyAsync(x =>
+                x.ExecutionNodeId == office.Id && x.ComputeReservationBusinessId == business &&
+                x.ComputeReservationImageDigest == offer.ImageDigest &&
+                (x.Status == LocalOfficeSetupSessionStatus.Ready || x.Status == LocalOfficeSetupSessionStatus.Connected) &&
+                db.CoreOrganizationUsers.Any(u => u.OrganizationId == business && u.ApplicationUserId == x.CreatedByUserId &&
+                    u.IsActive && u.ArchivedAt == null && u.EmployeeType == CSweet.Domain.Core.EmployeeType.Human &&
+                    u.PermissionLevel == CSweet.Domain.Core.OrganizationPermissionLevel.Owner), token))
+            approvals = [new(business, offer.ImageDigest, ["docker", "docker-apps-v1"])];
+        if (template is null && approvals.FirstOrDefault(x =>
             x.ImageDigest == offer.ImageDigest && x.Features is { Length: > 0 and <= 64 } &&
             x.Features.Contains("docker") && x.Features.All(ComputeSpecification.Identifier) &&
             x.Features.ToHashSet(StringComparer.Ordinal).SetEquals(offer.Features)) is { } approval &&
@@ -161,13 +178,13 @@ public static class OfficeComputePlacement
             disk <= capacity.Resources.DiskMiB && requested.GpuCount == 0;
     }
 
-    private static bool Allows(ExecutionPool pool, Guid business)
+    internal static bool Allows(ExecutionPool pool, Guid? business)
     {
         if (!pool.IsEnabled) return false;
         try
         {
             var ids = JsonSerializer.Deserialize<string[]>(pool.AllowedBusinessIdsJson);
-            return ids is { Length: 0 } || ids?.Contains(business.ToString("D"), StringComparer.Ordinal) == true;
+            return ids is { Length: 0 } || business is { } id && ids?.Contains(id.ToString("D"), StringComparer.Ordinal) == true;
         }
         catch (JsonException) { return false; }
     }

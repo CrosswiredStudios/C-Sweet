@@ -18,6 +18,9 @@
 .current .step-marker { background:var(--activity-accent,var(--mud-palette-primary)); color:var(--mud-palette-primary-text); }
 .complete .step-marker { color:var(--mud-palette-success); background:color-mix(in srgb,var(--mud-palette-success) 10%,var(--activity-panel,var(--mud-palette-surface))); }
 .preparation-detail { padding:26px; min-width:0; }
+.office-capacity { border-top:1px solid var(--activity-border,var(--mud-palette-lines-default)); padding:18px 22px 22px; }
+.office-capacity p { margin:.4rem 0; }
+.office-capacity a { display:inline-block; margin-top:.65rem; text-decoration:underline; }
 .preparation-eyebrow { color:var(--activity-accent,var(--mud-palette-primary)); text-transform:uppercase; letter-spacing:.09em; font-size:.7rem; }
 .preparation-detail h4 { font-size:1.35rem; font-weight:600; margin:6px 0; letter-spacing:-.025em; }
 .preparation-description { color:var(--activity-muted,var(--mud-palette-text-secondary)); margin:0; }

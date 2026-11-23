@@ -11365,6 +11365,13 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
+                    b.Property<string>("ComputeCapacityJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("ComputeTemplateId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -11373,13 +11380,6 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("ExecutionPoolId")
                         .HasColumnType("uuid");
-
-                    b.Property<string>("ComputeCapacityJson")
-                        .HasColumnType("jsonb");
-
-                    b.Property<string>("ComputeTemplateId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
 
                     b.Property<string>("IssuedCertificateBase64")
                         .HasMaxLength(16384)
@@ -12233,6 +12233,13 @@ namespace CSweet.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ComputeReservationBusinessId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ComputeReservationImageDigest")
+                        .HasMaxLength(71)
+                        .HasColumnType("character varying(71)");
 
                     b.Property<DateTimeOffset?>("ConnectedAt")
                         .HasColumnType("timestamp with time zone");
@@ -15114,6 +15121,12 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)");
+
+                    b.Property<Guid?>("FirstOfficeBusinessId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("FirstOfficeSetupUserId")
+                        .HasColumnType("uuid");
 
                     b.Property<bool>("IsFirstRunComplete")
                         .HasColumnType("boolean");

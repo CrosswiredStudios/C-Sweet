@@ -34,7 +34,10 @@
     {
         <div class="compute-heading compute-section-heading">
             <MudText Typo="Typo.h6">@L["Compute.ComputeTypes"]</MudText>
-            <span class="compute-secondary">@L["Compute.SetUpOnceReuseAcross"]</span>
+            @if (dashboard.LegacyLocalSetupEnabled)
+            {
+                <span class="compute-secondary">@L["Compute.SetUpOnceReuseAcross"]</span>
+            }
         </div>
         <ComputePreparation @key="OrganizationId" Setup="dashboard.Setup" CheckedAt="dashboard.CheckedAt" CanManage="dashboard.CanManageNetwork" LegacyLocalSetupEnabled="dashboard.LegacyLocalSetupEnabled"
                             Busy="@(_repairingSetup || _loading)" OnSetup="StartSetupAsync" OnRetry="RepairSetupAsync" OnUpdate="UpdateServiceAsync" OnRefresh="LoadAsync" OnCreate="OpenCreateAsync" />
@@ -80,7 +83,9 @@
             <MudPaper Outlined="true" Elevation="0" Class="compute-empty pa-8">
                 <MudIcon Icon="@Icons.Material.Outlined.Dns" Size="Size.Large" Color="Color.Secondary" />
                 <MudText Typo="Typo.h6" Class="mt-2">@L["Compute.NoComputeInstancesYet"]</MudText>
-                <MudText Class="mt-2">@(dashboard.Setup?.State == "Ready" ? "Linux is ready. Create an instance, or let an agent request one when it needs to build or test." : "Prepare Linux to make instances available. Existing requests continue automatically when compute is ready.")</MudText>
+                <MudText Class="mt-2">@(dashboard.Setup?.State == "Ready" ? "Linux is ready. Create an instance, or let an agent request one when it needs to build or test." :
+                    dashboard.LegacyLocalSetupEnabled ? "Prepare Linux to make instances available. Existing requests continue automatically when compute is ready." :
+                    "A workspace appears here once Headquarters places the request with an Office.")</MudText>
             </MudPaper>
         }
         else

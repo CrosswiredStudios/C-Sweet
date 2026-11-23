@@ -121,7 +121,7 @@ $migration = Join-Path $root 'Migration'
 if (-not (Test-Path -LiteralPath $migration)) { New-Item -ItemType Directory -Path $migration | Out-Null }
 Assert-ProtectedPath $migration
 Set-PrivateAcl $migration @($sids['CSweet.Migrator']) $null
-foreach ($name in @('completed', 'enroll-office', 'enrollment.secret')) {
+foreach ($name in @('completed', 'enroll-office', 'enrollment.secret', 'compute-business.id', 'combined-enrollment.id')) {
     $path = Join-Path $migration $name
     if ([IO.File]::Exists($path)) { [IO.File]::Delete($path) }
 }
@@ -132,6 +132,20 @@ if ($EnrollOffice) {
     Set-PrivateAcl (Join-Path $migration 'enroll-office') @($sids['CSweet.Migrator']) $null
     [IO.File]::WriteAllText((Join-Path $migration 'enrollment.secret'), '')
     Set-PrivateAcl (Join-Path $migration 'enrollment.secret') @() $sids['CSweet.Migrator']
+    [IO.File]::WriteAllText((Join-Path $migration 'combined-enrollment.id'), '')
+    Set-PrivateAcl (Join-Path $migration 'combined-enrollment.id') @() $sids['CSweet.Migrator']
+    $catalogPath = Join-Path $PSScriptRoot 'office-compute-release.json'
+    if ([IO.File]::Exists($catalogPath)) {
+        Assert-ProtectedPath $catalogPath
+        . (Join-Path $PSScriptRoot 'OfficeComputeProvisioning.ps1')
+        $deployment = Get-Content -Raw -LiteralPath (Join-Path $root 'office.json') | ConvertFrom-Json
+        $release = Get-Content -Raw -LiteralPath $catalogPath | ConvertFrom-Json
+        # Ask the database for an automatic scope only when the install budget can support it.
+        if (!$deployment.PSObject.Properties['compute'] -and (Test-OfficeComputeBudget $deployment $null)) {
+            [IO.File]::WriteAllText((Join-Path $migration 'compute-business.id'), '')
+            Set-PrivateAcl (Join-Path $migration 'compute-business.id') @() $sids['CSweet.Migrator']
+        }
+    }
 }
 $completed = Join-Path $migration 'completed'
 [IO.File]::WriteAllText($completed, '')
@@ -149,6 +163,30 @@ try {
         throw 'Database migration failed. Check the CSweet.Migrator event log and the configured database.'
     }
     if ($EnrollOffice) {
+        $generated = Join-Path $root 'combined-office-compute.json'
+        if ([IO.File]::Exists($generated)) { Assert-ProtectedPath $generated }
+        $settings = @{}
+        if ([IO.File]::Exists($catalogPath)) {
+            $scope = ''
+            $scopePath = Join-Path $migration 'compute-business.id'
+            if ([IO.File]::Exists($scopePath)) {
+                $scopeFile = Get-Item -LiteralPath $scopePath
+                if ($scopeFile.Length -gt 36 -or ($scopeFile.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Invalid compute scope output.' }
+                $scope = [IO.File]::ReadAllText($scopePath)
+            }
+            $policy = Get-CombinedOfficeComputeSettings $deployment $release $scope
+            if ($policy) { $settings = $policy }
+        }
+        $enrollmentFile = Get-Item -LiteralPath (Join-Path $migration 'combined-enrollment.id')
+        $enrollmentId = [guid]::Empty
+        if ($enrollmentFile.Length -ne 36 -or ($enrollmentFile.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            ![guid]::TryParseExact([IO.File]::ReadAllText($enrollmentFile.FullName), 'D', [ref]$enrollmentId) -or $enrollmentId -eq [guid]::Empty) {
+            throw 'Missing combined Office enrollment identity.'
+        }
+        if (!$settings.ContainsKey('CSweet')) { $settings.CSweet = @{} }
+        $settings.CSweet.CombinedInstallOfficeEnrollmentId = $enrollmentId.ToString('D')
+        [IO.File]::WriteAllText($generated, ($settings | ConvertTo-Json -Depth 7))
+        Set-PrivateAcl $generated @($sids['CSweet.ExecutionGateway']) $null
         $source = Join-Path $migration 'enrollment.secret'
         $info = Get-Item -LiteralPath $source
         if ($info.Length -gt 256 -or $info.Length -lt 32 -or $info.Attributes -band [IO.FileAttributes]::ReparsePoint) {
@@ -163,7 +201,7 @@ try {
         Set-PrivateAcl $destination @() $null
     }
 } finally {
-    foreach ($name in @('enroll-office', 'enrollment.secret', 'completed')) {
+    foreach ($name in @('enroll-office', 'enrollment.secret', 'completed', 'compute-business.id', 'combined-enrollment.id')) {
         $path = Join-Path $migration $name
         if ([IO.File]::Exists($path)) { [IO.File]::Delete($path) }
     }

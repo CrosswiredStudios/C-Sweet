@@ -265,6 +265,13 @@ public static class SetupEndpoints
     public static IEndpointRouteBuilder MapOfficeBootstrapEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/offices").AllowAnonymous();
+        group.MapPost("/local-sessions/compute-plan", async (HttpContext http, OfficeComputeSetupRequest request, IExecutionFleetService fleet, CancellationToken ct) =>
+        {
+            if (!http.Request.IsHttps) return Results.BadRequest();
+            http.Response.Headers.CacheControl = "no-store";
+            var plan = await fleet.PrepareHostedComputeAsync(request, ct);
+            return plan is null ? Results.Unauthorized() : Results.Ok(plan);
+        }).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(4096));
         group.MapPost("/claim", async (
             ClaimOfficeRequest request,
             IExecutionFleetService service,

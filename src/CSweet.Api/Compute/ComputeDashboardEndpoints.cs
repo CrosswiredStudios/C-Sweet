@@ -3,6 +3,7 @@ using CSweet.Api.Auth;
 using CSweet.Contracts.Compute;
 using CSweet.Domain.Compute;
 using CSweet.Domain.Core;
+using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Compute;
 using Microsoft.EntityFrameworkCore;
@@ -22,9 +23,9 @@ public static class ComputeDashboardEndpoints
             if (http.User.GetApplicationUserId() is not { } userId) return Results.Unauthorized();
             var root = configuration["CSweet:Compute:RepositoryRoot"] ?? Path.GetFullPath(Path.Combine(environment.ContentRootPath, "..", ".."));
             var result = await ReadAsync(db, organizationId, userId, root,
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), token, downloads);
-            return result is null ? Results.Forbid() : Results.Ok(result with
-                { LegacyLocalSetupEnabled = ComputeLocalSetupWorker.InteractiveSetupEnabled(environment, configuration) });
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), token, downloads,
+                ComputeLocalSetupWorker.InteractiveSetupEnabled(environment, configuration));
+            return result is null ? Results.Forbid() : Results.Ok(result);
         }).RequireAuthorization();
         endpoints.MapPost("/api/organizations/{organizationId:guid}/compute/setup/update", async (Guid organizationId,
             HttpContext http, CSweetDbContext db, IWebHostEnvironment environment, IConfiguration configuration, CancellationToken token) =>
@@ -99,7 +100,8 @@ public static class ComputeDashboardEndpoints
     }
 
     internal static async Task<ComputeDashboard?> ReadAsync(CSweetDbContext db, Guid organizationId, Guid userId,
-        string repositoryRoot, string localData, CancellationToken token, ComputeDownloadProgress? downloads = null)
+        string repositoryRoot, string localData, CancellationToken token, ComputeDownloadProgress? downloads = null,
+        bool legacyLocalSetupEnabled = false)
     {
         if (!await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x => x.OrganizationId == organizationId &&
                 x.ApplicationUserId == userId && x.EmployeeType == EmployeeType.Human && x.IsActive && x.ArchivedAt == null, token)) return null;
@@ -138,22 +140,49 @@ public static class ComputeDashboardEndpoints
                     ComputeLocalLinkGrants.Actions.All(approved.Contains)
             };
         }).ToArray();
+        var canManage = await db.CoreOrganizationUsers.AnyAsync(x => x.OrganizationId == organizationId && x.ApplicationUserId == userId &&
+            x.EmployeeType == EmployeeType.Human && x.IsActive && x.ArchivedAt == null && x.PermissionLevel == OrganizationPermissionLevel.Owner, token);
+        var now = DateTimeOffset.UtcNow;
+        if (!legacyLocalSetupEnabled)
+        {
+            var capacity = await ReadOfficeCapacityAsync(db, organizationId, now, token);
+            return new(now, capacity, resources, environments.Count > 100, canManage);
+        }
         var setup = await db.Set<ComputeLocalSetup>().AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId, token);
         string? downloadFile = null;
         var progress = setup is null ? null : ReadProgress(setup, repositoryRoot, localData, file => downloadFile = file);
         if (setup is not null && progress is not null && downloads is not null)
             progress = await downloads.EnrichAsync(setup.Id, setup.UpdatedAt, downloadFile, progress, token);
-        var waitingSince = await db.Set<OfficeComputeCapacityRequest>().Where(x => x.OrganizationId == organizationId &&
-                db.AgentInstallations.Any(i => i.Id == x.InstallationId && i.IsEnabled) &&
-                db.CoreOrganizationUsers.Any(u => u.OrganizationId == organizationId && u.AgentInstallationId == x.InstallationId &&
-                    u.IsActive && u.ArchivedAt == null))
-            .OrderBy(x => x.RequestedAt).Select(x => (DateTimeOffset?)x.RequestedAt).FirstOrDefaultAsync(token);
-        if (waitingSince is not null)
-            progress = new("Pending", "Waiting for an Office with compute capacity", waitingSince.Value, null, OfficeComputeCapacityRequest.WaitingReason)
-                { Phase = "office-capacity", Health = "WaitingForOffice" };
-        var canManage = await db.CoreOrganizationUsers.AnyAsync(x => x.OrganizationId == organizationId && x.ApplicationUserId == userId &&
-            x.EmployeeType == EmployeeType.Human && x.IsActive && x.ArchivedAt == null && x.PermissionLevel == OrganizationPermissionLevel.Owner, token);
-        return new(DateTimeOffset.UtcNow, progress, resources, environments.Count > 100, canManage);
+        return new(now, progress, resources, environments.Count > 100, canManage, LegacyLocalSetupEnabled: true);
+    }
+
+    private static async Task<ComputeSetupStatus> ReadOfficeCapacityAsync(CSweetDbContext db, Guid business,
+        DateTimeOffset now, CancellationToken token)
+    {
+        var businessId = business.ToString("D");
+        var waiting = from request in db.Set<OfficeComputeCapacityRequest>()
+                      join employee in db.CoreOrganizationUsers on (Guid?)request.InstallationId equals employee.AgentInstallationId
+                      join install in db.AgentInstallations on request.InstallationId equals install.Id
+                      where request.OrganizationId == business && employee.OrganizationId == business && install.BusinessId == businessId &&
+                          install.IsEnabled && install.RevisionStatus == PluginRevisionStatus.Active && install.SetupState == PluginSetupState.Ready &&
+                          employee.EmployeeType == EmployeeType.Agent && employee.IsActive && employee.ArchivedAt == null &&
+                          !db.ComputeEnvironments.Any(e => e.OrganizationId == business && e.InstallationId == install.Id && e.TeardownConfirmedAt == null)
+                      orderby request.RequestedAt, request.InstallationId
+                      select new { employee.DisplayName, request.RequestedAt };
+        var first = await waiting.Select(w => new { w.DisplayName, w.RequestedAt, Total = waiting.Count() })
+            .FirstOrDefaultAsync(token);
+        var count = first?.Total ?? 0;
+        var available = await OfficeComputePlacement.FindAsync(db, business, now, token) is not null;
+        var registered = available || await db.ComputeNodes.AnyAsync(n => n.OrganizationId == business &&
+            n.ProviderId == OfficeComputePlacement.ProviderId && n.Enabled, token);
+        var state = available ? "Ready" : count > 0 ? "Pending" : "Unavailable";
+        return new(state, available ? "Office compute available" : "Office compute unavailable", null, null,
+            state == "Pending" ? OfficeComputeCapacityRequest.WaitingReason : null)
+        {
+            Health = available ? "Ready" : "WaitingForOffice",
+            Phase = "office-capacity",
+            OfficeCapacity = new(registered, count, first?.DisplayName, first?.RequestedAt)
+        };
     }
 
     internal static ComputeSetupStatus ReadProgress(ComputeLocalSetup setup, string repositoryRoot, string localData, Action<string>? observeFile = null)

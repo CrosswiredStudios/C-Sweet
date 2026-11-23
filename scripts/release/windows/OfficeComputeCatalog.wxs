@@ -1,0 +1,17 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="C-Sweet Headquarters Office compute catalog" Manufacturer="C-Sweet"
+           Version="$(var.ProductVersion)" UpgradeCode="$(var.CatalogUpgradeCode)" Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer Office compute catalog is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="Vendor" Name="CSweet">
+        <Directory Id="Hq" Name="Headquarters">
+          <Component Id="ReleaseCatalog" Guid="*">
+            <File Source="$(var.CatalogPath)" Name="office-compute-release.json" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="Catalog"><ComponentRef Id="ReleaseCatalog" /></Feature>
+  </Package>
+</Wix>

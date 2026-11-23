@@ -17,15 +17,42 @@
         }
         <button type="button" class="preparation-toggle" aria-expanded="@(!_collapsed ? "true" : "false")"
                 aria-controls="linux-preparation-details" @onclick="ToggleDetails">
-            @(_collapsed ? "View preparation" : "Hide preparation")
+            @(Setup?.OfficeCapacity is not null ? (_collapsed ? "View capacity" : "Hide capacity") : (_collapsed ? "View preparation" : "Hide preparation"))
             <MudIcon Icon="@(_collapsed ? Icons.Material.Outlined.ExpandMore : Icons.Material.Outlined.ExpandLess)" Size="Size.Small" />
         </button>
     </div>
     <div id="linux-preparation-details" hidden="@_collapsed">
-        @if (WaitingForOffice)
+        @if (Setup?.OfficeCapacity is { } office)
         {
-            <h4>Waiting for Office compute capacity</h4>
-            <p>This business needs an enrolled Office with approved compute capacity.</p>
+            <div class="preparation-detail office-capacity" aria-live="polite">
+                <h4>@(Setup.State == "Ready" ? "An Office can accept a Linux workspace" :
+                    office.WaitingEmployees > 0 ? "Workspace provisioning is blocked" : "No Office capacity available")</h4>
+                @if (office.WaitingEmployees > 0)
+                {
+                    <p>Workspace requested for <strong>@office.FirstWaitingEmployee</strong> at <time datetime="@office.FirstRequestedAt?.ToString("O")">@Time.Format(office.FirstRequestedAt)</time>.</p>
+                    @if (office.WaitingEmployees > 1)
+                    {
+                        <p>@office.WaitingEmployees employees are awaiting placement.</p>
+                    }
+                }
+                @if (Setup.State != "Ready")
+                {
+                    <p class="preparation-description">@(office.HasRegisteredOffice
+                        ? "An Office has registered compute, but none can accept a new workspace right now. Check the Office connection and its reserved capacity."
+                        : "No Office has registered compute for this business. An administrator must enable compute on an enrolled Office and approve its signed Linux image in Headquarters.")</p>
+                }
+                @if (CanManage && Setup.State != "Ready")
+                {
+                    <a href="/settings/offices">View Offices</a>
+                }
+            </div>
+        }
+        else if (WaitingForOffice)
+        {
+            <div class="preparation-detail office-capacity">
+                <h4>Waiting for Office compute capacity</h4>
+                <p class="preparation-description">This business needs an enrolled Office with approved compute capacity.</p>
+            </div>
         }
         else
         {
@@ -118,7 +145,10 @@
         </div>
         }
     </div>
-    <div class="preparation-footer">@Footer</div>
+    @if (!string.IsNullOrEmpty(Footer))
+    {
+        <div class="preparation-footer">@Footer</div>
+    }
 </section>
 
 @code {
@@ -143,6 +173,8 @@
     private int Milestone => Setup?.Milestone > 0 ? Setup.Milestone : Setup?.PreparationStep switch { 1 => 2, 2 => 3, 3 => 5, _ => 0 };
     private string StatusLabel => Setup switch
     {
+        { OfficeCapacity: not null, State: "Pending" } => "Blocked",
+        { OfficeCapacity: not null, State: "Unavailable" } => "Unavailable",
         _ when WaitingForOffice => "Waiting for Office",
         null => "Not configured",
         { State: "Ready" } => "Ready",
@@ -155,6 +187,7 @@
     };
     private string BadgeClass => Setup switch
     {
+        { OfficeCapacity: not null, State: "Pending" } => "warning",
         { State: "Ready" } => "success",
         { Health: "NeedsPermission" } => "warning",
         { State: "Failed" } => "error",
@@ -208,6 +241,7 @@
     };
     private string Footer => Setup?.State switch
     {
+        _ when Setup?.OfficeCapacity is not null => "",
         _ when WaitingForOffice => "",
         "Ready" => "Set up once · Reuse across instances · Subject to host capacity and approved permissions",
         "Failed" => "Waiting agents remain queued until Linux preparation recovers.",

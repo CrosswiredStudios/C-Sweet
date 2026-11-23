@@ -40,6 +40,7 @@ builder.Configuration.AddJsonFile(
 
 builder.AddServiceDefaults();
 builder.AddCSweetInfrastructure();
+builder.Services.Configure<CSweet.Infrastructure.Compute.OfficeComputeCatalogOptions>(builder.Configuration.GetSection("CSweet:OfficeCompute"));
 builder.Services.AddHostedService<AgentCatalogWarmupService>();
 builder.Services.AddChatGateway(builder.Configuration);
 builder.Services.AddCommunicationPluginRuntime();

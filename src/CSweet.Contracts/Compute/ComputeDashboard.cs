@@ -9,6 +9,7 @@ public sealed record ComputeSetupStatus(string State, string Stage, DateTimeOffs
     double? DownloadBytesPerSecond = null, double? DownloadSecondsRemaining = null, bool DownloadWaitingForProgress = false,
     int PreparationStep = 0, bool? InstallerRunning = null)
 {
+    public OfficeComputeCapacityStatus? OfficeCapacity { get; init; }
     public Guid? AttemptId { get; init; }
     public string? Phase { get; init; }
     public int Milestone { get; init; }
@@ -19,6 +20,9 @@ public sealed record ComputeSetupStatus(string State, string Stage, DateTimeOffs
     public bool CanRetry { get; init; }
     public IReadOnlyList<ComputePreparationEvent> Activity { get; init; } = [];
 }
+
+public sealed record OfficeComputeCapacityStatus(bool HasRegisteredOffice, int WaitingEmployees,
+    string? FirstWaitingEmployee, DateTimeOffset? FirstRequestedAt);
 
 public sealed record ComputePreparationEvent(string Phase, string Message, DateTimeOffset At);
 public sealed record ComputeCreationOption(Guid InstallationId, Guid ProjectId, string Agent, string Project);

@@ -8,6 +8,13 @@ public static class OfficeLocalSetupEndpoints
 {
     public static void MapOfficeLocalSetupEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapPost("/api/offices/local-sessions/compute-plan", async (HttpContext http, OfficeComputeSetupRequest request, IExecutionFleetService fleet, CancellationToken ct) =>
+        {
+            if (!http.Request.IsHttps) return Results.BadRequest();
+            http.Response.Headers.CacheControl = "no-store";
+            var plan = await fleet.PrepareHostedComputeAsync(request, ct);
+            return plan is null ? Results.Unauthorized() : Results.Ok(plan);
+        }).WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(4096));
         app.MapPost("/api/offices/local-sessions/update-prepare", async (
             BeginOfficeUpdatePreparationRequest request, IExecutionFleetService fleet, CancellationToken ct) =>
         {

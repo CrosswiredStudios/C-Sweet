@@ -5,6 +5,9 @@
       <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense" LicenseUrl="" SuppressOptionsUI="yes" />
     </BootstrapperApplication>
     <Chain>
+      <?ifdef CatalogMsi?>
+      <MsiPackage Id="ComputeCatalog" SourceFile="$(var.CatalogMsi)" Name="OfficeComputeCatalog.msi" Compressed="yes" Vital="yes" />
+      <?endif?>
       <MsiPackage Id="Headquarters" SourceFile="$(var.HeadquartersMsi)" Name="Headquarters.msi" Compressed="yes" Vital="yes">
         <MsiProperty Name="CSWEET_COMBINED_INSTALL" Value="1" />
       </MsiPackage>

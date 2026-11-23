@@ -441,11 +441,11 @@ public sealed partial class OfficeGatewayService(
         LocalOfficeSetupSession? assistedSession)
     {
         if (!string.IsNullOrWhiteSpace(heartbeat.OfficeVersion)) node.NodeVersion = heartbeat.OfficeVersion;
-        node.AllocatableCpuCount = assistedSession?.AllocatableCpuCount ?? heartbeat.AllocatableCpuCount;
-        node.AllocatableMemoryMb = assistedSession?.AllocatableMemoryMb ?? heartbeat.AllocatableMemoryMb;
-        node.AllocatableDiskMb = assistedSession?.AllocatableDiskMb ?? heartbeat.AllocatableDiskMb;
-        node.MaximumConcurrentWorkloads = assistedSession?.MaximumConcurrentWorkloads ??
-            heartbeat.MaximumConcurrentWorkloads;
+        var reserved = assistedSession?.ComputeReservationBusinessId.HasValue == true ? 1 : 0;
+        node.AllocatableCpuCount = assistedSession?.AllocatableCpuCount - 2 * reserved ?? heartbeat.AllocatableCpuCount;
+        node.AllocatableMemoryMb = assistedSession?.AllocatableMemoryMb - 2048 * reserved ?? heartbeat.AllocatableMemoryMb;
+        node.AllocatableDiskMb = assistedSession?.AllocatableDiskMb - 20480 * reserved ?? heartbeat.AllocatableDiskMb;
+        node.MaximumConcurrentWorkloads = assistedSession?.MaximumConcurrentWorkloads - reserved ?? heartbeat.MaximumConcurrentWorkloads;
     }
 
     private static bool IsValidUnixSeconds(long value) =>

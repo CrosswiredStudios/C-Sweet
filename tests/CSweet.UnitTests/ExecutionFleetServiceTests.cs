@@ -1642,7 +1642,7 @@ public sealed partial class ExecutionFleetServiceTests
         IExecutionNodeCertificateAuthority? certificateAuthority = null,
         ILocalOfficeCapacityProbe? capacityProbe = null,
         string? windowsPackageUrl = "https://downloads.example.test/csweet-office.msi",
-        ExecutionFleetOptions? fleetOptions = null) =>
+        ExecutionFleetOptions? fleetOptions = null, IServiceProvider? services = null) =>
         new(db, new TestAuditEventWriter(), clock,
             Options.Create(fleetOptions ?? new ExecutionFleetOptions
             {
@@ -1657,7 +1657,7 @@ public sealed partial class ExecutionFleetServiceTests
                 BuilderGuestImageDigest = Digest('a'),
                 RuntimeGuestImageDigest = Digest('a')
             }),
-            localCapacityProbe: capacityProbe, certificateChallenges: new OfficeCertificateChallenges(clock));
+            localCapacityProbe: capacityProbe, certificateChallenges: new OfficeCertificateChallenges(clock), services: services);
     private static CSweetDbContext CreateDb() => new(new DbContextOptionsBuilder<CSweetDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
 
