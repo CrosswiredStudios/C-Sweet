@@ -80,7 +80,7 @@
         if (auth.HostedWebSignIn && !auth.IsAuthenticated)
         {
             // Keep recovery and explicit sign-in errors reachable. Normal workspace navigation uses SSO.
-            if (!isPublicAccountRoute || path.Equals("login", StringComparison.OrdinalIgnoreCase))
+            if (!isPublicAccountRoute)
                 Navigation.NavigateTo("/api/auth/account/start", forceLoad: true);
             return;
         }

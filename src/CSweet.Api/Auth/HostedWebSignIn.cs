@@ -66,6 +66,7 @@ internal static class HostedWebSignIn
             oidc.Events.OnRedirectToIdentityProvider = context =>
             {
                 context.ProtocolMessage.RedirectUri = new Uri(tenant.Origin, oidc.CallbackPath.Value!).AbsoluteUri;
+                if (context.Request.Query["switchAccount"] == "true") context.ProtocolMessage.Prompt = "login";
                 return Task.CompletedTask;
             };
             oidc.Events.OnTokenValidated = context =>

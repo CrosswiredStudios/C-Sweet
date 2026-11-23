@@ -51,13 +51,14 @@ public sealed partial class AuthenticationEndpointTests
         try
         {
             using var browser = app.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://" + host), AllowAutoRedirect = false });
-            async Task<HttpResponseMessage> Login(string subject)
+            async Task<HttpResponseMessage> Login(string subject, bool switchAccount = false)
             {
-                var challenge = await browser.GetAsync("/api/auth/account/start");
+                var challenge = await browser.GetAsync(switchAccount ? "/api/auth/account/start?switchAccount=true" : "/api/auth/account/start");
                 Assert.Equal(HttpStatusCode.Redirect, challenge.StatusCode);
                 var args = QueryHelpers.ParseQuery(challenge.Headers.Location!.Query);
                 Assert.Equal(browser.BaseAddress + "api/auth/account/callback", args["redirect_uri"].ToString());
                 Assert.Equal("S256", args["code_challenge_method"].ToString());
+                Assert.Equal(switchAccount ? "login" : "", args.TryGetValue("prompt", out var prompt) ? prompt.ToString() : "");
                 issuer.Nonce = args["nonce"].ToString();
                 issuer.Challenge = args["code_challenge"].ToString();
                 issuer.Subject = subject;
@@ -67,7 +68,7 @@ public sealed partial class AuthenticationEndpointTests
                 return await browser.GetAsync(callback.Headers.Location);
             }
             Assert.Equal(HttpStatusCode.Forbidden, (await Login("another-user")).StatusCode);
-            var form = await (await Login("buyer")).Content.ReadAsStringAsync();
+            var form = await (await Login("buyer", switchAccount: true)).Content.ReadAsStringAsync();
             Assert.Contains("Name your Headquarters", form);
             var token = Regex.Match(form, "name=\"__RequestVerificationToken\" value=\"([^\"]+)\"").Groups[1].Value;
             Assert.NotEmpty(token);
