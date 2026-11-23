@@ -45,6 +45,8 @@ public static class HostedSetupEndpoints
                 Convert.FromHexString(key), Encoding.UTF8.GetBytes(message))) });
         }).RequireRateLimiting(AgentRateLimiting.AuthPolicy);
 
+        if (endpoints.ServiceProvider.GetService<HostedWebTenant>() is not null) return endpoints;
+
         group.MapPost("/start", async (StartHostedSetupRequest request, HttpContext http, IAuthenticationService auth,
             IOptions<HostedAccountOptions> options, HostedSetupCoordinator setup, CancellationToken ct) =>
         {

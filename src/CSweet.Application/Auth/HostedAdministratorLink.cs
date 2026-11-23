@@ -10,4 +10,7 @@ public sealed record HostedAdministratorLink(
     string Email,
     Guid InstallationId,
     string InstallationName,
-    byte[] PrivateKey);
+    byte[] PrivateKey)
+{
+    public bool Passwordless { get; init; }
+}

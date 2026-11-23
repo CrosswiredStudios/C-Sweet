@@ -5,11 +5,14 @@
 @inject IAppLocalizer L
 
 <section class="host-onboarding" aria-labelledby="host-onboarding-title">
+    @if (RemoteOnly) { <h2 id="host-onboarding-title">Connect a device</h2> }
+    else {
     <header class="host-onboarding-header">
         <MudText Typo="Typo.overline">@L["AgentHostOnboardingStep.Step2Of5"]</MudText>
         <h1 id="host-onboarding-title">@L["AgentHostOnboardingStep.WhereShouldYourAgentsWork"]</h1>
         <p>@L["AgentHostOnboardingStep.ChooseTheFirstMachineThat"]</p>
     </header>
+    }
 
     @if (_loading)
     {
@@ -28,6 +31,8 @@
     }
     else if (_status is not null)
     {
+        @if (!RemoteOnly)
+        {
         @if (_localSession is not null)
         {
             <div class="host-target-summary">
@@ -77,6 +82,7 @@
         </div>
         }
 
+        }
         @if (_installationTarget == "local")
         {
             @if (ManualLocalSetup) { @RemoteExperience() }
@@ -131,6 +137,7 @@
 </section>
 
 @code {
+    [Parameter] public bool RemoteOnly { get; set; }
     [Parameter] public EventCallback OnBack { get; set; }
     [Parameter] public EventCallback OnContinue { get; set; }
     [Parameter] public bool IsCompleting { get; set; }
@@ -159,6 +166,7 @@
     private bool _loading = true;
     private bool _busy;
     private bool _automaticEnrollmentInFlight;
+    private bool _hostedEnrollmentRequested;
     private long _statusMutationVersion;
     private bool _actionSucceeded;
     private string? _actionMessage;
@@ -166,8 +174,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (RemoteOnly) _installationTarget = "remote";
         await RefreshAsync();
-        await RestoreActiveLocalSetupAsync();
+        if (!RemoteOnly) await RestoreActiveLocalSetupAsync();
         if (ManualLocalSetup)
         {
             _remotePlatform = "linux";
@@ -486,10 +495,11 @@
     private async Task EnsureRemoteEnrollmentAsync()
     {
         if (_status is null || _automaticEnrollmentInFlight ||
-            _status.IsReady || _status.ActiveEnrollment is not null ||
-            _status.Nodes.Any(node => node.Status is "pendingapproval" or "ready"))
+            _status.ActiveEnrollment is not null ||
+            (RemoteOnly ? _hostedEnrollmentRequested : _status.IsReady || _status.Nodes.Any(node => node.Status is "pendingapproval" or "ready")))
             return;
 
+        _hostedEnrollmentRequested = RemoteOnly;
         _automaticEnrollmentInFlight = true;
         BeginStatusMutation();
         try
