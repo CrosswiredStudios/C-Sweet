@@ -21,8 +21,10 @@ namespace CSweet.GameRoleWorkflow.Tests;
 
 public sealed class DecisionInquiryJourneyTests
 {
-    [Fact, Trait("Category", "AgentHarness")]
-    public async Task Marcus_checks_the_stopped_session_then_asks_Gabriel_and_returns_to_the_pending_decision()
+    [Theory, Trait("Category", "AgentHarness")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Marcus_checks_the_stopped_session_then_asks_Gabriel_and_returns_to_the_pending_decision(bool fromProjectReview)
     {
         const string cause = "The brick collision budget needs a measurement on the target device.";
         const string question = "What’s the conflict?";
@@ -38,7 +40,7 @@ public sealed class DecisionInquiryJourneyTests
         var human = await db.CoreOrganizationUsers.SingleAsync(p => p.DisplayName == "Business owner");
         var grant = await db.AgentInstallationGrants.SingleAsync(g => g.AgentInstallationId == marcus.AgentInstallationId);
         grant.RequiredCapabilitiesJson = JsonSerializer.Serialize(new[] { ProjectHealthCapabilities.Diagnostics, ProjectHealthCapabilities.Resolution,
-            ProjectHealthCapabilities.Presentation, PlatformCapabilities.ArtifactRead, CommunicationCapabilities.CoordinationStart,
+            ProjectHealthCapabilities.Presentation, PlatformCapabilities.DecisionRead, PlatformCapabilities.ArtifactRead, CommunicationCapabilities.CoordinationStart,
             CommunicationCapabilities.CoordinationRead, CommunicationCapabilities.CoordinationRespond });
         const string detail = "The lab requires an independent repeat measurement.";
         await studio.AddProductionBriefAsync("The shared measurement plan requires two device readings.".PadRight(4100, ' ') + detail, marcus);
@@ -71,9 +73,18 @@ public sealed class DecisionInquiryJourneyTests
             Title = "Reconcile scope and staffing", BlockReason = "Planning stopped", Status = WorkTaskStatus.Blocked,
             PersonalWorkContextJson = JsonSerializer.Serialize(new { workstreamId = studio.Project, coordinationSessionId = stopped.Id }) };
         db.Add(ticket);
+        var affected = ticket;
+        if (fromProjectReview)
+        {
+            affected = new WorkTask { Id = Guid.NewGuid(), OrganizationId = org, BoardId = studio.Board,
+                AssignedEmployeeId = marcus.OrganizationUserId, Title = "Review blocked work",
+                CorrelationId = $"{ManagerWorkRecovery.Prefix}{ticket.Id:N}:19",
+                PersonalWorkContextJson = JsonSerializer.Serialize(new { workstreamId = studio.Project, workItemId = ticket.Id }) };
+            db.Add(affected);
+        }
         var incident = new ProjectIncident { Id = Guid.NewGuid(), OrganizationId = org, WorkstreamId = studio.Project,
-            AffectedWorkItemId = ticket.Id, ProducerEmployeeId = gabriel.OrganizationUserId, ReporterOrganizationUserId = marcus.OrganizationUserId,
-            CurrentRecipientId = human.Id, Fingerprint = $"ticket:{ticket.Id:N}", ReportRevision = 1, DetectedAt = DateTimeOffset.UtcNow };
+            AffectedWorkItemId = affected.Id, ProducerEmployeeId = gabriel.OrganizationUserId, ReporterOrganizationUserId = marcus.OrganizationUserId,
+            CurrentRecipientId = human.Id, Fingerprint = $"ticket:{affected.Id:N}", ReportRevision = 1, DetectedAt = DateTimeOffset.UtcNow };
         db.Add(incident);
         await db.SaveChangesAsync();
         var state = await health.CurrentIncidentStateAsync(incident, default);
@@ -82,9 +93,17 @@ public sealed class DecisionInquiryJourneyTests
             "wait", state.Hash) { RequiresOwnerInput = true, OwnerInputReason = "Only the owner can approve a budget change." };
         incident.OwnerReportJson = JsonSerializer.Serialize(report, JsonSerializerOptions.Web);
         await db.SaveChangesAsync();
-        var card = await decisions.CreateAsync(new(org, chat, null, message.Id, marcus.AgentInstallationId, message.Content,
+        var projectDecision = new WorkstreamDecisionRecord { Id = Guid.NewGuid(), WorkstreamId = studio.Project,
+            OrganizationId = org, RequestedByInstallationId = marcus.AgentInstallationId,
+            RequestedByOrganizationUserId = marcus.OrganizationUserId, Summary = message.Content, RecommendedOptionId = "wait",
+            OptionsJson = JsonSerializer.Serialize(report.Options.Select(o => new { id = o.Id, label = o.Label, description = o.Description })),
+            EvidenceJson = JsonSerializer.Serialize(new[] { new { kind = "incident", resourceId = incident.Id } }) };
+        if (fromProjectReview) { db.Add(projectDecision); await db.SaveChangesAsync(); }
+        var command = new CSweet.Application.Communications.CreateExecutiveDecisionCommand(org, chat, null, message.Id, marcus.AgentInstallationId, message.Content,
             report.Options.Select(o => new CSweet.Application.Communications.CreateExecutiveDecisionOption(o.Id, o.Label, o.Description)).ToArray(),
-            "wait", "inkling-decision") { Incident = new(incident.Id, incident.ReportRevision) });
+            "wait", "inkling-decision");
+        var card = await decisions.CreateAsync(fromProjectReview ? command with { WorkstreamDecisionId = projectDecision.Id } :
+            command with { Incident = new(incident.Id, incident.ReportRevision) });
         var inquiries = new DecisionFollowUpService(db, turns, decisions);
         var runtime = new AgentTestRuntime();
         var peer = new AgentTestRuntime();
@@ -128,6 +147,7 @@ public sealed class DecisionInquiryJourneyTests
             (r, ct) => health.ReadDiagnosticsAsync(org, gabriel.OrganizationUserId, r, ct));
         peer.RegisterCapability<JsonElement, JsonElement>(PlatformCapabilities.LlmChatStream, (input, _) => {
             Assert.Contains(ask, input.GetRawText());
+            Assert.Contains(cause, input.GetRawText());
             Assert.Contains("booked for Thursday", input.GetRawText());
             Assert.Contains("requires two device readings", input.GetRawText());
             Assert.DoesNotContain("speculative release date", input.GetRawText());

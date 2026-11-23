@@ -32,6 +32,7 @@ internal static class DecisionInquiryEvidence
         var facts = new List<ProjectDiagnosticEvidence>();
         var documents = new List<IncidentDocumentReference>();
         var owners = new Dictionary<Guid, string>();
+        Guid? incidentId = card.IncidentId;
         if (ExecutiveDecisionService.LinkedProjectDecision(source) is Guid linkedId)
         {
             var decision = await db.WorkstreamDecisions.AsNoTracking().SingleOrDefaultAsync(d => d.OrganizationId == org && d.Id == linkedId, token);
@@ -42,12 +43,20 @@ internal static class DecisionInquiryEvidence
                     $"/organizations/{org}/projects/{decision.WorkstreamId}"));
                 owners[decision.RequestedByOrganizationUserId] = "Requested the project decision";
                 var refs = JsonSerializer.Deserialize<CSweet.WorkManagement.Contracts.EvidenceReference[]>(decision.EvidenceJson, JsonSerializerOptions.Web) ?? [];
+                if (incidentId is null)
+                {
+                    var incidentRefs = refs.Where(r => string.Equals(r.Kind, "incident", StringComparison.OrdinalIgnoreCase))
+                        .Select(r => r.ResourceId).Distinct().Take(16).ToArray();
+                    var matches = await db.ProjectIncidents.AsNoTracking().Where(i => i.OrganizationId == org &&
+                        i.WorkstreamId == decision.WorkstreamId && incidentRefs.Contains(i.Id)).Select(i => i.Id).ToArrayAsync(token);
+                    incidentId = incidentRefs.Where(matches.Contains).Select(id => (Guid?)id).FirstOrDefault();
+                }
                 documents.AddRange(refs.Where(r => r.RevisionId.HasValue && r.Digest is { Length: 64 })
                     .Select(r => new IncidentDocumentReference(r.ResourceId, r.RevisionId!.Value, r.Digest!)));
             }
         }
         Guid? authorizedIncident = null;
-        if (card.IncidentId is Guid incidentId)
+        if (incidentId.HasValue)
         {
             var health = new ProjectHealthService(db, new(db, TimeProvider.System), TimeProvider.System);
             var incident = await db.ProjectIncidents.AsNoTracking().SingleOrDefaultAsync(i => i.OrganizationId == org && i.Id == incidentId, token);

@@ -19,6 +19,16 @@ public sealed partial class ProjectHealthService
             sessions = sessions.Where(s => s.Id == direct);
         else if (ticket is not null && db.HealthProjectForTask(ticket) == incident.WorkstreamId)
         {
+            // A manager's recovery commitment records the producer's original ticket as its work item.
+            var workItem = CSweetDbContext.ReadGuidProperty(ticket.PersonalWorkContextJson, "workItemId");
+            if (workItem is Guid sourceId && ticket.CorrelationId?.StartsWith(
+                    $"{ManagerWorkRecovery.Prefix}{sourceId:N}:", StringComparison.Ordinal) == true)
+            {
+                var source = await db.CoreWorkTasks.AsNoTracking().SingleOrDefaultAsync(t =>
+                    t.Id == sourceId && t.OrganizationId == incident.OrganizationId, token);
+                if (source is not null && db.HealthProjectForTask(source) == incident.WorkstreamId)
+                    ticket = source;
+            }
             var linked = CSweetDbContext.ReadGuidProperty(ticket.PersonalWorkContextJson, "coordinationSessionId");
             var board = CSweetDbContext.ReadGuidProperty(ticket.PersonalWorkContextJson, "boardId");
             string? fingerprint = null;
