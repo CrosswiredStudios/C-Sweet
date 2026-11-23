@@ -3,6 +3,7 @@ name: Linux Headquarters image
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     tags: ['v*']
   pull_request:
     paths:
@@ -15,6 +16,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: linux-headquarters-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   image:
@@ -49,5 +54,12 @@ jobs:
           if [[ "$GITHUB_REF_TYPE" == tag ]]; then
             docker tag "$IMAGE:sha-$GITHUB_SHA" "$IMAGE:$GITHUB_REF_NAME"
             docker push "$IMAGE:$GITHUB_REF_NAME"
+          fi
+          if [[ "$GITHUB_REF" == refs/heads/main ]]; then
+            main_sha=$(git ls-remote --exit-code origin refs/heads/main | cut -f1)
+            if [[ "$main_sha" == "$GITHUB_SHA" ]]; then
+              docker tag "$IMAGE:sha-$GITHUB_SHA" "$IMAGE:latest"
+              docker push "$IMAGE:latest"
+            fi
           fi
           docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:sha-$GITHUB_SHA" | tee -a "$GITHUB_STEP_SUMMARY"

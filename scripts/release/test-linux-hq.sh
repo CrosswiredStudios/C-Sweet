@@ -25,7 +25,48 @@ docker run -d --name "$api" "${shared[@]}" -p 127.0.0.1::8181 -e ASPNETCORE_URLS
 origin="http://$(docker port "$api" 8181/tcp)"
 for _ in {1..90}; do curl -fsS "$origin/health" >/dev/null 2>&1 && break; sleep 1; done
 if ! curl -fsS "$origin/health"; then docker logs --tail 40 "$api"; exit 1; fi
-curl -fsS "$origin/" | grep -i 'blazor.webassembly' >/dev/null
+# Follow the links a browser loads, including the fingerprinted component CSS.
+python3 - "$origin/" <<'PYTHON'
+from html.parser import HTMLParser
+import re
+import sys
+from urllib.parse import urljoin
+from urllib.request import urlopen
+
+class Page(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.styles = []
+        self.scripts = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "link" and "stylesheet" in attrs.get("rel", "").split():
+            self.styles.append(attrs["href"])
+        if tag == "script":
+            self.scripts.append(attrs.get("src", ""))
+
+def read_css(url):
+    with urlopen(url, timeout=10) as response:
+        if response.headers.get_content_type() != "text/css":
+            raise ValueError(f"Expected CSS at {url}")
+        return response.read().decode()
+
+origin = sys.argv[1]
+page = Page()
+with urlopen(origin, timeout=10) as response:
+    page.feed(response.read().decode())
+assert any("blazor.webassembly" in src for src in page.scripts), "Blazor loader missing"
+assert "CSweet.App.styles.css" in page.styles, "Application stylesheet missing"
+for href in page.styles:
+    url = urljoin(origin, href)
+    css = read_css(url)
+    if href == "CSweet.App.styles.css":
+        imports = re.findall(r"""@import\s+['"]([^'"]+)['"]""", css)
+        assert any("CSweet.UI" in path for path in imports), "Component stylesheet import missing"
+        for path in imports:
+            assert read_css(urljoin(url, path)).strip(), f"Empty stylesheet: {path}"
+PYTHON
 nonce=$(openssl rand -hex 16)
 proof=$(printf 'test\nbuyer\nhq-test.csweet.app\nfixture\n%s' "$nonce" | openssl dgst -sha256 -mac HMAC -macopt "hexkey:$key" | awk '{print $NF}')
 curl -fsS "$origin/api/auth/hosted/readiness?nonce=$nonce" | jq -e --arg proof "$proof" '.proof==$proof'
