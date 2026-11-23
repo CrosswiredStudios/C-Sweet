@@ -17,8 +17,7 @@
         {
             <MudAlert Severity="Severity.Warning">This account could not open Headquarters. Sign in with the purchasing account or an invited account.</MudAlert>
         }
-        <MudButton Href="@(Reason == "account" ? "/api/auth/account/start?switchAccount=true" : "/api/auth/account/start")"
-                   ForceLoad="true" Variant="Variant.Filled" Color="Color.Primary">Continue with C-Sweet</MudButton>
+        <MudButton OnClick="StartHostedSignIn" Variant="Variant.Filled" Color="Color.Primary">Continue with C-Sweet</MudButton>
     }
     else
     {
@@ -62,6 +61,9 @@
     private string? _message;
 
     private string UnreachableMessage => L["Login.Unreachable"];
+
+    private void StartHostedSignIn() =>
+        Navigation.NavigateTo(Reason == "account" ? "/api/auth/account/start?switchAccount=true" : "/api/auth/account/start", forceLoad: true);
 
     private async Task LoginAsync()
     {
