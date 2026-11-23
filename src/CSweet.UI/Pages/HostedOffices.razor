@@ -6,67 +6,104 @@
 @implements IDisposable
 <PageTitle>Your offices · C-Sweet</PageTitle>
 
-<main class="office-overview">
-    <h1>Your offices</h1>
-    <p>Your Headquarters can use hosted Offices and computers you manage together. Add more here or anytime from the dashboard.</p>
+<div class="aurora-page business-workspace office-overview">
+    <header class="office-header">
+        <div>
+            <h1>Your offices</h1>
+            <p>Use hosted Offices and your own computers together. You can add either at any time.</p>
+        </div>
+        <MudButton Variant="Variant.Text" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Refresh"
+                   OnClick="RefreshAsync" Disabled="@_loading">Refresh</MudButton>
+    </header>
+
     @if (_error is not null)
     {
-        <p role="alert">@_error</p>
+        <MudAlert Severity="Severity.Error">@_error</MudAlert>
     }
     @if (_overview?.PlanError == "signin")
     {
-        <a href="/api/auth/account/start" data-enhance-nav="false">Continue with C-Sweet to check your plan</a>
+        <MudAlert Severity="Severity.Info">
+            <a href="/api/auth/account/start" data-enhance-nav="false">Continue with C-Sweet to check your plan</a>
+        </MudAlert>
     }
     else if (_overview?.PlanError is not null)
     {
-        <p role="status">Your purchased capacity is temporarily unavailable.</p>
+        <MudAlert Severity="Severity.Warning">Your purchased capacity is temporarily unavailable.</MudAlert>
     }
+
     <div class="office-groups">
-        <section>
-            <h2>Hosted Offices</h2>
-            @if (_overview?.Plan is { } plan)
-            {
-                @if (plan.Standard + plan.Team == 0) { <p>No hosted Offices on this plan yet.</p> }
+        <section class="office-card surface-panel" aria-labelledby="hosted-title">
+            <div class="office-card-body">
+                <span class="office-icon"><MudIcon Icon="@Icons.Material.Outlined.CloudQueue" /></span>
+                <h2 id="hosted-title">Hosted Offices</h2>
+                @if (_overview?.Plan is { } plan)
+                {
+                    @if (plan.Standard + plan.Team == 0)
+                    {
+                        <p>No hosted Offices on this plan yet.</p>
+                    }
+                    else
+                    {
+                        <dl class="office-inventory">
+                            <div><dt>Standard Offices</dt><dd>@plan.Standard purchased</dd></div>
+                            <div><dt>Team Offices</dt><dd>@plan.Team purchased</dd></div>
+                        </dl>
+                        <p>Provisioning status is unavailable for these purchases.</p>
+                    }
+                }
+                else if (_overview is null && _error is null)
+                {
+                    <p role="status">Checking your plan…</p>
+                }
+            </div>
+            <div class="office-card-action">
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add"
+                           Disabled="@(!CanManage)" Href="@ManageLink("hosted")">Add hosted Offices</MudButton>
+            </div>
+        </section>
+        <section class="office-card surface-panel" aria-labelledby="devices-title">
+            <div class="office-card-body">
+                <span class="office-icon"><MudIcon Icon="@Icons.Material.Outlined.Devices" /></span>
+                <h2 id="devices-title">Your devices</h2>
+                @if (_fleet is not null)
+                {
+                    @if (Devices.Any())
+                    {
+                        <dl class="office-inventory">
+                            @foreach (var node in Devices)
+                            {
+                                <div><dt>@node.Name</dt><dd>@node.Status</dd></div>
+                            }
+                        </dl>
+                    }
+                    else { <p>No devices connected yet.</p> }
+                    @if (_overview?.Plan is not null) { <p class="office-slots">@SlotDescription</p> }
+                }
+                else if (_error is null) { <p role="status">Checking connected devices…</p> }
+            </div>
+            <div class="office-card-action">
+                @if (CanManage && _fleet is not null && (FreeSlots > 0 || _fleet.ActiveEnrollment is not null))
+                {
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Link" OnClick="Pair">Connect a device</MudButton>
+                }
                 else
                 {
-                    <dl><dt>Standard Offices</dt><dd>@plan.Standard purchased</dd><dt>Team Offices</dt><dd>@plan.Team purchased</dd></dl>
-                    <p>Provisioning status is unavailable for these purchases.</p>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Link"
+                               Disabled="@(!CanManage)" Href="@ManageLink("devices")">Connect a device</MudButton>
                 }
-            }
-            else { <p>Checking your plan</p> }
-            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(!CanManage)" Href="@ManageLink("hosted")">Add hosted Offices</MudButton>
-        </section>
-        <section>
-            <h2>Your devices</h2>
-            @if (_fleet is not null)
-            {
-                @if (Devices.Any())
-                {
-                    <ul>@foreach (var node in Devices) { <li><strong>@node.Name</strong> · @node.Status</li> }</ul>
-                }
-                else { <p>No devices connected yet.</p> }
-                @if (_overview?.Plan is not null) { <p>@SlotDescription</p> }
-            }
-            else { <p>Checking connected devices</p> }
-            @if (CanManage && _fleet is not null && (FreeSlots > 0 || _fleet.ActiveEnrollment is not null))
-            {
-                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="Pair">Connect a device</MudButton>
-            }
-            else
-            {
-                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(!CanManage)" Href="@ManageLink("devices")">Connect a device</MudButton>
-            }
+            </div>
         </section>
     </div>
+
     @if (_pairing)
     {
         <AgentHostOnboardingStep RemoteOnly="true" OnBack="EndPairing" OnContinue="EndPairing" />
     }
-    <div class="office-actions">
-        <MudButton Variant="Variant.Text" OnClick="RefreshAsync" Disabled="@_loading">Refresh</MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ContinueAsync" Disabled="@(_overview is null || _continuing)">Continue to dashboard</MudButton>
-    </div>
-</main>
+    <footer class="office-actions">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.ArrowForward"
+                   OnClick="ContinueAsync" Disabled="@(_overview is null || _continuing)">Continue to dashboard</MudButton>
+    </footer>
+</div>
 
 @code {
     private HostedOfficeOverview? _overview;

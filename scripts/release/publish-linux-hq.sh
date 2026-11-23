@@ -27,6 +27,15 @@ for service in Api AgentHost WorkerHost ExecutionGateway Migrator GitHost Source
 done
 dotnet publish src/CSweet.App/CSweet.App.csproj -c Release "${props[@]}" -o "$stage/ui"
 cp -R "$stage/ui/wwwroot" "$out/web"
-test -s "$out/web/index.html"
+# A cached, unversioned CSS import can point a returning browser at an older
+# component bundle after an upgrade. Give the import file its own content URL.
+web="$out/web"
+css_hash=$(sha256sum "$web/CSweet.App.styles.css" | cut -d' ' -f1)
+styles="CSweet.App.$css_hash.styles.css"
+cp "$web/CSweet.App.styles.css" "$web/$styles"
+sed -i "s/href=\"CSweet.App.styles.css\"/href=\"$styles\"/" "$web/index.html"
+# Serve the rewritten HTML for every encoding.
+rm -f "$web/index.html.br" "$web/index.html.gz"
+gzip -n -c "$web/index.html" > "$web/index.html.gz"
 find "$out" -name appsettings.Development.json -type f -delete
 cp docker/hosted-headquarters.Dockerfile "$out/Dockerfile"

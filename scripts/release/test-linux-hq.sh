@@ -30,6 +30,7 @@ docker exec "$api" sh -ec 'test -d "$HOME/.local/share" && test -w "$HOME/.local
 # Follow the links a browser loads, including the fingerprinted component CSS.
 python3 - "$origin/" <<'PYTHON'
 from html.parser import HTMLParser
+import hashlib
 import re
 import sys
 from urllib.parse import urljoin
@@ -59,15 +60,19 @@ page = Page()
 with urlopen(origin, timeout=10) as response:
     page.feed(response.read().decode())
 assert any("blazor.webassembly" in src for src in page.scripts), "Blazor loader missing"
-assert "CSweet.App.styles.css" in page.styles, "Application stylesheet missing"
+[app_css] = [href for href in page.styles if re.fullmatch(r"CSweet\.App\.[a-f0-9]{64}\.styles\.css", href)]
 for href in page.styles:
     url = urljoin(origin, href)
     css = read_css(url)
-    if href == "CSweet.App.styles.css":
+    if href == app_css:
+        assert hashlib.sha256(css.encode()).hexdigest() == href.split(".")[2]
         imports = re.findall(r"""@import\s+['"]([^'"]+)['"]""", css)
         assert any("CSweet.UI" in path for path in imports), "Component stylesheet import missing"
         for path in imports:
-            assert read_css(urljoin(url, path)).strip(), f"Empty stylesheet: {path}"
+            component_css = read_css(urljoin(url, path))
+            assert component_css.strip(), f"Empty stylesheet: {path}"
+            if "CSweet.UI" in path:
+                assert ".office-groups[" in component_css, "Hosted office layout missing from the release"
 PYTHON
 nonce=$(openssl rand -hex 16)
 proof=$(printf 'test\nbuyer\nhq-test.csweet.app\nfixture\n%s' "$nonce" | openssl dgst -sha256 -mac HMAC -macopt "hexkey:$key" | awk '{print $NF}')
