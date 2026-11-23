@@ -13,6 +13,8 @@ using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using CSweet.Infrastructure.Setup;
 using System.Text.Json;
 
 namespace CSweet.Infrastructure.Persistence;
@@ -21,14 +23,46 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
 {
     private static readonly JsonSerializerOptions EventJsonOptions = new(JsonSerializerDefaults.Web);
 
-    public CSweetDbContext(DbContextOptions<CSweetDbContext> options, IDataProtectionProvider? auditProtection = null, TimeProvider? executionClock = null)
+    public CSweetDbContext(DbContextOptions<CSweetDbContext> options, IDataProtectionProvider? auditProtection = null, TimeProvider? executionClock = null,
+        IOptions<ExecutionFleetOptions>? fleetOptions = null, IOptions<AgentRuntimeManagerOptions>? runtimeOptions = null)
         : base(options)
     {
         AuditProtection = auditProtection;
         ExecutionClock = executionClock ?? TimeProvider.System;
+        if (fleetOptions?.Value is { PublicLaunchEnabled: false, CombinedOfficeEnrollmentId: { } enrollment })
+        {
+            CombinedOfficeEnrollmentId = enrollment;
+            combinedOfficeRuntime = runtimeOptions?.Value;
+        }
     }
 
     private TimeProvider ExecutionClock { get; }
+    private readonly AgentRuntimeManagerOptions? combinedOfficeRuntime;
+    internal Guid? CombinedOfficeEnrollmentId { get; }
+
+    internal IQueryable<ExecutionNode> OfficesForPlacement(DateTimeOffset now)
+    {
+        if (CombinedOfficeEnrollmentId is not { } enrollment) return ExecutionNodes;
+        var builder = ExecutionFleetService.NormalizeDigest(combinedOfficeRuntime?.BuilderGuestImageDigest);
+        var runtime = ExecutionFleetService.NormalizeDigest(combinedOfficeRuntime?.RuntimeGuestImageDigest);
+        var suite = combinedOfficeRuntime?.RequiredCertificationSuiteVersion;
+        if (enrollment == Guid.Empty || !ExecutionFleetService.IsSha256(builder) ||
+            !ExecutionFleetService.IsSha256(runtime) || string.IsNullOrWhiteSpace(suite))
+            return ExecutionNodes.Where(node => false);
+
+        var certified = ExecutionNodeProviders.Where(p => p.ProviderId == "hyperv-gen2" && p.IsAvailable &&
+            p.CertificationSuiteVersion == suite && p.CertifiedAt <= now &&
+            (p.CertificationExpiresAt == null || p.CertificationExpiresAt > now) &&
+            p.CertificationEvidenceDigest.Length == 71 && p.CertificationEvidenceDigest.StartsWith("sha256:") &&
+            (p.BrokerProtocolVersion == "1.0" || p.BrokerProtocolVersion == "1.1"));
+        return ExecutionNodes.Where(node => node.OperatingSystem == "windows" &&
+            node.ProtocolVersion == "1.0" && node.ApprovedAt != null && node.RevokedAt == null &&
+            node.CertificateThumbprint != "" && node.CertificateExpiresAt > now &&
+            ExecutionNodeEnrollments.Any(e => e.Id == enrollment && e.Status == ExecutionEnrollmentStatus.Approved &&
+                e.ApprovedAt != null && e.ExecutionNodeId == node.Id) &&
+            certified.Any(p => p.ExecutionNodeId == node.Id && p.SupportsBuilderWorkloads && p.GuestImageDigest == builder) &&
+            certified.Any(p => p.ExecutionNodeId == node.Id && p.SupportsRuntimeWorkloads && p.GuestImageDigest == runtime));
+    }
 
     internal IDataProtectionProvider? AuditProtection { get; }
 

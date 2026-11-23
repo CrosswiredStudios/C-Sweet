@@ -624,7 +624,7 @@ public sealed partial class ExecutionWorkloadOrchestrator(
             .CountAsync(x => x.ExecutionPoolId == assignment.ExecutionPoolId && ActiveStatuses.Contains(x.Status),
                 cancellationToken);
         if (activeInPool >= pool.MaximumActiveWorkloads || !PoolAllows(pool, assignment.BusinessId)) return null;
-        var nodes = await dbContext.ExecutionNodes
+        var nodes = await dbContext.OfficesForPlacement(now)
             .Include(x => x.ExecutionPool)
             .Include(x => x.Providers)
             .Where(x => x.ExecutionPoolId == assignment.ExecutionPoolId &&
@@ -657,6 +657,7 @@ public sealed partial class ExecutionWorkloadOrchestrator(
 
         return nodes.SelectMany(node => node.Providers
                 .Where(provider => provider.IsAvailable &&
+                    (!dbContext.CombinedOfficeEnrollmentId.HasValue || provider.ProviderId == "hyperv-gen2") &&
                     provider.BrokerProtocolVersion is "1.0" or "1.1" &&
                     NetworkPlacementAllows(provider, assignment.SpecificationJson) &&
                     IsSha256(provider.CertificationEvidenceDigest) &&

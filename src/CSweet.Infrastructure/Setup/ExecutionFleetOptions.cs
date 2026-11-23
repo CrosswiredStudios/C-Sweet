@@ -4,6 +4,7 @@ public sealed class ExecutionFleetOptions
 {
     public const string SectionName = "CSweet:ExecutionFleet";
     public bool PublicLaunchEnabled { get; set; }
+    public Guid? CombinedOfficeEnrollmentId { get; set; }
     public string ReleaseManifestUrl { get; set; } =
         "https://github.com/CrosswiredStudios/CSweet.Office/releases/latest/download/office-release.json";
     public string? WindowsPackageOverrideUrl { get; set; }

@@ -190,6 +190,10 @@ try {
         $settings.CSweet.CombinedInstallOfficeEnrollmentId = $enrollmentId.ToString('D')
         [IO.File]::WriteAllText($generated, ($settings | ConvertTo-Json -Depth 7))
         Set-PrivateAcl $generated @($sids['CSweet.ExecutionGateway']) $null
+        $placementReaders = @($sids['CSweet.Api'], $sids['CSweet.AgentHost'], $sids['CSweet.WorkerHost'], $sids['CSweet.ExecutionGateway'])
+        Write-HeadquartersSettings (Join-Path $root 'combined-office-placement.json') @{
+            'CSweet:ExecutionFleet:CombinedOfficeEnrollmentId' = $enrollmentId.ToString('D')
+        } $placementReaders
         $source = Join-Path $migration 'enrollment.secret'
         $info = Get-Item -LiteralPath $source
         if ($info.Length -gt 256 -or $info.Length -lt 32 -or $info.Attributes -band [IO.FileAttributes]::ReparsePoint) {

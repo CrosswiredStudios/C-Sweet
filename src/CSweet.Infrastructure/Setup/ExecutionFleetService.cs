@@ -37,6 +37,7 @@ public sealed partial class ExecutionFleetService(
     internal static readonly Version MinimumNodeVersion = new(0, 1, 0);
     private static readonly TimeSpan HeartbeatFreshness = TimeSpan.FromSeconds(30);
     private bool FleetEnabled => fleetOptions?.Value.PublicLaunchEnabled == true;
+    private bool PlacementEnabled => FleetEnabled || dbContext.CombinedOfficeEnrollmentId.HasValue;
     private ExecutionFleetOptions FleetPolicy => fleetOptions?.Value ?? new ExecutionFleetOptions();
     private AgentRuntimeManagerOptions RuntimePolicy => runtimeOptions?.Value ?? new AgentRuntimeManagerOptions();
 
@@ -102,13 +103,19 @@ public sealed partial class ExecutionFleetService(
             .Where(x => poolIds.Contains(x.ExecutionPoolId))
             .OrderBy(x => x.Name)
             .ToListAsync(cancellationToken);
-        var buildReady = FleetEnabled && ImagePolicyConfigured() && nodes.Any(node =>
+        var candidates = nodes;
+        if (dbContext.CombinedOfficeEnrollmentId.HasValue)
+        {
+            var eligibleIds = await dbContext.OfficesForPlacement(now).Select(node => node.Id).ToListAsync(cancellationToken);
+            candidates = nodes.Where(node => eligibleIds.Contains(node.Id)).ToList();
+        }
+        var buildReady = PlacementEnabled && ImagePolicyConfigured() && candidates.Any(node =>
             node.ExecutionPoolId == defaultPools.BuildPoolId && Qualifies(node, now, ExecutionWorkloadKind.Builder));
-        var runtimeReady = FleetEnabled && ImagePolicyConfigured() && nodes.Any(node =>
+        var runtimeReady = PlacementEnabled && ImagePolicyConfigured() && candidates.Any(node =>
             node.ExecutionPoolId == defaultPools.RuntimePoolId && Qualifies(node, now, ExecutionWorkloadKind.Runtime));
         var isReady = buildReady && runtimeReady;
-        var ready = FleetEnabled && ImagePolicyConfigured()
-            ? nodes.Where(node =>
+        var ready = PlacementEnabled && ImagePolicyConfigured()
+            ? candidates.Where(node =>
                 node.ExecutionPoolId == defaultPools.BuildPoolId && Qualifies(node, now, ExecutionWorkloadKind.Builder) ||
                 node.ExecutionPoolId == defaultPools.RuntimePoolId && Qualifies(node, now, ExecutionWorkloadKind.Runtime)).ToArray()
             : [];
@@ -123,14 +130,16 @@ public sealed partial class ExecutionFleetService(
 
         const string mode = "remote";
         var checks = Checks(ExecutionOnboardingMode.Remote, nodes, isReady, ready.Length, activeEnrollment).ToList();
-        var pausedCapacity = !isReady && FleetEnabled && ImagePolicyConfigured() &&
-            (buildReady || nodes.Any(x => x.ExecutionPoolId == defaultPools.BuildPoolId &&
+        var pausedCapacity = !isReady && PlacementEnabled && ImagePolicyConfigured() &&
+            (buildReady || candidates.Any(x => x.ExecutionPoolId == defaultPools.BuildPoolId &&
                 x.Status == ExecutionNodeStatus.Draining && x.ApprovedAt is not null && x.RevokedAt is null && OfficeHealthyForUpdateRecovery(x, now))) &&
-            (runtimeReady || nodes.Any(x => x.ExecutionPoolId == defaultPools.RuntimePoolId &&
+            (runtimeReady || candidates.Any(x => x.ExecutionPoolId == defaultPools.RuntimePoolId &&
                 x.Status == ExecutionNodeStatus.Draining && x.ApprovedAt is not null && x.RevokedAt is null && OfficeHealthyForUpdateRecovery(x, now)));
         if (pausedCapacity) checks.Add(Passed("work-paused", "Office work is paused", "Healthy Office capacity is paused. Resume work from Offices."));
         checks.Insert(0, FleetEnabled
             ? Passed("launch-gate", "Execution fleet release gate", "Production platform certification gate is enabled.")
+            : dbContext.CombinedOfficeEnrollmentId.HasValue
+            ? Passed("launch-gate", "Private Windows installation", "Only the certified Office enrolled by the combined installer can receive new work.")
             : Required("launch-gate", "Execution fleet release gate",
                 "The execution fleet is not enabled for this release.",
                 "Enable the fleet only after Windows, Linux, and macOS builder/runtime certification passes."));
@@ -155,7 +164,7 @@ public sealed partial class ExecutionFleetService(
             localCapacity.IsSupported,
             LocalOperatingSystem(),
             System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
-            !FleetEnabled
+            !PlacementEnabled
                 ? "Distributed execution is gated until every supported platform has production builder/runtime certification."
                 : isReady
                 ? $"{ready.Length} approved Office{(ready.Length == 1 ? " is" : "s are")} ready for agent builds and runtimes."
@@ -1530,11 +1539,11 @@ public sealed partial class ExecutionFleetService(
 
     public async Task<bool> IsReadyAsync(CancellationToken cancellationToken = default)
     {
-        if (!FleetEnabled || !ImagePolicyConfigured()) return false;
+        if (!PlacementEnabled || !ImagePolicyConfigured()) return false;
         await EnsureDefaultPoolAsync(cancellationToken);
         var now = timeProvider.GetUtcNow();
         var defaults = await DefaultPoolsAsync(cancellationToken);
-        var nodes = await dbContext.ExecutionNodes.AsNoTracking()
+        var nodes = await dbContext.OfficesForPlacement(now).AsNoTracking()
             .Include(node => node.Providers)
             .Where(node => node.ExecutionPoolId == defaults.BuildPoolId ||
                 node.ExecutionPoolId == defaults.RuntimePoolId)
@@ -2594,14 +2603,14 @@ public sealed partial class ExecutionFleetService(
     private static string NormalizeHex(string value) =>
         new(value.Where(Uri.IsHexDigit).Select(char.ToUpperInvariant).ToArray());
 
-    private static string NormalizeDigest(string? value)
+    internal static string NormalizeDigest(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return string.Empty;
         var normalized = value.Trim().ToLowerInvariant();
         return normalized.StartsWith("sha256:", StringComparison.Ordinal) ? normalized : $"sha256:{normalized}";
     }
 
-    private static bool IsSha256(string value) => value.Length == 71 &&
+    internal static bool IsSha256(string value) => value.Length == 71 &&
         value.StartsWith("sha256:", StringComparison.Ordinal) &&
         value.AsSpan(7).IndexOfAnyExcept("0123456789abcdef") < 0;
 

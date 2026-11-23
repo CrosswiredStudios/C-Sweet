@@ -23,6 +23,9 @@ public static class ServicesExtensions
                 "CSweet", "Provisioning", builder.Environment.ApplicationName + ".json");
             builder.Configuration.AddJsonFile(settings, optional: true, reloadOnChange: false);
             WindowsHeadquartersSettings.Apply(builder.Configuration, Path.ChangeExtension(settings, "defaults.json"));
+            if (builder.Environment.ApplicationName is "CSweet.Api" or "CSweet.AgentHost" or "CSweet.WorkerHost" or "CSweet.ExecutionGateway")
+                builder.Configuration.AddJsonFile(Path.Combine(Path.GetDirectoryName(settings)!, "combined-office-placement.json"),
+                    optional: true, reloadOnChange: false);
             if (builder.Environment.ApplicationName == "CSweet.ExecutionGateway")
                 builder.Configuration.AddJsonFile(Path.Combine(Path.GetDirectoryName(settings)!, "combined-office-compute.json"),
                     optional: true, reloadOnChange: false);
