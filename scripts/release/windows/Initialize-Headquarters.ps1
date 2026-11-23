@@ -106,14 +106,17 @@ if ($EnrollOffice -and (Get-Service -Name 'CSweet.Office.Node' -ErrorAction Sile
     throw 'An Office is already installed. Preserve its enrollment through the installed Office maintenance flow.'
 }
 $sids = @{}
+$profiles = @{}
 foreach ($name in $serviceNames) {
     $file = Join-Path $root "$name.json"
     Assert-ProtectedPath $file
-    $null = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+    $profiles[$name] = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
     $sids[$name] = [Security.Principal.NTAccount]::new('NT SERVICE', $name).Translate([Security.Principal.SecurityIdentifier])
 }
 Set-PrivateAcl $root @($sids.Values) $null
 foreach ($name in $serviceNames) { Set-PrivateAcl (Join-Path $root "$name.json") @($sids[$name]) $null }
+. (Join-Path $PSScriptRoot 'HeadquartersServiceSettings.ps1')
+Initialize-HeadquartersServiceSettings $profiles
 
 # Rotate only this setup invocation's private migration workspace. All service
 # executables and their configuration remain read-only to the migration account.
