@@ -1,28 +1,27 @@
-using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using CSweet.Contracts.Communications;
 
 namespace CSweet.UI.Services;
 
-internal sealed record DecisionExplanationResult(string? Answer, string? ErrorKey)
+internal static class DecisionExplanationResult
 {
-    public static async Task<DecisionExplanationResult> RequestAsync(HttpClient http, Guid organizationId, Guid conversationId,
-        Guid decisionId, DecisionQuestionRequest request, CancellationToken token)
+    public static async Task<DecisionWordingResponse?> GetWordingAsync(HttpClient http, Guid organizationId, Guid conversationId,
+        Guid decisionId, string? optionId, CancellationToken token)
     {
         try
         {
             using var response = await http.PostAsJsonAsync(
-                $"api/organizations/{organizationId}/communications/hub/chats/{conversationId}/decisions/{decisionId}/explain", request, token);
-            if (response.StatusCode == HttpStatusCode.NotFound) return new(null, "Communications.Decision.Unavailable");
-            response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadFromJsonAsync<DecisionExplanationResponse>(token);
-            if (!string.IsNullOrWhiteSpace(result?.Explanation)) return new(result.Explanation, null);
+                $"api/organizations/{organizationId}/communications/hub/chats/{conversationId}/decisions/{decisionId}/wording",
+                new DecisionWordingRequest(optionId), token);
+            if (!response.IsSuccessStatusCode) return null;
+            var copy = await response.Content.ReadFromJsonAsync<DecisionWordingResponse>(token);
+            return !string.IsNullOrWhiteSpace(copy?.Text) && (optionId is null || !string.IsNullOrWhiteSpace(copy.Impact)) ? copy : null;
         }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException or OperationCanceledException)
+        catch (Exception error) when (error is HttpRequestException or JsonException or OperationCanceledException)
         {
-            // The user can retry the explanation while the decision stays pending.
+            return null;
         }
-        return new(null, "Communications.Decision.ExplanationFailed");
     }
+
 }

@@ -14,7 +14,7 @@ using Microsoft.Extensions.Logging;
 
 namespace CSweet.IntegrationTests;
 
-public sealed class AuthenticationEndpointTests
+public sealed partial class AuthenticationEndpointTests
 {
     [Fact]
     public async Task RegistrationOptions_HostedIsOffByDefault()

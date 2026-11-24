@@ -4,38 +4,50 @@
 @using CSweet.Contracts.Auth
 @inject IAuthenticationApiClient AuthenticationApi
 @inject NavigationManager Navigation
+@inject AuthSessionStore Session
 @inject IAppLocalizer L
 
 <PageTitle>@L["Login.PageTitle"]</PageTitle>
 
 <MudPaper Elevation="0" Class="auth-card">
     <MudText Typo="Typo.h4">@L["Login.Title"]</MudText>
-    <MudText Color="Color.Secondary">@L["Login.Lead"]</MudText>
-    @if (Reason == LoginRedirect.ReasonUnavailable)
+    @if (Session.Current?.HostedWebSignIn == true)
     {
-        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L["Login.Reason.Unavailable"]</MudAlert>
+        @if (Reason == "account")
+        {
+            <MudAlert Severity="Severity.Warning">This account could not open Headquarters. Sign in with the purchasing account or an invited account.</MudAlert>
+        }
+        <MudButton OnClick="StartHostedSignIn" Variant="Variant.Filled" Color="Color.Primary">Continue with C-Sweet</MudButton>
     }
-    else if (Reason == LoginRedirect.ReasonExpired)
+    else
     {
-        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">@L["Login.Reason.Expired"]</MudAlert>
+        <MudText Color="Color.Secondary">@L["Login.Lead"]</MudText>
+        @if (Reason == LoginRedirect.ReasonUnavailable)
+        {
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@L["Login.Reason.Unavailable"]</MudAlert>
+        }
+        else if (Reason == LoginRedirect.ReasonExpired)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">@L["Login.Reason.Expired"]</MudAlert>
+        }
+        <EditForm Model="_model" OnValidSubmit="LoginAsync" Class="auth-form">
+            <DataAnnotationsValidator />
+            <MudTextField Label="@L["Login.Email"]" InputType="InputType.Email" @bind-Value="_model.Email" For="@(() => _model.Email)" Variant="Variant.Outlined" Required="true" />
+            <MudTextField Label="@L["Login.Password"]" InputType="InputType.Password" @bind-Value="_model.Password" For="@(() => _model.Password)" Variant="Variant.Outlined" Required="true" />
+            <MudCheckBox T="bool" @bind-Value="_model.RememberMe" Label="@L["Login.RememberMe"]" />
+            @if (!string.IsNullOrWhiteSpace(_message))
+            {
+                <MudAlert Severity="@(_success ? Severity.Success : Severity.Error)" Variant="Variant.Outlined">@_message</MudAlert>
+            }
+            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Disabled="_saving">@(_saving ? L["Login.SigningIn"] : L["Login.SignIn"])</MudButton>
+            @if (_needsConfirmation)
+            {
+                <MudButton Variant="Variant.Text" Color="Color.Primary" FullWidth="true" OnClick="ResendAsync">@L["Login.ResendConfirmation"]</MudButton>
+            }
+            <MudButton Href="/forgot-password" Variant="Variant.Text" Color="Color.Primary" FullWidth="true">@L["Login.ForgotPassword"]</MudButton>
+            <MudButton Href="/recover-root" Variant="Variant.Text" Color="Color.Secondary" FullWidth="true">@L["Login.UseRecoveryCode"]</MudButton>
+        </EditForm>
     }
-    <EditForm Model="_model" OnValidSubmit="LoginAsync" Class="auth-form">
-        <DataAnnotationsValidator />
-        <MudTextField Label="@L["Login.Email"]" InputType="InputType.Email" @bind-Value="_model.Email" For="@(() => _model.Email)" Variant="Variant.Outlined" Required="true" />
-        <MudTextField Label="@L["Login.Password"]" InputType="InputType.Password" @bind-Value="_model.Password" For="@(() => _model.Password)" Variant="Variant.Outlined" Required="true" />
-        <MudCheckBox T="bool" @bind-Value="_model.RememberMe" Label="@L["Login.RememberMe"]" />
-        @if (!string.IsNullOrWhiteSpace(_message))
-        {
-            <MudAlert Severity="@(_success ? Severity.Success : Severity.Error)" Variant="Variant.Outlined">@_message</MudAlert>
-        }
-        <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Disabled="_saving">@(_saving ? L["Login.SigningIn"] : L["Login.SignIn"])</MudButton>
-        @if (_needsConfirmation)
-        {
-            <MudButton Variant="Variant.Text" Color="Color.Primary" FullWidth="true" OnClick="ResendAsync">@L["Login.ResendConfirmation"]</MudButton>
-        }
-        <MudButton Href="/forgot-password" Variant="Variant.Text" Color="Color.Primary" FullWidth="true">@L["Login.ForgotPassword"]</MudButton>
-        <MudButton Href="/recover-root" Variant="Variant.Text" Color="Color.Secondary" FullWidth="true">@L["Login.UseRecoveryCode"]</MudButton>
-    </EditForm>
 </MudPaper>
 
 @code {
@@ -49,6 +61,9 @@
     private string? _message;
 
     private string UnreachableMessage => L["Login.Unreachable"];
+
+    private void StartHostedSignIn() =>
+        Navigation.NavigateTo(Reason == "account" ? "/api/auth/account/start?switchAccount=true" : "/api/auth/account/start", forceLoad: true);
 
     private async Task LoginAsync()
     {

@@ -41,7 +41,7 @@ public sealed class ComputeRegistry(CSweetDbContext db, TimeProvider clock, IAud
         var node = await (from placement in db.ComputeTemplatePlacements.AsNoTracking()
             join candidate in db.ComputeNodes.AsNoTracking() on placement.NodeId equals candidate.Id
             where placement.TemplateRegistrationId == template.Id && placement.OrganizationId == organizationId &&
-                placement.Enabled && candidate.Enabled && candidate.OrganizationId == organizationId && candidate.ProviderId != OfficeComputePlacement.ProviderId
+                placement.Enabled && candidate.Enabled && candidate.OrganizationId == organizationId && !OfficeComputePlacement.OfficeProviders.Contains(candidate.ProviderId)
             orderby candidate.Id
             select candidate).FirstOrDefaultAsync(token);
         if (node is null) return null;

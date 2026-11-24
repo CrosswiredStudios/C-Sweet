@@ -1,8 +1,8 @@
 using CSweet.Compute.Guest;
 
-if (args.Length != 1 || args[0] != "--serve-hyperv")
+if (args.Length != 1 || args[0] is not ("--serve-hyperv" or "--serve-virtio"))
 {
-    Console.Error.WriteLine("Usage inside a Linux or Windows Hyper-V guest: CSweet.Compute.Guest --serve-hyperv");
+    Console.Error.WriteLine("Usage inside a Compute VM: CSweet.Compute.Guest --serve-hyperv or --serve-virtio (Linux)");
     return 2;
 }
 using var shutdown = new CancellationTokenSource();
@@ -11,7 +11,8 @@ using var termination = OperatingSystem.IsLinux() ? System.Runtime.InteropServic
 Console.CancelKeyPress += (_, value) => { value.Cancel = true; shutdown.Cancel(); };
 try
 {
-    if (OperatingSystem.IsLinux()) await LinuxComputeGuestServer.RunAsync(shutdown.Token);
+    if (OperatingSystem.IsLinux()) await LinuxComputeGuestServer.RunAsync(shutdown.Token, virtio: args[0] == "--serve-virtio");
+    else if (args[0] == "--serve-virtio") return 2;
     else await WindowsComputeGuestServer.RunAsync(shutdown.Token);
     return 0;
 }

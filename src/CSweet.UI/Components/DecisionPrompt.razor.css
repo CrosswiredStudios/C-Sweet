@@ -9,3 +9,5 @@
 .decision-prompt ::deep :is(p, ul, ol) { margin: 0 0 .75rem; }
 .decision-prompt ::deep :is(h1, h2, h3, h4, h5, h6) { font-size: 1rem; line-height: 1.4; margin: .75rem 0 .4rem; }
 .decision-prompt ::deep :last-child { margin-bottom: 0; }
+.decision-original { margin: .35rem 0 .7rem; font-size: .8rem; overflow-wrap: anywhere; }
+.decision-original summary { cursor: pointer; color: var(--mud-palette-text-secondary); }

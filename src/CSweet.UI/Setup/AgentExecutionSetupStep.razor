@@ -31,7 +31,7 @@
     {
         <div class="execution-mode-grid">
             <button type="button" class="execution-mode-card @ModeClass("local")"
-                    disabled="@_busy" @onclick='@(() => SelectModeAsync("remote"))'>
+                    disabled="@_busy" @onclick='@(() => SelectModeAsync("local"))'>
                 <MudIcon Icon="@Icons.Material.Filled.Computer" />
                 <strong>@L["AgentExecutionSetupStep.ThisMachine"]</strong>
                 <span>@L["AgentExecutionSetupStep.UseTheSameSignedOffice"]</span>
@@ -90,6 +90,8 @@
             </MudText>
             @if (_status.Packages is { } packages)
             {
+                @if (_installationTarget == "remote")
+                {
                 <div class="execution-platform-picker" role="group" aria-label="@L["AgentExecutionSetupStep.ExecutionNodeOperatingSystem"]">
                     @foreach (var platform in RemotePlatforms)
                     {
@@ -100,6 +102,7 @@
                         </button>
                     }
                 </div>
+                }
 
                 <div class="execution-install-card">
                     <div>
@@ -125,7 +128,7 @@
                             <code>@packages.ControlPlaneUrl</code>
                             <MudButton Variant="Variant.Text" OnClick="() => CopyGatewayAsync(packages.ControlPlaneUrl!)">@L["Common.Copy"]</MudButton>
                         </div>
-                        <MudText Typo="Typo.subtitle2">@L["AgentExecutionSetupStep.RunOnTheOtherMachine"]</MudText>
+                        <MudText Typo="Typo.subtitle2">@(_installationTarget == "local" ? L["AgentExecutionSetupStep.ThisMachine"] : L["AgentExecutionSetupStep.RunOnTheOtherMachine"])</MudText>
                         <div class="execution-copy-field execution-command">
                             <code>@InstallCommand(packages.ControlPlaneUrl!)</code>
                             <MudButton Variant="Variant.Text" OnClick="() => CopyCommandAsync(packages.ControlPlaneUrl!)">@L["Common.Copy"]</MudButton>
@@ -248,6 +251,7 @@
     private IJSObjectReference? _jsModule;
     private CancellationTokenSource? _polling;
     private string _remotePlatform = "windows";
+    private string _installationTarget = "remote";
     private bool _loading = true;
     private bool _busy;
     private bool _actionSucceeded;
@@ -278,8 +282,11 @@
     private async Task SelectModeAsync(string mode)
     {
         _busy = true;
-        var result = await SetupApi.SelectExecutionModeAsync(mode);
+        if (mode == "local" && _status?.LocalOperatingSystem is "macos" or "linux" or "windows")
+            _remotePlatform = _status.LocalOperatingSystem;
+        var result = await SetupApi.SelectExecutionModeAsync("remote");
         Apply(result);
+        if (result.Succeeded) _installationTarget = mode;
         _issuedEnrollment = null;
         _busy = false;
     }
@@ -374,7 +381,7 @@
     {
         "windows" => $"& \"$env:ProgramFiles\\CSweet\\Office\\Install-CSweetOffice.ps1\" -PayloadRoot \"$env:ProgramFiles\\CSweet\\Office\\payload\" -ControlPlaneUrl '{PowerShellQuote(controlPlaneUrl)}'",
         "linux" => $"sudo /usr/sbin/csweet-configure-office '{UnixQuote(controlPlaneUrl)}'",
-        "macos" => $"sudo /usr/local/sbin/csweet-configure-office '{UnixQuote(controlPlaneUrl)}'",
+        "macos" => MacOfficeCommand.Format(controlPlaneUrl, _status?.Packages?.ControlPlaneCertificateSha256),
         _ => string.Empty
     };
 
@@ -464,7 +471,7 @@
         catch { }
     }
 
-    private string ModeClass(string mode) => _status?.SelectedMode == mode ? "selected" : string.Empty;
+    private string ModeClass(string mode) => _installationTarget == mode ? "selected" : string.Empty;
     private static string Short(string value) => value.Length <= 18 ? value : $"{value[..10]}…{value[^6..]}";
     private static string Heartbeat(DateTimeOffset? value) => value is null ? "never" : value.Value.ToLocalTime().ToString("g");
     private static Color NodeColor(string status) => status == "ready" ? Color.Success : status == "pendingapproval" ? Color.Warning : Color.Default;

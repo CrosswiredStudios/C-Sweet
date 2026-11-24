@@ -112,10 +112,12 @@ public sealed class ExecutionNodeCertificateAuthority(
                 ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "CSweet", "control-plane", "execution-node-ca.pfx")
                 : Path.GetFullPath(configured);
+            var keyFlags = X509KeyStorageFlags.Exportable | (OperatingSystem.IsMacOS()
+                ? X509KeyStorageFlags.DefaultKeySet : X509KeyStorageFlags.EphemeralKeySet);
             if (File.Exists(path))
                 return _authority = X509CertificateLoader.LoadPkcs12FromFile(
                     path, options.Value.AuthorityPfxPassword,
-                    X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+                    keyFlags);
             if (!environment.IsDevelopment() && !environment.IsEnvironment("Testing"))
                 throw new InvalidOperationException(
                     "A shared execution-node certificate authority must be configured outside development.");
@@ -133,7 +135,7 @@ public sealed class ExecutionNodeCertificateAuthority(
             File.WriteAllBytes(path, pfx);
             return _authority = X509CertificateLoader.LoadPkcs12(
                 pfx, options.Value.AuthorityPfxPassword,
-                X509KeyStorageFlags.Exportable | X509KeyStorageFlags.EphemeralKeySet);
+                keyFlags);
         }
     }
 }

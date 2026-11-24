@@ -124,6 +124,8 @@ public sealed class IncidentResolutionChoicesTests
         public bool Fail; public List<AnswerExecutiveDecisionRequest> Requests { get; } = [];
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/wording"))
+                return new(HttpStatusCode.OK) { Content = JsonContent.Create(new DecisionWordingResponse("I would update the plan.", "You could review the changes.")) };
             if (request.RequestUri!.AbsolutePath.EndsWith("/explain"))
                 return new(HttpStatusCode.OK) { Content = JsonContent.Create(new DecisionExplanationResponse("The team will update its plan.")) };
             Requests.Add((await request.Content!.ReadFromJsonAsync<AnswerExecutiveDecisionRequest>(token))!);

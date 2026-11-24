@@ -1,0 +1,162 @@
+@page "/offices"
+@using CSweet.Contracts.Setup
+@inject HttpClient Http
+@inject ISetupApiClient SetupApi
+@inject NavigationManager Navigation
+@implements IDisposable
+<PageTitle>Your offices · C-Sweet</PageTitle>
+
+<div class="aurora-page business-workspace office-overview">
+    <header class="office-header">
+        <div>
+            <h1>Your offices</h1>
+            <p>Use hosted Offices and your own computers together. You can add either at any time.</p>
+        </div>
+        <MudButton Variant="Variant.Text" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Refresh"
+                   OnClick="RefreshAsync" Disabled="@_loading">Refresh</MudButton>
+    </header>
+
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error">@_error</MudAlert>
+    }
+    @if (_overview?.PlanError == "signin")
+    {
+        <MudAlert Severity="Severity.Info">
+            <a href="/api/auth/account/start" data-enhance-nav="false">Continue with C-Sweet to check your plan</a>
+        </MudAlert>
+    }
+    else if (_overview?.PlanError is not null)
+    {
+        <MudAlert Severity="Severity.Warning">Your purchased capacity is temporarily unavailable.</MudAlert>
+    }
+
+    <div class="office-groups">
+        <section class="office-card surface-panel" aria-labelledby="hosted-title">
+            <div class="office-card-body">
+                <span class="office-icon"><MudIcon Icon="@Icons.Material.Outlined.CloudQueue" /></span>
+                <h2 id="hosted-title">Hosted Offices</h2>
+                @if (_overview?.Plan is { } plan)
+                {
+                    @if (plan.Standard + plan.Team == 0)
+                    {
+                        <p>No hosted Offices on this plan yet.</p>
+                    }
+                    else
+                    {
+                        <dl class="office-inventory">
+                            <div><dt>Standard Offices</dt><dd>@plan.Standard purchased</dd></div>
+                            <div><dt>Team Offices</dt><dd>@plan.Team purchased</dd></div>
+                        </dl>
+                        <p>Provisioning status is unavailable for these purchases.</p>
+                    }
+                }
+                else if (_overview is null && _error is null)
+                {
+                    <p role="status">Checking your plan…</p>
+                }
+            </div>
+            <div class="office-card-action">
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Add"
+                           Disabled="@(!CanManage)" Href="@ManageLink("hosted")">Add hosted Offices</MudButton>
+            </div>
+        </section>
+        <section class="office-card surface-panel" aria-labelledby="devices-title">
+            <div class="office-card-body">
+                <span class="office-icon"><MudIcon Icon="@Icons.Material.Outlined.Devices" /></span>
+                <h2 id="devices-title">Your devices</h2>
+                @if (_fleet is not null)
+                {
+                    @if (Devices.Any())
+                    {
+                        <dl class="office-inventory">
+                            @foreach (var node in Devices)
+                            {
+                                <div><dt>@node.Name</dt><dd>@node.Status</dd></div>
+                            }
+                        </dl>
+                    }
+                    else { <p>No devices connected yet.</p> }
+                    @if (_overview?.Plan is not null) { <p class="office-slots">@SlotDescription</p> }
+                }
+                else if (_error is null) { <p role="status">Checking connected devices…</p> }
+            </div>
+            <div class="office-card-action">
+                @if (CanManage && _fleet is not null && (FreeSlots > 0 || _fleet.ActiveEnrollment is not null))
+                {
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Link" OnClick="Pair">Connect a device</MudButton>
+                }
+                else
+                {
+                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Outlined.Link"
+                               Disabled="@(!CanManage)" Href="@ManageLink("devices")">Connect a device</MudButton>
+                }
+            </div>
+        </section>
+    </div>
+
+    @if (_pairing)
+    {
+        <AgentHostOnboardingStep RemoteOnly="true" OnBack="EndPairing" OnContinue="EndPairing" />
+    }
+    <footer class="office-actions">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.ArrowForward"
+                   OnClick="ContinueAsync" Disabled="@(_overview is null || _continuing)">Continue to dashboard</MudButton>
+    </footer>
+</div>
+
+@code {
+    private HostedOfficeOverview? _overview;
+    private ExecutionCapacityOnboardingResponse? _fleet;
+    private readonly CancellationTokenSource _stop = new();
+    private string? _error;
+    private bool _loading, _continuing, _pairing;
+    private IEnumerable<ExecutionNodeSummaryResponse> Devices => _fleet?.Nodes.Where(n => n.Status != "revoked") ?? [];
+    private bool CanManage => _overview?.Plan?.CanManage == true;
+    private int FreeSlots => Math.Max(0, (_overview?.Plan?.Linked ?? 0) - Devices.Count());
+    private string SlotDescription => FreeSlots == 1 ? "1 unused device slot" : $"{FreeSlots} unused device slots";
+    private string? ManageLink(string kind) => CanManage ? _overview!.ManageUrl + "?kind=" + kind : null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        _ = PollAsync();
+    }
+
+    private async Task PollAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(20));
+        try { while (await timer.WaitForNextTickAsync(_stop.Token)) await InvokeAsync(RefreshAsync); }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_loading) return;
+        _loading = true;
+        try
+        {
+            _error = null;
+            _overview = await Http.GetFromJsonAsync<HostedOfficeOverview>("api/setup/hosted-offices", _stop.Token);
+            _fleet = await SetupApi.GetExecutionCapacityStatusAsync();
+        }
+        catch (Exception) when (!_stop.IsCancellationRequested) { _error = "Could not refresh your Office inventory. Please retry."; }
+        finally { _loading = false; if (!_stop.IsCancellationRequested) StateHasChanged(); }
+    }
+
+    private void Pair() => _pairing = true;
+    private async Task EndPairing() { _pairing = false; await RefreshAsync(); }
+    private async Task ContinueAsync()
+    {
+        _continuing = true;
+        try
+        {
+            using var result = await Http.PostAsync("api/setup/hosted-offices/continue", null);
+            result.EnsureSuccessStatusCode();
+            Navigation.NavigateTo("/", forceLoad: true);
+        }
+        catch (HttpRequestException) { _error = "Your progress could not be saved. Please retry."; }
+        finally { _continuing = false; }
+    }
+    public void Dispose() => _stop.Cancel();
+}

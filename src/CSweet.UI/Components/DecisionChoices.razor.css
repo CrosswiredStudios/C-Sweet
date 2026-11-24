@@ -2,11 +2,13 @@
 .decision-layout { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.25fr); gap: .7rem 1.2rem; align-items: start; }
 .decision-picker { display: grid; min-width: 0; gap: .3rem; color: var(--mud-palette-text-secondary); font-size: .8rem; font-weight: 600; }
 .select-field { display: grid; align-items: center; position: relative; }
-.select-field select { width: 100%; min-width: 0; min-height: 44px; padding-block: .55rem; padding-inline: .7rem 2.25rem; appearance: none; cursor: pointer; background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); border: 1px solid var(--mud-palette-lines-inputs); border-radius: 8px; font: inherit; font-size: .9rem; text-overflow: ellipsis; }
-.select-field select:hover { border-color: var(--mud-palette-primary); }
+.select-field select { width: 100%; min-width: 0; min-height: 44px; padding-block: .55rem; padding-inline: .7rem 2.25rem; appearance: none; cursor: pointer; background: var(--mud-palette-primary); color: var(--mud-palette-primary-text); border: 1px solid transparent; border-radius: 8px; font: inherit; font-size: .9rem; text-overflow: ellipsis; }
+.select-field select:enabled:hover { background: var(--mud-palette-primary-darken); }
 .select-field select:focus-visible { outline: 2px solid var(--mud-palette-primary); outline-offset: 2px; }
 .select-field select:disabled { cursor: default; opacity: .65; }
-.select-field ::deep svg { position: absolute; inset-inline-end: .65rem; width: 18px; color: var(--mud-palette-primary); pointer-events: none; }
+.select-field ::deep svg { position: absolute; inset-inline-end: .65rem; width: 18px; color: var(--mud-palette-primary-text); pointer-events: none; }
+.select-field option { background: var(--mud-palette-surface); color: var(--mud-palette-text-primary); }
+@media (forced-colors: active) { .select-field ::deep svg { color: ButtonText; } }
 @media (hover: hover) and (pointer: fine) {
     @supports (appearance: base-select) {
         .select-field select, .select-field select::picker(select) { appearance: base-select; }
@@ -25,6 +27,8 @@
 .option-detail p { margin: .3rem 0 0; color: var(--mud-palette-text-secondary); font-size: .87rem; line-height: 1.5; white-space: pre-line; }
 .choice-impact { border-top: 1px solid var(--mud-palette-divider); padding-top: .5rem; margin-top: .65rem; }
 .choice-impact h4 { margin: 0; font-size: .8rem; font-weight: 600; }
+.decision-original { margin-top: .55rem; font-size: .8rem; }
+.decision-original summary { cursor: pointer; color: var(--mud-palette-text-secondary); }
 .decision-submit { display: flex; align-items: center; justify-content: flex-end; gap: .4rem; margin-top: .7rem; padding-top: .55rem; border-top: 1px solid var(--mud-palette-divider); }
 .decision-submit ::deep .mud-button-root { min-width: 0; text-transform: none; letter-spacing: normal; }
 @container decision (max-width: 32rem) { .decision-layout { grid-template-columns: minmax(0, 1fr); } }

@@ -58,9 +58,10 @@ public sealed class ComputeBrokerTests
     internal sealed class Catalog : IComputeTemplateCatalog
     {
         public bool Enabled { get; set; } = true;
+        public string Architecture { get; set; } = "x64";
         public HashSet<string> Features { get; set; } = [];
         public Task<RegisteredComputeTemplate?> ResolveAsync(Guid organizationId, string templateId, CancellationToken token) =>
-            Task.FromResult<RegisteredComputeTemplate?>(Enabled ? new(new("ubuntu-clean", "linux", "x64",
+            Task.FromResult<RegisteredComputeTemplate?>(Enabled ? new(new("ubuntu-clean", "linux", Architecture,
                 "sha256:" + new string('a', 64), Features), "test-provider", Guid.Parse("f78f34e8-1b0f-428a-ad24-4c31d5a87781")) : null);
     }
 

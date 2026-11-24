@@ -1,6 +1,6 @@
 # Compute guest MVP runtime
 
-This executable belongs inside an isolated Linux or Windows Hyper-V guest. Core and the Hyper-V provider do not reference the guest execution assembly. The host isolation boundary is the VM; guest job objects provide ordinary process-tree cleanup, not an additional security sandbox.
+This executable belongs inside an isolated Linux or Windows Hyper-V guest, or an arm64 Linux guest on Apple Virtualization. Core and the Hyper-V provider do not reference the guest execution assembly. The host isolation boundary is the VM; guest job objects provide ordinary process-tree cleanup, not an additional security sandbox.
 
 Run `CSweet.Compute.Guest.exe --serve-hyperv` inside the guest. The listener binds HV_GUID_PARENT on fixed port 2763, accepts up to eight connections, and permits one active command. There is no TCP, same-partition, or bare-metal fallback. The Hyper-V parent binding is documented by [Microsoft](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/make-integration-service).
 
@@ -9,6 +9,8 @@ The protocol supports existing readiness probes and a single bounded command per
 The operator must install this payload only in the isolated guest, with no host filesystem shares, hypervisor/provider credentials, or host Docker socket. The MVP runner uses the guest runtime account. Stronger guest account/token separation, durable guest execution receipts, Windows SCM installation remain deferred or pending integration; none is silently supplied by this executable.
 
 Publish output is available at `artifacts/compute/mvp/guest` and requires .NET 10 inside the Windows guest. Broker command routing and physical VM acceptance are still pending. See `docs/implementation/compute-mvp.md` for the test-release gates.
+
+On Apple silicon the packaged systemd service runs `CSweet.Compute.Guest --serve-virtio`. The guest listens on AF_VSOCK port 2763 and admits host CID 2. [Build and test the Apple guest](../../build/apple-compute/README.md).
 
 ## Linux (preferred MVP)
 

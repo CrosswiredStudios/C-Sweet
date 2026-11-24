@@ -59,7 +59,8 @@ public sealed class McpToolCatalog(
 {
     internal const string DecisionWritingInstructions =
         "When writing a decision for a person, ask one short question. Give each choice a short action label and one sentence on the main trade-off. " +
-        "Explain its impact in everyday language: what happens next, what still waits, and what needs separate approval. Keep technical work steps in the planning record.";
+        "In the impact, explain what would change for the person in one or two short sentences. " +
+        CSweet.Application.Communications.DecisionWriting.Voice;
 
     private readonly McpGatewayOptions? _gatewayLimits = gatewayOptions?.Value;
     private static readonly JsonElement EmptyInput = Schema("""

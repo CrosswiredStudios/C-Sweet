@@ -234,7 +234,7 @@ public sealed partial class OfficeGatewayService(
                 var delivery = JsonSerializer.Deserialize<ComputeMaintenanceDelivery>(signed.PayloadJson, ComputeProtocol.Json)
                     ?? throw new InvalidDataException("Missing maintenance delivery.");
                 var evidence = JsonSerializer.Deserialize<ComputeMaintenanceEvent>(delivery.EventJson, ComputeProtocol.Json);
-                if (evidence?.NodeId != nodeId || evidence.ProviderId != OfficeComputePlacement.ProviderId)
+                if (evidence?.NodeId != nodeId || !OfficeComputePlacement.IsOfficeProvider(evidence.ProviderId))
                     throw new RpcException(new Status(StatusCode.PermissionDenied, "Invalid Office maintenance identity."));
                 var eventId = await computeMaintenance.ApplyAsync(signed, context.CancellationToken);
                 if (eventId == evidence.EventId)
@@ -250,14 +250,14 @@ public sealed partial class OfficeGatewayService(
                 var signed = JsonSerializer.Deserialize<SignedComputeProviderResult>(payload.Span, ComputeProtocol.Json)
                     ?? throw new InvalidDataException("Missing signed compute result.");
                 var result = JsonSerializer.Deserialize<ComputeProviderResult>(signed.PayloadJson, ComputeProtocol.Json);
-                if (result?.NodeId != nodeId || result.ProviderId != OfficeComputePlacement.ProviderId)
+                if (result?.NodeId != nodeId || !OfficeComputePlacement.IsOfficeProvider(result.ProviderId))
                     throw new RpcException(new Status(StatusCode.PermissionDenied, "Invalid Office compute identity."));
                 var digest = ComputeProtocol.Digest(signed.PayloadJson);
                 // Recover the exact committed receipt even if the evidence expired while disconnected.
                 async Task<bool> RecordedAsync() => await (from op in db.ComputeOperations.AsNoTracking()
                     join env in db.ComputeEnvironments.AsNoTracking() on op.EnvironmentId equals env.Id
                     where op.Id == result.OperationId && env.Id == result.EnvironmentId && env.ProviderNodeId == nodeId &&
-                        env.ProviderId == OfficeComputePlacement.ProviderId && env.OrganizationId == result.OrganizationId &&
+                        env.ProviderId == result.ProviderId && env.OrganizationId == result.OrganizationId &&
                         op.LastResultSequence == result.Sequence && op.LastResultDigest == digest select op.Id).AnyAsync(context.CancellationToken);
                 var recorded = await RecordedAsync();
                 if (!recorded && result.ExpiresAt > timeProvider.GetUtcNow())

@@ -1,0 +1,75 @@
+.office-overview {
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+}
+.office-header, .office-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+.office-header h1 {
+    margin: 0 0 10px;
+    font-size: clamp(2rem, 3vw, 3rem);
+    font-weight: 650;
+    letter-spacing: -.045em;
+    line-height: 1.12;
+}
+.office-header p, .office-card-body p {
+    color: var(--activity-muted);
+    line-height: 1.6;
+}
+.office-groups {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 21rem), 1fr));
+    gap: 22px;
+}
+.office-card {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.office-card-body {
+    flex: 1;
+    display: grid;
+    align-content: start;
+    justify-items: start;
+    gap: 8px;
+    padding: clamp(20px, 3vw, 32px);
+}
+.office-icon {
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 46px;
+    margin-bottom: 10px;
+    border-radius: 14px;
+    color: var(--activity-accent);
+    background: var(--activity-tint);
+}
+.office-card h2 {
+    font-size: 1.5rem;
+    line-height: 1.25;
+    letter-spacing: -.035em;
+}
+.office-slots { font-size: .85rem; }
+.office-inventory {
+    width: 100%;
+    display: grid;
+    gap: 8px;
+}
+.office-inventory > div {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    overflow-wrap: anywhere;
+}
+.office-inventory dd { margin: 0; color: var(--activity-muted); }
+.office-card-action, .office-actions {
+    border-top: 1px solid var(--activity-border);
+}
+.office-card-action { padding: 16px clamp(20px, 3vw, 32px); }
+.office-actions { justify-content: flex-end; padding-top: 20px; }

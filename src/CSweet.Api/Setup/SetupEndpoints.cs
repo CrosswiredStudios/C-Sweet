@@ -74,21 +74,24 @@ public static class SetupEndpoints
         }).RequireAuthorization("HostAdministration");
 
         group.MapPost("/execution-capacity/enrollments", async (
-            IExecutionFleetService service,
+            HttpContext http, IExecutionFleetService service,
             CancellationToken cancellationToken) =>
         {
+            if (http.RequestServices.GetService<HostedWebTenant>() is { } tenant)
+                return await HostedOfficeEndpoints.EnrollDeviceAsync(http, service, tenant, cancellationToken);
             var result = await service.CreateEnrollmentAsync(cancellationToken);
             return Results.Ok(result);
         }).RequireAuthorization("HostAdministration");
 
         group.MapPost("/execution-capacity/local-sessions", async (
             CreateLocalOfficeSetupSessionRequest request,
-            ClaimsPrincipal principal,
+            HttpContext http, ClaimsPrincipal principal,
             IExecutionFleetService service,
             CancellationToken cancellationToken) =>
         {
             var userId = principal.GetApplicationUserId();
             if (!userId.HasValue) return Results.Unauthorized();
+            if (http.RequestServices.GetService<HostedWebTenant>() is not null) return Results.Conflict(new { message = "Connect a remote device from Your offices." });
             var result = await service.CreateLocalSetupSessionAsync(request, userId.Value, cancellationToken);
             return result.Succeeded ? Results.Ok(result) : Results.BadRequest(result);
         }).RequireAuthorization("HostAdministration");

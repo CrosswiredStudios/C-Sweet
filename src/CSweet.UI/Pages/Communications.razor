@@ -536,6 +536,10 @@
                                 {
                                     @if (decision.IncidentId is not null)
                                     {
+                                        @if (decision.Status == "Pending" && !_hub.IsReadOnlyPerspective)
+                                        {
+                                            <DecisionPrompt Content="@decision.Prompt" OrganizationId="OrganizationId" ConversationId="_selected!.Id" PendingDecisionId="decision.Id" />
+                                        }
                                         <IncidentResolutionChoices @key="decision.Id" OrganizationId="OrganizationId"
                                             ConversationId="_selected!.Id" Decision="decision" ReadOnly="_hub.IsReadOnlyPerspective"
                                             Answered="@(() => LoadMessagesAsync(markRead: false))" />
@@ -545,7 +549,7 @@
                                     <section id="@($"decision-{decision.Id:D}")" tabindex="-1" class="executive-decision-card" aria-label="@L["Communications.Decision.AriaLabel"]">
                                         <header>
                                             <span>@L["Communications.Decision.Overline"]</span>
-                                            <DecisionPrompt Content="@decision.Prompt" />
+                                            <DecisionPrompt Content="@decision.Prompt" OrganizationId="OrganizationId" ConversationId="_selected!.Id" PendingDecisionId="@(decision.Status == "Pending" && !_hub.IsReadOnlyPerspective ? decision.Id : (Guid?)null)" />
                                         </header>
                                         @if (decision.Status == "Pending" && !_hub.IsReadOnlyPerspective)
                                         {

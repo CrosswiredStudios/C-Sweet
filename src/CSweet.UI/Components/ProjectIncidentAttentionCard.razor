@@ -29,7 +29,7 @@ else
         }
         @if (ShowDecision && Incident.ResolutionDecision is { } decision && Incident.ReportConversationId is { } chat)
         {
-            <DecisionPrompt Content="@decision.Prompt" />
+            <DecisionPrompt Content="@decision.Prompt" OrganizationId="OrganizationId" ConversationId="chat" PendingDecisionId="@(decision.Status == "Pending" ? decision.Id : (Guid?)null)" />
             <IncidentResolutionChoices @key="decision.Id" OrganizationId="OrganizationId" ConversationId="chat" Decision="decision" Answered="RefreshRequested" />
         }
     </BodyContent>

@@ -16,7 +16,8 @@ public static class CoreOrganizationEndpoints
         var phaseGroup = endpoints.MapGroup("/api/organizations");
 
         group.MapGet("", async (ICoreOrganizationService service, CancellationToken cancellationToken) =>
-            Results.Ok(await service.ListAsync(cancellationToken)));
+            Results.Ok(await service.ListAsync(cancellationToken)))
+            .AllowFromMobile(MobileAccess.Read, "Existing phone business list for this Headquarters.");
         phaseGroup.MapGet("", async (ICoreOrganizationService service, CancellationToken cancellationToken) =>
             Results.Ok(await service.ListAsync(cancellationToken)));
 
@@ -24,7 +25,8 @@ public static class CoreOrganizationEndpoints
         {
             var org = await service.GetAsync(id, cancellationToken);
             return org is null ? Results.NotFound() : Results.Ok(org);
-        });
+        })
+            .AllowFromMobile(MobileAccess.Read, "Returns one business from the existing Headquarters list.");
         phaseGroup.MapGet("/{id:guid}", async (Guid id, ICoreOrganizationService service, CancellationToken cancellationToken) =>
         {
             var org = await service.GetAsync(id, cancellationToken);

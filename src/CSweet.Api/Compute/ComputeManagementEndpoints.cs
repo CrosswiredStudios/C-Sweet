@@ -94,7 +94,7 @@ public static class ComputeManagementEndpoints
         QueueOwnerAudit(db, business, user, request.InstallationId, "compute.instance.owner-requested.v1");
         return await broker.RequestAsync(business, request.InstallationId,
             new(request.ProjectId, request.Name, $"owner:{user:N}:{request.RequestId:N}",
-                new("linux", "x64", policy.TemplateId, new(2, 2048, 20480), request.LifetimeSeconds)), token);
+                new("linux", policy.Architecture, policy.TemplateId, new(2, 2048, 20480), request.LifetimeSeconds)), token);
     }
 
     internal static void QueueOwnerAudit(CSweetDbContext db, Guid business, Guid user, Guid entity, string eventType)

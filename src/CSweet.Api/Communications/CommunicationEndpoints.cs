@@ -29,7 +29,8 @@ public static class CommunicationEndpoints
             var actorId = await ResolveActorAsync(organizationId, http, hub, cancellationToken);
             return actorId is null ? Results.Forbid() : Results.Ok(
                 await decisions.ListPendingForUserAsync(organizationId, actorId.Value, cancellationToken));
-        });
+        })
+            .AllowFromMobile(MobileAccess.Read, "The inbox is restricted to the current active member of the conversation.");
 
         group.MapGet("/discord", async (Guid organizationId, ICommunicationWorkspaceService service, CancellationToken cancellationToken) =>
             await service.GetDiscordAsync(organizationId, cancellationToken) is { } connection ? Results.Ok(connection) : Results.NotFound());
@@ -240,16 +241,40 @@ public static class CommunicationEndpoints
 
         group.MapPost("/hub/chats/{chatId:guid}/decisions/{decisionId:guid}/explain", async (
             Guid organizationId, Guid chatId, Guid decisionId, DecisionQuestionRequest request, HttpContext http,
-            ICommunicationHubService hub, CSweet.Infrastructure.Communications.DecisionExplanationService explanations,
+            ICommunicationHubService hub, CSweet.Infrastructure.Communications.DecisionFollowUpService inquiries,
             CancellationToken token) =>
         {
             if (string.IsNullOrWhiteSpace(request.Question) || request.Question.Length > 4000) return Results.BadRequest();
             var actor = await ResolveActorAsync(organizationId, http, hub, token);
             if (actor is null) return Results.Forbid();
-            var result = await explanations.ExplainAsync(organizationId, chatId, decisionId, actor.Value, request, token);
-            return result is null ? Results.NotFound() : Results.Ok(result);
+            // Older clients do not send a request identity. Identical submissions on this
+            // card by this person should recover the original turn on an HTTP retry.
+            var digest = System.Security.Cryptography.SHA256.HashData(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+                new { request.OptionId, Question = request.Question.Trim() }));
+            try
+            {
+                var turn = await inquiries.AskAsync(organizationId, chatId, decisionId, actor.Value,
+                    request with { RequestId = request.RequestId ?? new Guid(digest.AsSpan(0, 16)) }, token);
+                return turn is null ? Results.NotFound() : Results.Accepted(
+                    $"/api/organizations/{organizationId}/communications/hub/chats/{chatId}/turns/{turn}",
+                    new DecisionExplanationResponse("Your question was sent. The employee’s reply will appear in this conversation."));
+            }
+            catch (ArgumentException e) { return Results.BadRequest(new { message = e.Message }); }
+            catch (InvalidOperationException e) { return Results.Conflict(new { message = e.Message }); }
         })
         .AllowFromMobile(MobileAccess.Write, "Decision explanation requires active human membership of the decision's chat.");
+
+        group.MapPost("/hub/chats/{chatId:guid}/decisions/{decisionId:guid}/wording", async (
+            Guid organizationId, Guid chatId, Guid decisionId, DecisionWordingRequest request, HttpContext http,
+            ICommunicationHubService hub, CSweet.Infrastructure.Communications.DecisionExplanationService explanations,
+            CancellationToken token) =>
+        {
+            var actor = await ResolveActorAsync(organizationId, http, hub, token);
+            if (actor is null) return Results.Forbid();
+            var result = await explanations.GetWordingAsync(organizationId, chatId, decisionId, actor.Value, request, token);
+            return result is null ? Results.NotFound() : Results.Ok(result);
+        })
+        .AllowFromMobile(MobileAccess.Write, "Decision wording requires active human membership of the decision's chat.");
 
         group.MapPost("/hub/chats/{chatId:guid}/decisions/{decisionId:guid}/respond", async (
             Guid organizationId, Guid chatId, Guid decisionId, AnswerExecutiveDecisionRequest request,

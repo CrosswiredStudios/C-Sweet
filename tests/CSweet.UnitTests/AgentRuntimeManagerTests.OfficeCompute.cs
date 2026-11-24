@@ -106,8 +106,12 @@ public sealed partial class AgentRuntimeManagerTests
     public Task Hired_employee_replays_office_availability_and_only_the_assigned_office_claims_the_vm()
         => VerifyHiredOfficePlacementAsync(new ComputeBrokerTests.Fixture());
 
+    [Fact, Trait("Category", "AgentHarness")]
+    public Task Mac_office_claims_an_arm64_workspace_after_replayed_availability()
+        => VerifyHiredOfficePlacementAsync(new ComputeBrokerTests.Fixture(), architecture: "arm64");
+
     internal static async Task<Guid> VerifyHiredOfficePlacementAsync(ComputeBrokerTests.Fixture storage,
-        Func<ICSweetAgent>? createEmployee = null, Action<AgentTestRuntime>? configurePlatform = null)
+        Func<ICSweetAgent>? createEmployee = null, Action<AgentTestRuntime>? configurePlatform = null, string architecture = "x64")
     {
         await using var fixture = storage;
         await fixture.SeedAsync();
@@ -118,21 +122,25 @@ public sealed partial class AgentRuntimeManagerTests
             .CreateSelfSigned(now.AddDays(-1), now.AddDays(1));
         var pool = new ExecutionPool { Id = Guid.NewGuid(), AllowedBusinessIdsJson = JsonSerializer.Serialize(new[] { fixture.Organization }) };
         var office = new ExecutionNode { Id = Guid.NewGuid(), ExecutionPoolId = pool.Id, ApprovedAt = now,
-            OperatingSystem = "windows", NodeVersion = "0.17.2",
+            OperatingSystem = architecture == "arm64" ? "macos" : "windows", Architecture = architecture, NodeVersion = "0.17.2",
             Status = ExecutionNodeStatus.Ready, LastHeartbeatAt = now, CertificateExpiresAt = now.AddDays(1),
             IssuedCertificateBase64 = Convert.ToBase64String(cert.RawData), CertificateThumbprint = cert.Thumbprint };
         var db = fixture.Db;
         db.ExecutionPools.Add(pool);
         db.ExecutionNodes.Add(office);
         var agentImage = "sha256:" + new string('c', 64);
-        var enrollment = new ExecutionNodeEnrollment { Id = Guid.NewGuid(), ExecutionPoolId = pool.Id, ExecutionNodeId = office.Id,
-            ApprovedAt = now, Status = ExecutionEnrollmentStatus.Approved, TokenHash = Guid.NewGuid().ToString("N") };
-        db.ExecutionNodeEnrollments.Add(enrollment);
-        db.ExecutionNodeProviders.Add(new() { Id = Guid.NewGuid(), ExecutionNodeId = office.Id, ProviderId = "hyperv-gen2",
-            BrokerProtocolVersion = "1.1", GuestImageDigest = agentImage, CertificationSuiteVersion = "hire-suite",
-            CertificationEvidenceDigest = "sha256:" + new string('e', 64), CertifiedAt = now.AddHours(-1),
-            IsAvailable = true, SupportsBuilderWorkloads = true, SupportsRuntimeWorkloads = true });
-        var privateFleet = Microsoft.Extensions.Options.Options.Create(new ExecutionFleetOptions { CombinedOfficeEnrollmentId = enrollment.Id });
+        var fleet = new ExecutionFleetOptions { PublicLaunchEnabled = office.OperatingSystem == "macos" };
+        if (office.OperatingSystem == "windows")
+        {
+            var enrollment = new ExecutionNodeEnrollment { Id = Guid.NewGuid(), ExecutionPoolId = pool.Id, ExecutionNodeId = office.Id,
+                ApprovedAt = now, Status = ExecutionEnrollmentStatus.Approved, TokenHash = Guid.NewGuid().ToString("N") };
+            db.ExecutionNodeEnrollments.Add(enrollment);
+            db.ExecutionNodeProviders.Add(new() { Id = Guid.NewGuid(), ExecutionNodeId = office.Id, ProviderId = "hyperv-gen2",
+                BrokerProtocolVersion = "1.1", GuestImageDigest = agentImage, CertificationSuiteVersion = "hire-suite",
+                CertificationEvidenceDigest = "sha256:" + new string('e', 64), CertifiedAt = now.AddHours(-1),
+                IsAvailable = true, SupportsBuilderWorkloads = true, SupportsRuntimeWorkloads = true });
+            fleet.CombinedOfficeEnrollmentId = enrollment.Id;
+        }
         var pinnedImages = Microsoft.Extensions.Options.Options.Create(new AgentRuntimeManagerOptions {
             RequiredCertificationSuiteVersion = "hire-suite", BuilderGuestImageDigest = agentImage, RuntimeGuestImageDigest = agentImage });
         db.AgentSchedules.Add(new AgentSchedule { Id = Guid.NewGuid(), AgentInstallationId = fixture.Installation,
@@ -170,10 +178,10 @@ public sealed partial class AgentRuntimeManagerTests
         using var signer = new ComputeDispatchTests.Signer();
         for (var delivery = 0; delivery < 2; delivery++)
         {
-            await using var restarted = new CSweetDbContext(fixture.Options, fleetOptions: privateFleet, runtimeOptions: pinnedImages);
+            await using var restarted = new CSweetDbContext(fixture.Options, fleetOptions: Microsoft.Extensions.Options.Options.Create(fleet), runtimeOptions: pinnedImages);
             var registry = new ComputeRegistry(restarted, clock, new AuditExecutionContextAccessor());
             var broker = new ComputeBroker(restarted, registry, clock, fixture.Ledger);
-            var employee = createEmployee?.Invoke() ?? new ProjectWorkspaceRequester();
+            var employee = createEmployee?.Invoke() ?? new ProjectWorkspaceRequester(architecture);
             var handler = new ComputeCapabilityHandler(broker, Defaults(restarted));
             var capabilities = new HashSet<string> { InfrastructureActions.Read, InfrastructureActions.Provision };
             var session = new AgentSession("session", employee.AgentId, fixture.Installation.ToString("D"),
@@ -200,6 +208,8 @@ public sealed partial class AgentRuntimeManagerTests
             var claim = Assert.Single(signer.Claims);
             var env = await restarted.ComputeEnvironments.SingleAsync();
             Assert.Null(await registry.ResolveAsync(fixture.Organization, template, default));
+            Assert.Equal(architecture == "arm64" ? OfficeComputePlacement.AppleProviderId : OfficeComputePlacement.ProviderId, claim.ProviderId);
+            Assert.Equal(architecture, JsonSerializer.Deserialize<ComputeSpecification>(env.SpecificationJson, ComputeProtocol.Json)!.Architecture);
             Assert.Equal(office.Id, env.ProviderNodeId);
             Assert.Equal(fixture.Workstream, env.WorkstreamId);
             Assert.Equal(env.Id, claim.EnvironmentId);
@@ -210,7 +220,7 @@ public sealed partial class AgentRuntimeManagerTests
         return Assert.Single(signer.Claims).EnvironmentId;
     }
 
-    private sealed class ProjectWorkspaceRequester : ICSweetAgent
+    private sealed class ProjectWorkspaceRequester(string architecture) : ICSweetAgent
     {
         public string AgentId => "office-compute-test";
         public string Version => "1.0.0";
@@ -221,7 +231,7 @@ public sealed partial class AgentRuntimeManagerTests
             var project = defaults.WorkstreamId!.Value;
             var key = $"project:{project:N}:developer:{context.InstallationId}:generation:0";
             await context.Platform.Compute.ProvisionAsync(new(project, key, key,
-                new("linux", "x64", defaults.TemplateId!, new(2, 2048, 20480), 0)), token);
+                new("linux", architecture, defaults.TemplateId!, new(2, 2048, 20480), 0)), token);
         }
         public Task<AgentWorkResult> ExecuteCapabilityAsync(AgentCapabilityRequest request, AgentRuntimeContext context, CancellationToken token) =>
             throw new NotSupportedException();

@@ -1,4 +1,4 @@
-﻿using System.Security.Cryptography;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace CSweet.HostedAccount;
@@ -32,6 +32,9 @@ public sealed class InstallationKey : IDisposable
 
     public string SignRegistration(long timestamp, string accessToken) =>
         Sign($"csweet-installation-register\n{Thumbprint}\n{timestamp}\n{Base64Url.Encode(SHA256.HashData(Encoding.ASCII.GetBytes(accessToken)))}");
+
+    public string SignHostedWorkspace(Guid order, string name, long timestamp) =>
+        Sign($"csweet-hosted-workspace\n{order:D}\n{Thumbprint}\n{name}\n{timestamp}");
 
     public string SignRetirement(Guid installationId, long timestamp) =>
         Sign($"csweet-installation-retire\n{installationId:D}\n{timestamp}");

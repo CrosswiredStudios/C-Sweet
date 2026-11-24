@@ -20,6 +20,10 @@
     <div class="app-nav-shell">
         <MudNavMenu Bordered="false" Dense="true" Class="app-nav">
             <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Outlined.Apartment">@L["NavMenu.Enterprise"]</MudNavLink>
+            @if (AuthSession.Current?.HostedWebSignIn == true)
+            {
+                <MudNavLink Href="offices" Icon="@Icons.Material.Outlined.Dns">Your offices</MudNavLink>
+            }
             <MudNavLink Href="personal-assistant" Match="NavLinkMatch.Prefix" Icon="@Icons.Material.Outlined.AutoAwesome">@L["NavMenu.PersonalAssistant"]</MudNavLink>
 
             <div class="business-nav-group">

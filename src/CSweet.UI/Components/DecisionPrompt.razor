@@ -1,40 +1,62 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 @inject IAppLocalizer L
+@inject HttpClient Http
 
 @if (Preview)
 {
     <div class="decision-preview" @ref="_preview">
-        <div class="decision-preview-text"><ChatMarkdown Content="@Content" /></div>
+        <div class="decision-preview-text"><ChatMarkdown Content="@(Spoken ?? Content)" /></div>
         <a class="decision-preview-more" href="@ConversationHref" aria-label="@L["DecisionPrompt.ReadFullQuestion"]">@L["DecisionPrompt.More"]</a>
     </div>
 }
 else
 {
-    <div class="decision-prompt"><ChatMarkdown Content="@Content" /></div>
+    <div class="decision-prompt"><ChatMarkdown Content="@(Spoken ?? Content)" /></div>
+}
+@if (Spoken is not null && Spoken != Content)
+{
+    <details class="decision-original"><summary>@L["Communications.Decision.OriginalWording"]</summary><ChatMarkdown Content="@Content" /></details>
 }
 
 @code {
     [Parameter, EditorRequired] public string Content { get; set; } = "";
     [Parameter] public bool Preview { get; set; }
     [Parameter] public string? ConversationHref { get; set; }
+    [Parameter] public Guid OrganizationId { get; set; }
+    [Parameter] public Guid ConversationId { get; set; }
+    [Parameter] public Guid? PendingDecisionId { get; set; }
+    private (Guid?, Guid, Guid, string) RequestKey => (PendingDecisionId, OrganizationId, ConversationId, Content);
+    private (Guid?, Guid, Guid, string)? _requested;
+    private string? _spoken;
+    private string? Spoken => _requested == RequestKey ? _spoken : null;
+    private readonly CancellationTokenSource _lifetime = new();
     private ElementReference _preview;
     private IJSObjectReference? _module;
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!Preview || !firstRender) return;
-        try
+        if (Preview && firstRender)
         {
-            _module = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/js/decisionPreview.js");
-            if (_module is not null) await _module.InvokeVoidAsync("observe", _preview);
+            try
+            {
+                _module = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/CSweet.UI/js/decisionPreview.js");
+                if (_module is not null) await _module.InvokeVoidAsync("observe", _preview);
+            }
+            catch (Exception error) when (error is JSException or InvalidOperationException or OperationCanceledException) { }
         }
-        catch (Exception error) when (error is JSException or InvalidOperationException or OperationCanceledException)
-        {
-            // The three-line CSS limit and conversation link also work without measurement.
-        }
+        var key = RequestKey;
+        if (key == _requested || PendingDecisionId is not { } decision || _lifetime.IsCancellationRequested) return;
+        _requested = key;
+        _spoken = null;
+        var copy = await DecisionExplanationResult.GetWordingAsync(Http, OrganizationId, ConversationId, decision, null, _lifetime.Token);
+        if (key != RequestKey || _lifetime.IsCancellationRequested || copy is null) return;
+        _spoken = copy.Text;
+        StateHasChanged();
     }
     public async ValueTask DisposeAsync()
     {
+        _lifetime.Cancel();
+        _lifetime.Dispose();
         if (_module is null) return;
         try { await _module.InvokeVoidAsync("unobserve", _preview); await _module.DisposeAsync(); }
         catch (Exception error) when (error is JSDisconnectedException or ObjectDisposedException or OperationCanceledException) { }

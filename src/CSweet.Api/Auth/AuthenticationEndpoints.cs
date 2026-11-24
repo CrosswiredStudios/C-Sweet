@@ -21,9 +21,14 @@ public static class AuthenticationEndpoints
             CancellationToken cancellationToken) =>
         {
             var userId = principal.GetApplicationUserId();
-            var token = userId.HasValue ? antiforgery.GetAndStoreTokens(context).RequestToken : null;
-            return Results.Ok(await service.GetStatusAsync(userId, token, cancellationToken));
-        }).AllowAnonymous();
+            var token = userId.HasValue && context.Features.Get<MobileDispatchFeature>() is null
+                ? antiforgery.GetAndStoreTokens(context).RequestToken : null;
+            var status = await service.GetStatusAsync(userId, token, cancellationToken);
+            if (context.RequestServices.GetService<HostedWebTenant>() is null) return Results.Ok(status);
+            var reviewed = userId.HasValue && await CSweet.Api.Setup.HostedOfficeEndpoints.ReviewedAsync(
+                context.RequestServices.GetRequiredService<CSweet.Infrastructure.Persistence.CSweetDbContext>(), cancellationToken);
+            return Results.Ok(status with { HostedWebSignIn = true, HostedOfficesReviewed = reviewed });
+        }).AllowAnonymous().AllowFromMobile(MobileAccess.Read, "Returns the current device principal’s own session.");
 
         // First-run hosting choice (Hosted or Private). Local configuration only; no outbound calls.
         group.MapGet("/registration-options", async (IAuthenticationService service, IConfiguration configuration, CancellationToken cancellationToken) =>

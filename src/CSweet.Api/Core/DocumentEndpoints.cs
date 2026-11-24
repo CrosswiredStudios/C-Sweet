@@ -16,12 +16,14 @@ public static class DocumentEndpoints
             IArtifactDocumentService service, CancellationToken token) =>
             await ExecuteAsync(http, async actor => Results.Ok(await service.BrowseAsync(organizationId, actor,
                 new ArtifactDocumentQuery(search, folderId, packageId, status, documentType, includeArchived,
-                    creatorOrSteward, originWorkItemId, updatedFrom, updatedTo), token))));
+                    creatorOrSteward, originWorkItemId, updatedFrom, updatedTo), token))))
+            .AllowFromMobile(MobileAccess.Read, "BrowseAsync checks organization membership and document grants.");
 
         group.MapGet("/{artifactId:guid}", async (Guid organizationId, Guid artifactId, HttpContext http,
             IArtifactDocumentService service, CancellationToken token) =>
             await ExecuteAsync(http, async actor => await service.GetAsync(organizationId, actor, artifactId, token) is { } item
-                ? Results.Ok(item) : Results.NotFound()));
+                ? Results.Ok(item) : Results.NotFound()))
+            .AllowFromMobile(MobileAccess.Read, "GetAsync checks organization membership and document grants.");
 
         group.MapPost("", async (Guid organizationId, CreateArtifactDocumentRequest request, HttpContext http,
             IArtifactDocumentService service, CancellationToken token) =>
@@ -68,7 +70,8 @@ public static class DocumentEndpoints
 
         group.MapGet("/folders", async (Guid organizationId, bool includeArchived, HttpContext http,
             IArtifactDocumentService service, CancellationToken token) => await ExecuteAsync(http,
-                async actor => Results.Ok(await service.ListFoldersAsync(organizationId, actor, includeArchived, token))));
+                async actor => Results.Ok(await service.ListFoldersAsync(organizationId, actor, includeArchived, token))))
+            .AllowFromMobile(MobileAccess.Read, "ListFoldersAsync checks organization membership.");
         group.MapPost("/folders", async (Guid organizationId, CreateArtifactFolderRequest request, HttpContext http,
             IArtifactDocumentService service, CancellationToken token) => await ExecuteAsync(http,
                 async actor => Results.Ok(await service.CreateFolderAsync(organizationId, actor, request, token))));
@@ -103,7 +106,8 @@ public static class DocumentEndpoints
                 async actor => Results.Ok(await service.CreatePackageAsync(organizationId, actor, request, token))));
         group.MapGet("/packages", async (Guid organizationId, bool includeArchived, HttpContext http,
             IArtifactDocumentService service, CancellationToken token) => await ExecuteAsync(http,
-                async actor => Results.Ok(await service.ListPackagesAsync(organizationId, actor, includeArchived, token))));
+                async actor => Results.Ok(await service.ListPackagesAsync(organizationId, actor, includeArchived, token))))
+            .AllowFromMobile(MobileAccess.Read, "ListPackagesAsync filters by membership and readable documents.");
         group.MapGet("/packages/{packageId:guid}", async (Guid organizationId, Guid packageId, HttpContext http,
             IArtifactDocumentService service, CancellationToken token) => await ExecuteAsync(http,
                 async actor => await service.GetPackageAsync(organizationId, actor, packageId, token) is { } package

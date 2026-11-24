@@ -5,5 +5,6 @@ WORKDIR /srv
 COPY . /srv/
 ENV HOME=/state ASPNETCORE_ENVIRONMENT=Production DOTNET_ENVIRONMENT=Production
 USER app
-ENTRYPOINT ["dotnet"]
+# Existing guest volumes also need the standard Linux application-data directory.
+ENTRYPOINT ["/bin/sh", "-ec", "mkdir -p \"$HOME/.local/share\"; exec dotnet \"$@\"", "dotnet"]
 CMD ["/srv/CSweet.Api/CSweet.Api.dll"]

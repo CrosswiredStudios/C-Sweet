@@ -14,7 +14,7 @@ namespace CSweet.UnitTests;
 public static class DeliveryWorkflowBridge
 {
     internal static Task<ComputeDashboard?> ReadComputeAsync(CSweetDbContext db, Guid business, Guid user)
-        => ComputeDashboardEndpoints.ReadAsync(db, business, user, Path.GetTempPath(), Path.GetTempPath(), default);
+        => ComputeDashboardEndpoints.ReadAsync(db, business, user, Path.GetTempPath(), Path.GetTempPath(), default, legacyLocalSetupEnabled: true);
 
     internal static async Task AcceptQaWaitAsync(CSweetDbContext db, WorkExecutionAssignment assignment, WorkExecutionOutcomeV1 outcome)
     {

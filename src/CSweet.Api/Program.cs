@@ -101,6 +101,7 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.SlidingExpiration = true;
     options.Events = new CookieAuthenticationEvents
     {
+        OnValidatePrincipal = HostedWebSignIn.ValidateSessionAsync,
         OnRedirectToLogin = context =>
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
@@ -113,6 +114,7 @@ builder.Services.ConfigureApplicationCookie(options =>
         }
     };
 });
+builder.AddHostedWebSignIn();
 var authorization = builder.Services.AddAuthorizationBuilder();
 authorization.AddPolicy("PluginAdministration", policy =>
 {
@@ -243,6 +245,8 @@ app.MapGet("/api/health", () => new { status = "ok", service = "CSweet.Api" }).A
 app.MapHealthChecks("/health").AllowAnonymous();
 app.MapAuthenticationEndpoints();
 app.MapHostedSetupEndpoints();
+app.MapHostedWebSignIn();
+app.MapHostedOffices();
 app.MapMobileDeviceEndpoints();
 app.MapInstallationLinkEndpoints();
 

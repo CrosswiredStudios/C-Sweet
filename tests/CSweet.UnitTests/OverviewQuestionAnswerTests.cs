@@ -189,6 +189,8 @@ public sealed class OverviewQuestionAnswerTests
         var saved = await Select("a");
         Assert.Contains("Keep moving", saved);
         Assert.Contains("Work can start today.", saved);
+        Assert.Contains("I can start today.", saved);
+        Assert.Contains("Original wording", saved);
         Assert.Empty(fixture.Api.Questions);
 
         var legacy = await Select("b");
@@ -196,7 +198,7 @@ public sealed class OverviewQuestionAnswerTests
         Assert.DoesNotContain("Work can start today.", legacy);
         Assert.DoesNotContain("It needs separate approval.", await Select("a"));
         Assert.Contains("It needs separate approval.", await Select("b"));
-        Assert.Equal("b", Assert.Single(fixture.Api.Questions).OptionId);
+        Assert.Equal(["a", "b"], fixture.Api.WordingOptions);
         Assert.Empty(fixture.Api.Answers);
     }
 
@@ -220,8 +222,24 @@ public sealed class OverviewQuestionAnswerTests
         var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
         Assert.Contains("Work can start today.", html);
         Assert.DoesNotContain("It needs separate approval.", html);
-        Assert.Equal("b", Assert.Single(fixture.Api.Questions).OptionId);
+        Assert.Equal(["b", "a"], fixture.Api.WordingOptions);
         Assert.Empty(fixture.Api.Answers);
+    }
+
+    [Fact]
+    public async Task SavedChoiceRemainsReadableAndConfirmableWhenWordingIsUnavailable()
+    {
+        await using var fixture = new Fixture();
+        fixture.Api.WordingUnavailable = true;
+        var output = await fixture.RenderAsync();
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => fixture.Activator.Choices!.SelectedChanged.InvokeAsync("a"));
+        var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
+        Assert.Contains("Keep moving", html);
+        Assert.Contains("Work can start today.", html);
+        var confirm = Assert.Single(fixture.Activator.Buttons, x => x.Variant == Variant.Filled);
+        Assert.False(confirm.Disabled);
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => confirm.OnClick.InvokeAsync(new MouseEventArgs()));
+        Assert.Equal("a", Assert.Single(fixture.Api.Answers).OptionId);
     }
 
     [Fact]
@@ -335,6 +353,8 @@ public sealed class OverviewQuestionAnswerTests
         public PendingAgentQuestionResponse Question { get; set; }
         public List<AnswerExecutiveDecisionRequest> Answers { get; } = [];
         public List<DecisionQuestionRequest> Questions { get; } = [];
+        public List<string?> WordingOptions { get; } = [];
+        public bool WordingUnavailable { get; set; }
         public List<string> AnswerUris { get; } = [];
         public Task ExplanationDelay { get; set; } = Task.CompletedTask;
         public bool FailFirst { get; set; }
@@ -346,6 +366,20 @@ public sealed class OverviewQuestionAnswerTests
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             var path = request.RequestUri!.AbsolutePath;
+            if (request.Method == HttpMethod.Post && path.EndsWith($"/chats/{Question.ConversationId}/decisions/{Question.Decision.Id}/wording"))
+            {
+                var option = (await request.Content!.ReadFromJsonAsync<DecisionWordingRequest>(token))!.OptionId;
+                WordingOptions.Add(option);
+                if (WordingUnavailable) return new(HttpStatusCode.ServiceUnavailable);
+                if (option == "b") await ExplanationDelay.WaitAsync(token);
+                var copy = option switch
+                {
+                    "a" => new DecisionWordingResponse("I could keep going.", "I can start today."),
+                    "b" => new DecisionWordingResponse("I would wait.", "It needs separate approval."),
+                    _ => new DecisionWordingResponse("Which direction would you like me to take?")
+                };
+                return new(HttpStatusCode.OK) { Content = JsonContent.Create(copy) };
+            }
             if (path.EndsWith($"/chats/{Question.ConversationId}/decisions/{Question.Decision.Id}/follow-ups"))
             {
                 if (request.Method == HttpMethod.Get)
@@ -354,12 +388,6 @@ public sealed class OverviewQuestionAnswerTests
                 Questions.Add((await request.Content!.ReadFromJsonAsync<DecisionQuestionRequest>(token))!);
                 await ExplanationDelay.WaitAsync(token);
                 return new(HttpStatusCode.Accepted) { Content = JsonContent.Create(Questions.Last().RequestId) };
-            }
-            if (request.Method == HttpMethod.Post && path.EndsWith($"/chats/{Question.ConversationId}/decisions/{Question.Decision.Id}/explain"))
-            {
-                Questions.Add((await request.Content!.ReadFromJsonAsync<DecisionQuestionRequest>(token))!);
-                await ExplanationDelay.WaitAsync(token);
-                return new(HttpStatusCode.OK) { Content = JsonContent.Create(new DecisionExplanationResponse("It needs separate approval.")) };
             }
             if (request.Method == HttpMethod.Post)
             {

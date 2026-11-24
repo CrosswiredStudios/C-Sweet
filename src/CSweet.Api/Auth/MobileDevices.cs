@@ -149,9 +149,10 @@ public static class MobileDeviceEndpoints
 }
 
 /// <summary>Marks a request that entered through the mobile dispatcher. Features cannot be set by HTTP clients.</summary>
-public sealed class MobileDispatchFeature(Guid deviceId)
+public sealed class MobileDispatchFeature(Guid deviceId, bool allowAllReads = false)
 {
     public Guid DeviceId { get; } = deviceId;
+    public bool AllowAllReads { get; } = allowAllReads;
 }
 
 /// <summary>
@@ -165,9 +166,6 @@ public sealed class MobileRequestDispatcher(IServiceScopeFactory scopes, IHttpCo
 {
     public const string DeviceClaim = "csweet:mobile_device";
     public const string AuthenticationType = "CSweet.MobileDevice";
-
-    /// <summary>Routes a phone may call. Reads only until operation keys exist (TS-05); replaced by route markers (TS-04).</summary>
-    private static readonly HashSet<string> AllowedReads = new(StringComparer.OrdinalIgnoreCase) { "/api/core/organizations" };
 
     public RequestDelegate? Pipeline { get; set; }
 
@@ -208,9 +206,8 @@ public sealed class MobileRequestDispatcher(IServiceScopeFactory scopes, IHttpCo
                 && request.Body is { } body && body.Length <= (MobileRequest.MaxBodyBytes + 2) / 3 * 4;
         }
         if (!string.Equals(request.Method, "GET", StringComparison.Ordinal)) return false;
-        return shellOptions.Value.AllowAllReads
-            ? path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase) && !path.Contains("..", StringComparison.Ordinal)
-            : !request.Path.Contains('?') && AllowedReads.Contains(path);
+        // The matched endpoint must also permit this read in MobileDispatchGateMiddleware.
+        return path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase) && !path.Contains("..", StringComparison.Ordinal);
     }
 
     private static readonly HashSet<string> WriteMethods = new(StringComparer.Ordinal) { "POST", "PUT", "PATCH", "DELETE" };
@@ -254,7 +251,7 @@ public sealed class MobileRequestDispatcher(IServiceScopeFactory scopes, IHttpCo
         using var aborted = CancellationTokenSource.CreateLinkedTokenSource(ct);
         features.Set<IHttpRequestLifetimeFeature>(new HttpRequestLifetimeFeature { RequestAborted = aborted.Token });
         features.Set<IHttpConnectionFeature>(new HttpConnectionFeature { ConnectionId = "mobile-" + active.Device.Id.ToString("N") });
-        features.Set(new MobileDispatchFeature(active.Device.Id));
+        features.Set(new MobileDispatchFeature(active.Device.Id, shellOptions.Value.AllowAllReads));
 
         var context = contexts.Create(features);
         try

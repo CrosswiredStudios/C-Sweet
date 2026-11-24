@@ -296,6 +296,8 @@ public sealed record DecisionFollowUpExchange(Guid TurnId, string Question, stri
     string Status, string? Answer, string? Clarification);
 public sealed record DecisionExplanationResponse(string Explanation);
 
+public sealed record DecisionWordingRequest(string? OptionId);
+public sealed record DecisionWordingResponse(string Text, string? Impact = null);
 
 public sealed record AnswerExecutiveDecisionResponse(
     bool Succeeded,
