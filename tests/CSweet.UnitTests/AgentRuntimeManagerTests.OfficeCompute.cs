@@ -18,7 +18,7 @@ namespace CSweet.UnitTests;
 public sealed partial class AgentRuntimeManagerTests
 {
     [Fact, Trait("Category", "AgentHarness")]
-    public async Task Hired_agent_waits_for_office_capacity_across_restart_without_local_setup()
+    public async Task Runtime_activation_and_passive_discovery_do_not_request_a_workspace_after_restart()
     {
         await using var fixture = new ComputeBrokerTests.Fixture();
         await fixture.SeedAsync();
@@ -40,8 +40,8 @@ public sealed partial class AgentRuntimeManagerTests
             Assert.Equal("Pending", observed.State);
             Assert.Null(observed.TemplateId);
             Assert.Empty(await db.Set<ComputeLocalSetup>().ToListAsync());
-            Assert.Equal(fixture.Installation, (await db.Set<OfficeComputeCapacityRequest>().SingleAsync()).InstallationId);
-            Assert.Single(await db.AuditOutbox.Where(x => x.RequestJson.Contains("compute.office.capacity-requested.v1")).ToListAsync());
+            Assert.Empty(await db.Set<OfficeComputeCapacityRequest>().ToListAsync());
+            Assert.Empty(await db.ComputeEnvironments.ToListAsync());
             Assert.Single(await db.AgentRuntimeInstances.ToListAsync());
         }
     }
@@ -73,17 +73,19 @@ public sealed partial class AgentRuntimeManagerTests
             Assert.Equal(legacy ? "Ready" : "Pending", observed.State);
             Assert.Equal(legacy ? template.Id : null, observed.TemplateId);
             Assert.Equal(legacy ? null : OfficeComputeCapacityRequest.WaitingReason, observed.ErrorCode);
-            Assert.Equal(fixture.Installation, (await db.Set<OfficeComputeCapacityRequest>().SingleAsync()).InstallationId);
+            Assert.Empty(await db.Set<OfficeComputeCapacityRequest>().ToListAsync());
         }
     }
 
     private static async Task<CSweet.Agent.SDK.Compute.ComputeDefaults> ReadFromHiredAgentAsync(
-        ComputeBrokerTests.Fixture fixture, ComputeDefaultsService defaults, Guid delivery)
+        ComputeBrokerTests.Fixture fixture, ComputeDefaultsService defaults, Guid delivery, bool requestWorkspace = false)
     {
         var platform = new AgentTestRuntime().RegisterCapability<JsonElement, CSweet.Application.Compute.ComputeDefaults>(
             CSweet.Agent.SDK.Compute.ComputeCapabilities.Read, (request, ct) =>
-            defaults.ReadProjectAsync(fixture.Organization, fixture.Installation, request.GetProperty("workstreamId").GetGuid(), ct));
-        var employee = new ComputeStatusReader(fixture.Workstream);
+            request.TryGetProperty("requestWorkspace", out var demand) && demand.GetBoolean()
+                ? defaults.RequestProjectWorkspaceAsync(fixture.Organization, fixture.Installation, request.GetProperty("workstreamId").GetGuid(), ct)
+                : defaults.ReadProjectAsync(fixture.Organization, fixture.Installation, request.GetProperty("workstreamId").GetGuid(), ct));
+        var employee = new ComputeStatusReader(fixture.Workstream, requestWorkspace);
         var host = new AgentTestHost(employee, platform, businessId: fixture.Organization.ToString("D"),
             installationId: fixture.Installation.ToString("D"));
         var reply = await host.DeliverEventAsync("project-work-available", new { }, delivery);
@@ -91,13 +93,13 @@ public sealed partial class AgentRuntimeManagerTests
         return Assert.IsType<CSweet.Agent.SDK.Compute.ComputeDefaults>(employee.Observed);
     }
 
-    private sealed class ComputeStatusReader(Guid project) : ICSweetAgent
+    private sealed class ComputeStatusReader(Guid project, bool requestWorkspace) : ICSweetAgent
     {
         public string AgentId => "compute-status-reader";
         public string Version => "1.0.0";
         public CSweet.Agent.SDK.Compute.ComputeDefaults? Observed { get; private set; }
         public async Task HandleEventAsync(AgentEventEnvelope message, AgentRuntimeContext context, CancellationToken token) =>
-            Observed = await context.Platform.Compute.GetProjectDefaultsAsync(project, token);
+            Observed = requestWorkspace ? await context.Platform.Compute.RequestProjectWorkspaceAsync(project, token) : await context.Platform.Compute.GetProjectDefaultsAsync(project, token);
         public Task<AgentWorkResult> ExecuteCapabilityAsync(AgentCapabilityRequest request, AgentRuntimeContext context, CancellationToken token) =>
             throw new NotSupportedException();
     }
@@ -110,7 +112,7 @@ public sealed partial class AgentRuntimeManagerTests
     public Task Mac_office_claims_an_arm64_workspace_after_replayed_availability()
         => VerifyHiredOfficePlacementAsync(new ComputeBrokerTests.Fixture(), architecture: "arm64");
 
-    internal static async Task<Guid> VerifyHiredOfficePlacementAsync(ComputeBrokerTests.Fixture storage,
+    internal static async Task<Guid?> VerifyHiredOfficePlacementAsync(ComputeBrokerTests.Fixture storage,
         Func<ICSweetAgent>? createEmployee = null, Action<AgentTestRuntime>? configurePlatform = null, string architecture = "x64")
     {
         await using var fixture = storage;
@@ -152,6 +154,10 @@ public sealed partial class AgentRuntimeManagerTests
         var defaults = Defaults(db);
         Assert.True(await CreateManager(db, new FakeRunner(), computeDefaults: defaults)
             .EnsureRuntimeQueuedAsync(fixture.Installation, "Hired employee"));
+        var taskDelivery = Guid.NewGuid();
+        await ReadFromHiredAgentAsync(fixture, defaults, taskDelivery, requestWorkspace: true);
+        await ReadFromHiredAgentAsync(fixture, defaults, taskDelivery, requestWorkspace: true);
+        Assert.Equal(fixture.Workstream, (await db.Set<OfficeComputeCapacityRequest>().SingleAsync()).ProjectId);
         var digest = "sha256:" + new string('a', 64);
         var template = OfficeComputePlacement.TemplateId(digest);
         var offer = new Office.Contracts.ControlPlane.OfficeComputeOffer { OrganizationId = fixture.Organization.ToString("D"),
@@ -199,6 +205,12 @@ public sealed partial class AgentRuntimeManagerTests
                 businessId: fixture.Organization.ToString("D"), installationId: fixture.Installation.ToString("D"));
             var reply = await host.DeliverEventAsync(wake.EventType, JsonSerializer.Deserialize<JsonElement>(wake.DataJson), wake.Id);
             Assert.True(reply.Succeeded, reply.Error);
+            if (createEmployee != null)
+            {
+                Assert.Empty(await restarted.ComputeOperations.ToListAsync());
+                Assert.Empty(await restarted.ComputeEnvironments.ToListAsync());
+                continue;
+            }
             var op = await restarted.ComputeOperations.SingleAsync();
             var authorizer = new ComputeDispatchAuthorizer(restarted, broker, signer, clock);
             Assert.Null(await authorizer.ClaimAsync(op.Id, default));
@@ -216,8 +228,53 @@ public sealed partial class AgentRuntimeManagerTests
             Assert.Equal(fixture.Installation, claim.InstallationId);
             Assert.Equal(office.Id, claim.NodeId);
             Assert.Equal(claim.DispatchId, op.DispatchLeaseId);
+            if (delivery == 1)
+            {
+                var node = await restarted.ExecutionNodes.SingleAsync(x => x.Id == office.Id);
+                offer.MaximumEnvironments = 4;
+                offer.CpuCount = 4;
+                offer.MemoryMib = 4096;
+                offer.DiskMib = 40960;
+                await OfficeComputePlacement.ApplyOfferAsync(restarted, node, offer, now, default);
+                await restarted.SaveChangesAsync();
+                Assert.NotNull(await registry.ResolveAsync(fixture.Organization, template, default));
+                var limits = new CSweet.Contracts.Setup.OfficeWorkspaceBudget(2, 2048, 40960);
+                await CSweet.Api.Setup.ExecutionFleetEndpoints.UpdateOfficeSettingsAsync(node.Id, new("Private Office", pool.Id, limits), restarted, clock, default);
+                Assert.Equal(JsonSerializer.Serialize(limits), node.WorkspaceBudgetJson);
+                env.DesiredState = ComputeDesiredState.Stopped;
+                env.State = ComputeLifecycleState.Stopping;
+                await restarted.SaveChangesAsync();
+                Assert.Null(await registry.ResolveAsync(fixture.Organization, template, default));
+                env.State = ComputeLifecycleState.Stopped;
+                await restarted.SaveChangesAsync();
+                Assert.NotNull(await registry.ResolveAsync(fixture.Organization, template, default));
+                node.WorkspaceBudgetJson = JsonSerializer.Serialize(limits with { DiskMiB = 20480 });
+                await restarted.SaveChangesAsync();
+                Assert.Null(await registry.ResolveAsync(fixture.Organization, template, default));
+                var resume = await OfficeComputePlacement.FindAsync(restarted, fixture.Organization, now, default, template,
+                    node.Id, OfficeComputePlacement.WorkspaceResources, env.Id);
+                Assert.NotNull(resume);
+
+                // Defaults were ready before another reservation consumed the remaining disk.
+                var late = JsonSerializer.SerializeToElement(new { workstreamId = fixture.Workstream,
+                    desiredEnvironmentKey = "second-workspace", idempotencyKey = "second-workspace",
+                    specification = JsonSerializer.Deserialize<ComputeSpecification>(env.SpecificationJson, ComputeProtocol.Json) }, ComputeProtocol.Json);
+                for (var retry = 0; retry < 2; retry++)
+                {
+                    var blocked = await ComputeCapabilityTests.Invoke(handler, session, InfrastructureActions.Provision, late);
+                    Assert.Equal("compute_capacity_unavailable", blocked.FailureCode);
+                    Assert.True(blocked.Retryable);
+                }
+                var demand = await restarted.Set<OfficeComputeCapacityRequest>().SingleAsync();
+                Assert.Equal(fixture.Workstream, demand.ProjectId);
+                (await restarted.ExecutionNodes.SingleAsync(x => x.Id == office.Id)).WorkspaceBudgetJson = JsonSerializer.Serialize(limits);
+                await restarted.SaveChangesAsync();
+                var admitted = await ComputeCapabilityTests.Invoke(handler, session, InfrastructureActions.Provision, late);
+                Assert.True(admitted.Succeeded, admitted.Error);
+                Assert.Empty(await restarted.Set<OfficeComputeCapacityRequest>().ToListAsync());
+            }
         }
-        return Assert.Single(signer.Claims).EnvironmentId;
+        return createEmployee == null ? Assert.Single(signer.Claims).EnvironmentId : null;
     }
 
     private sealed class ProjectWorkspaceRequester(string architecture) : ICSweetAgent

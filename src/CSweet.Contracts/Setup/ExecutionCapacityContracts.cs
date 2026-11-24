@@ -60,7 +60,20 @@ public sealed record CreateLocalOfficeSetupSessionRequest(
     bool AutomaticUpdate = false,
     string? TargetVersion = null,
     bool UseLocalSource = false,
-    string? StorageVolumeId = null);
+    string? StorageVolumeId = null,
+    OfficeWorkspaceBudget? WorkspaceBudget = null);
+
+public sealed record OfficeWorkspaceBudget(int CpuCount, int MemoryMiB, int DiskMiB)
+{
+    public bool Fits(int cpu, int memory, int disk) => CpuCount >= 2 && MemoryMiB >= 2048 && DiskMiB >= 20480 &&
+        CpuCount <= cpu && MemoryMiB <= memory && DiskMiB <= disk;
+
+    public static OfficeWorkspaceBudget? Suggested(int cpu, int memory, int disk)
+    {
+        var budget = new OfficeWorkspaceBudget(Math.Max(2, cpu / 2), Math.Max(2048, memory / 2), Math.Max(20480, disk / 2));
+        return budget.Fits(cpu - 1, memory - 128, disk - 64) ? budget : null;
+    }
+}
 
 public sealed record LaunchLocalOfficeSetupRequest(string LaunchUri);
 
@@ -163,7 +176,9 @@ public sealed record ExecutionNodeSummaryResponse(
     IReadOnlyList<ExecutionNodeProviderResponse> Providers,
     IReadOnlyDictionary<string, string> Labels,
     bool IsLocalMachine = false,
-    string? WorkPauseReason = null);
+    string? WorkPauseReason = null,
+    OfficeWorkspaceBudget? InstalledWorkspaceBudget = null,
+    OfficeWorkspaceBudget? WorkspaceBudget = null);
 
 public sealed record ExecutionNodeProviderResponse(
     string ProviderId,

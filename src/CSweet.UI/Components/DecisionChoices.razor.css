@@ -27,8 +27,6 @@
 .option-detail p { margin: .3rem 0 0; color: var(--mud-palette-text-secondary); font-size: .87rem; line-height: 1.5; white-space: pre-line; }
 .choice-impact { border-top: 1px solid var(--mud-palette-divider); padding-top: .5rem; margin-top: .65rem; }
 .choice-impact h4 { margin: 0; font-size: .8rem; font-weight: 600; }
-.decision-original { margin-top: .55rem; font-size: .8rem; }
-.decision-original summary { cursor: pointer; color: var(--mud-palette-text-secondary); }
 .decision-submit { display: flex; align-items: center; justify-content: flex-end; gap: .4rem; margin-top: .7rem; padding-top: .55rem; border-top: 1px solid var(--mud-palette-divider); }
 .decision-submit ::deep .mud-button-root { min-width: 0; text-transform: none; letter-spacing: normal; }
 @container decision (max-width: 32rem) { .decision-layout { grid-template-columns: minmax(0, 1fr); } }

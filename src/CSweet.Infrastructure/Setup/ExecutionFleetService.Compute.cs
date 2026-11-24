@@ -54,7 +54,7 @@ public sealed partial class ExecutionFleetService
             if (session.ComputeReservationImageDigest != request.ImageDigest || !OfficeComputePlacement.Allows(pool, reserved)) return null;
             if (await dbContext.SystemConfigurations.AnyAsync(x => x.FirstOfficeBusinessId == reserved &&
                 x.FirstOfficeSetupUserId == session.CreatedByUserId, token))
-                return new(true, null, reserved, 1, 2, 2048, 20480);
+                return WorkspacePlan(session, reserved);
         }
         var owners = await dbContext.CoreOrganizationUsers.AsNoTracking().Where(x => x.ApplicationUserId == session.CreatedByUserId &&
                 x.EmployeeType == EmployeeType.Human && x.PermissionLevel == OrganizationPermissionLevel.Owner && x.IsActive && x.ArchivedAt == null)
@@ -70,7 +70,7 @@ public sealed partial class ExecutionFleetService
                 session.ComputeReservationImageDigest = request.ImageDigest;
                 await dbContext.SaveChangesAsync(token);
                 if (tx is not null) await tx.CommitAsync(token);
-                return new(true, null, future, 1, 2, 2048, 20480);
+                return WorkspacePlan(session, future.Value);
             }
         }
         if (eligible.Length != 1) return new(false, "The Office needs one eligible business owned by the setup user.");
@@ -96,7 +96,15 @@ public sealed partial class ExecutionFleetService
         session.ComputeReservationImageDigest = request.ImageDigest;
         await dbContext.SaveChangesAsync(token);
         if (tx is not null) await tx.CommitAsync(token);
-        return new(true, null, business, 1, 2, 2048, 20480);
+        return WorkspacePlan(session, business);
+    }
+
+    public static OfficeComputeSetupPlan WorkspacePlan(LocalOfficeSetupSession session, Guid business)
+    {
+        // Sessions redeemed by older installers must replay the exact reservation originally issued.
+        if (session.WorkspaceBudgetJson is null) return new(true, null, business, 1, 2, 2048, 20480);
+        var budget = JsonSerializer.Deserialize<OfficeWorkspaceBudget>(session.WorkspaceBudgetJson)!;
+        return new(true, null, business, budget.CpuCount, budget.CpuCount, budget.MemoryMiB, budget.DiskMiB);
     }
 
     private async Task<bool> CurrentHostedReleaseApprovesAsync(OfficeComputeSetupRequest request, CancellationToken token)

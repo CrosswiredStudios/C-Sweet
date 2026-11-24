@@ -26,6 +26,15 @@ function Remove-TransientFile([string] $Path) {
     }
 }
 
+function Remove-OfficeExtraction([string] $Path, [string] $StagingRoot, [string] $NamePattern) {
+    if (-not $Path -or -not [IO.Directory]::Exists($Path)) { return }
+    $directory = Get-Item -LiteralPath $Path -Force
+    if ($directory.Parent.FullName -ieq [IO.Path]::GetFullPath($StagingRoot) -and $directory.Name -cmatch $NamePattern -and
+        -not ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        Remove-Item -LiteralPath $directory.FullName -Recurse -Force -ErrorAction Continue
+    }
+}
+
 function Get-OptionalObjectProperty([object] $InputObject, [string] $Name) {
     if ($null -eq $InputObject) { return $null }
     $property = $InputObject.PSObject.Properties[$Name]
@@ -53,19 +62,22 @@ function Invoke-CSweetPinnedRestMethod {
     param(
         [Parameter(Mandatory = $true)][string] $Method,
         [Parameter(Mandatory = $true)][uri] $Uri,
-        [Parameter(Mandatory = $true)][string] $Body
+        [Parameter(Mandatory = $true)][string] $Body,
+        [uri] $AuthorizedOrigin = $originUri,
+        [string] $CertificateSha256 = $expectedControlPlaneCertificateSha256
     )
 
-    if ($null -eq $originUri -or
-        $Uri.GetLeftPart([UriPartial]::Authority) -ine $originUri.GetLeftPart([UriPartial]::Authority)) {
+    if ($null -eq $AuthorizedOrigin -or
+        $Uri.GetLeftPart([UriPartial]::Authority) -ine $AuthorizedOrigin.GetLeftPart([UriPartial]::Authority)) {
         throw 'A pinned Office setup request targeted an unexpected origin.'
     }
 
     $script:controlPlaneRequestFailed = $false
     $previousCallback = [Net.ServicePointManager]::ServerCertificateValidationCallback
     try {
-        if (-not [String]::IsNullOrWhiteSpace($expectedControlPlaneCertificateSha256)) {
-            $expectedCertificateSha256 = $expectedControlPlaneCertificateSha256
+        if (-not [String]::IsNullOrWhiteSpace($CertificateSha256)) {
+            $expectedCertificateSha256 = $CertificateSha256.Trim().Replace(':', '').Replace('-', '').ToLowerInvariant()
+            if ($expectedCertificateSha256 -cnotmatch '^[0-9a-f]{64}$') { throw 'The Office certificate fingerprint is invalid.' }
             [Net.ServicePointManager]::ServerCertificateValidationCallback = {
                 param($sender, $certificate, $chain, $errors)
                 if ($null -eq $certificate) { return $false }
@@ -80,7 +92,7 @@ function Invoke-CSweetPinnedRestMethod {
         }
 
         $response = Invoke-RestMethod -Method $Method -Uri $Uri -ContentType 'application/json' `
-            -Body $Body -TimeoutSec 30 -UseBasicParsing
+            -Body $Body -TimeoutSec 30 -UseBasicParsing -MaximumRedirection 0
         return $response
     }
     catch {
@@ -99,12 +111,43 @@ function Invoke-CSweetPinnedRestMethod {
             if ($null -ne $problem -and $null -ne $problem.PSObject.Properties['message']) {
                 throw ("Office request {0} was rejected: {1}" -f $Uri.AbsolutePath, [string]$problem.message)
             }
+            throw ("Office request {0} returned HTTP {1}." -f $Uri.AbsolutePath, [int]$responseProperty.Value.StatusCode)
         }
         throw
     }
     finally {
         [Net.ServicePointManager]::ServerCertificateValidationCallback = $previousCallback
     }
+}
+
+function Request-CSweetOfficeComputePlan([uri] $ControlPlaneUrl, [string] $CertificateSha256, [string] $Body) {
+    # The development handoff can use a separate loopback HTTP listener. The compute
+    # reservation requires the HTTPS gateway and certificate authorized by redemption.
+    if (-not $ControlPlaneUrl.IsAbsoluteUri -or $ControlPlaneUrl.Scheme -cne 'https' -or
+        $ControlPlaneUrl.UserInfo -or $ControlPlaneUrl.Query -or $ControlPlaneUrl.Fragment) {
+        throw 'Office compute setup requires the authorized HTTPS control-plane address.'
+    }
+    Invoke-CSweetPinnedRestMethod -Method Post -AuthorizedOrigin $ControlPlaneUrl -CertificateSha256 $CertificateSha256 `
+        -Uri ($ControlPlaneUrl.AbsoluteUri.TrimEnd('/') + '/api/offices/local-sessions/compute-plan') -Body $Body
+}
+
+function Receive-CSweetOfficeSetupBundle($Release, [string] $StagingRoot, [string] $Destination) {
+    $progress = @{
+        Path = $progressPath; JobId = $sessionId; Workflow = 'developer-bootstrap'
+        State = 'running'; PercentComplete = 5
+    }
+    Write-CSweetSetupProgress @progress -PhaseKey check-office -PhaseDisplayName 'Checking saved Office files' `
+        -Message "Checking this drive for Office $($Release.Version)."
+    Receive-CSweetOfficeAsset -Asset $Release.Bundle -Destination $Destination -CacheRoot (Join-Path $StagingRoot 'release-cache') `
+        -OnDownload {
+            param($number, $total)
+            Write-CSweetSetupProgress @progress -PhaseKey download-office -PhaseDisplayName 'Downloading Office' `
+                -Message "Downloading Office $($Release.Version), file $number of $total."
+        } -OnVerified {
+            param($downloaded)
+            $message = if ($downloaded) { 'Extracting the verified Office package.' } else { 'Reusing the verified Office package saved on this drive.' }
+            Write-CSweetSetupProgress @progress -PhaseKey extract-office -PhaseDisplayName 'Preparing Office files' -Message $message
+        }
 }
 
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -124,6 +167,7 @@ $redemption = $null
 $expectedControlPlaneCertificateSha256 = $null
 $controlPlaneRequestFailed = $false
 $release = $null
+$supportRoot = $null
 $prebuiltRoot = $null
 $automaticUpdate = $false
 $preparationReceipt = $null
@@ -173,7 +217,7 @@ try {
     if ($null -ne $release) {
         # This small support asset supplies the preflight scripts. The large image is fetched only AFTER
         # redemption, so a slow image download cannot consume the five-minute one-use handoff lifetime.
-        $supportRoot = Receive-CSweetOfficeAsset -Asset $release.Support -TimeoutSeconds 60 `
+        $supportRoot = Receive-CSweetOfficeAsset -Asset $release.Support -TimeoutSeconds 60 -CacheRoot (Join-Path $setupRoot 'release-cache') `
             -Destination (Join-Path $setupRoot "office-support-$([guid]::NewGuid().ToString('N'))")
         $officeScriptRoot = Join-Path $supportRoot 'scripts\windows'
         $OfficeBootstrapScript = Join-Path $officeScriptRoot 'Initialize-CSweetWindowsIsolationTest.ps1'
@@ -236,9 +280,9 @@ try {
         $preparationControlPlaneUrl = [string]$preparation.controlPlaneUrl
         Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
             -State running -PhaseKey prepare-update -PhaseDisplayName 'Preparing your update' `
-            -Message 'Downloading and verifying the update. Current jobs are still running.' -PercentComplete 0
+            -Message 'Checking the update package. Current jobs are still running.' -PercentComplete 0
         if ($null -ne $release) {
-            $prebuiltRoot = Receive-CSweetOfficeAsset -Asset $release.Bundle `
+            $prebuiltRoot = Receive-CSweetOfficeSetupBundle -Release $release -StagingRoot $payloadSetupRoot `
                 -Destination (Join-Path $payloadSetupRoot "b-$([guid]::NewGuid().ToString('N').Substring(0, 16))")
             $officeScriptRoot = Join-Path $prebuiltRoot 'scripts\windows'
             $OfficeBootstrapScript = Join-Path $officeScriptRoot 'Initialize-CSweetWindowsIsolationTest.ps1'
@@ -501,13 +545,9 @@ try {
         -PercentComplete 1 -EstimatedRemainingMinimumSeconds 1200 -EstimatedRemainingMaximumSeconds 3000
     try {
         if ($null -ne $release -and -not $preparedPayloadRoot) {
-            Write-CSweetSetupProgress -Path $progressPath -JobId $sessionId -Workflow 'developer-bootstrap' `
-                -State running -PhaseKey download-office -PhaseDisplayName 'Downloading Office' `
-                -Message "Downloading prebuilt Office $($release.Version). The downloaded image will be checked on this machine." `
-                -PercentComplete 5
             # Hyper-V appends VM names and GUIDs beneath this bundle during certification.
             # Keep its unique staging name short enough for Hyper-V's legacy path limits.
-            $prebuiltRoot = Receive-CSweetOfficeAsset -Asset $release.Bundle `
+            $prebuiltRoot = Receive-CSweetOfficeSetupBundle -Release $release -StagingRoot $payloadSetupRoot `
                 -Destination (Join-Path $payloadSetupRoot "b-$([guid]::NewGuid().ToString('N').Substring(0, 16))")
             $officeScriptRoot = Join-Path $prebuiltRoot 'scripts\windows'
             $OfficeBootstrapScript = Join-Path $officeScriptRoot 'Initialize-CSweetWindowsIsolationTest.ps1'
@@ -571,7 +611,8 @@ try {
                 machineName=[Environment]::MachineName; operatingSystem='windows'; architecture=$architecture
                 officeVersion=[string]$runtimeManifest.officeVersion; imageDigest=[string]$runtimeManifest.computeImageDigest
             } | ConvertTo-Json -Compress
-            $plan = Invoke-CSweetPinnedRestMethod -Method Post -Uri ($origin.TrimEnd('/') + '/api/offices/local-sessions/compute-plan') -Body $computeRequest
+            $plan = Request-CSweetOfficeComputePlan -ControlPlaneUrl $redemption.controlPlaneUrl `
+                -CertificateSha256 $controlPlaneCertificateSha256 -Body $computeRequest
             if ($plan.enabled -eq $true) { $storageArguments.ComputePolicy = $plan }
             else { Write-Warning ("Office compute was not reserved: " + [string]$plan.reason) }
         }
@@ -690,4 +731,7 @@ catch {
 finally {
     Remove-TransientFile $HandoffInputPath
     Remove-TransientFile $tokenPath
+    if ($supportRoot) { Remove-OfficeExtraction $supportRoot $setupRoot '^office-support-[a-f0-9]{32}$' }
+    # With separate storage, the certification output and its diagnostic log are outside the extraction.
+    if ($prebuiltRoot -and $null -ne $storage) { Remove-OfficeExtraction $prebuiltRoot $payloadSetupRoot '^b-[a-f0-9]{16}$' }
 }

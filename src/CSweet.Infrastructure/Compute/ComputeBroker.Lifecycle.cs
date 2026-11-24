@@ -69,8 +69,7 @@ public sealed partial class ComputeBroker
                 if (environment.LeaseExpiresAt <= now) throw new UnauthorizedAccessException("The compute lease has expired.");
                 var spec = JsonSerializer.Deserialize<ComputeSpecification>(environment.SpecificationJson, Json)
                     ?? throw new InvalidOperationException("The recorded compute specification is unavailable.");
-                var reservations = await db.ComputeEnvironments.CountAsync(x => x.OrganizationId == organizationId &&
-                    x.InstallationId == installationId && x.TeardownConfirmedAt == null, token);
+                var otherRunning = await RunningReservations(db, organizationId, installationId).CountAsync(x => x.Id != environment.Id, token);
                 // Starting also restores any attached network/persistence capabilities.
                 foreach (var action in ComputePolicy.RequiredProvisionActions(spec).Where(x => x != InfrastructureActions.Provision).Prepend(request.Action))
                 {
@@ -78,7 +77,7 @@ public sealed partial class ComputeBroker
                     var eligible = grants.Where(x => x.Action == action && x.Id != Guid.Empty && x.Revision > 0 && x.ExpiresAt >= environment.LeaseExpiresAt);
                     var selected = eligible.FirstOrDefault(grant =>
                     {
-                        try { return JsonSerializer.Deserialize<ComputeGrantConstraints>(grant.ConstraintsJson, Json)?.Allows(spec, Math.Max(0, reservations - 1)) == true; }
+                        try { return JsonSerializer.Deserialize<ComputeGrantConstraints>(grant.ConstraintsJson, Json)?.Allows(spec, otherRunning) == true; }
                         catch (Exception error) when (error is JsonException or NotSupportedException) { return false; }
                     }) ?? throw new UnauthorizedAccessException("Current infrastructure grants do not cover activation.");
                     authority.Add(new(selected.Id, selected.Revision, action, selected.ExpiresAt!.Value));
@@ -97,6 +96,17 @@ public sealed partial class ComputeBroker
             if (request.Action == InfrastructureActions.Start && environment.State != ComputeLifecycleState.Stopped ||
                 request.Action is InfrastructureActions.Stop or InfrastructureActions.Restart && environment.State is not (ComputeLifecycleState.Ready or ComputeLifecycleState.Busy))
                 throw new InvalidOperationException("This lifecycle action does not match the observed environment state.");
+            if (energizing && OfficeComputePlacement.IsOfficeProvider(environment.ProviderId))
+            {
+                var spec = JsonSerializer.Deserialize<ComputeSpecification>(environment.SpecificationJson, Json)!;
+                if (environment.ProviderNodeId is null || await OfficeComputePlacement.FindAsync(db, organizationId, now, token,
+                        spec.TemplateId, environment.ProviderNodeId, spec.Resources, environment.Id) is null)
+                {
+                    await WaitForOfficeCapacityAsync(organizationId, installationId, environment.WorkstreamId, transaction, token);
+                    throw new OfficeCapacityUnavailableException();
+                }
+                await OfficeComputePlacement.ClearDemandAsync(db, installationId, environment.WorkstreamId, token);
+            }
             foreach (var previous in pending)
             {
                 previous.Status = "Superseded"; previous.CompletedAt = now; previous.Revision++;
@@ -108,7 +118,7 @@ public sealed partial class ComputeBroker
                 InfrastructureActions.Stop => ComputeDesiredState.Stopped,
                 _ => ComputeDesiredState.Running
             };
-            // Observed state and physical quota remain unchanged until provider confirmation.
+            // A pending start reserves running capacity immediately. A stop releases it after provider confirmation.
             environment.UpdatedAt = now; environment.NextAttemptAt = now;
             db.ComputeOperations.Add(new()
             {

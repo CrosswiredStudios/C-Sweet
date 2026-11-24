@@ -336,6 +336,16 @@
                 @foreach (var pool in _fleet.Pools.Where(x => x.IsEnabled || x.Id == node.ExecutionPoolId))
                 { <MudSelectItem T="Guid" Value="pool.Id">@pool.Name</MudSelectItem> }
             </MudSelect>
+            @if (node.InstalledWorkspaceBudget is { } ceiling)
+            {
+                <fieldset class="mt-3">
+                    <legend>Workspace VM limits</legend>
+                    <MudNumericField T="int" Label="CPU cores" @bind-Value="_workspaceCpu" Min="2" Max="@ceiling.CpuCount" />
+                    <MudNumericField T="int" Label="RAM (MiB)" @bind-Value="_workspaceMemory" Min="2048" Max="@ceiling.MemoryMiB" />
+                    <MudNumericField T="int" Label="Disk (MiB)" @bind-Value="_workspaceDisk" Min="20480" Max="@ceiling.DiskMiB" />
+                    <small>The Office reserves up to @ceiling.CpuCount cores, @ceiling.MemoryMiB MiB RAM and @ceiling.DiskMiB MiB disk for workspace VMs. Stopped VMs use disk only.</small>
+                </fieldset>
+            }
             <MudText Typo="Typo.body2" Class="mt-3">This computer reports a limit of @node.MaximumConcurrentWorkloads jobs at once. Its capacity is managed by the Office installation.</MudText>
             <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(ActionsDisabled || _careInProgress || string.IsNullOrWhiteSpace(_officeName))" OnClick="SaveOfficeAsync">@L["ExecutionFleet.SaveChanges"]</MudButton>
         </MudPaper>
@@ -382,6 +392,7 @@
     private bool _careInProgress, _openCareOnRender, _openUpdateOnRender;
     private int _activeTab;
     private Guid? _settingsOffice;
+    private int _workspaceCpu, _workspaceMemory, _workspaceDisk;
     private string _officeName = "";
     private Guid _officePool;
     private Guid? _updateOfficeId;
@@ -402,7 +413,7 @@
     private void UpdateSessionChanged(LocalOfficeSetupSessionResponse session) => _updateSession = session;
     private static string WorkName(string kind) => kind.ToLowerInvariant() switch { "builder" => "Agent build", "runtime" => "Agent run", "toolchainbuild" => "Application build", _ => kind };
     private void CareProgressChanged(bool inProgress) => _careInProgress = inProgress;
-    private Task SaveOfficeAsync() => MutateAsync(HttpMethod.Put, $"api/execution-fleet/nodes/{OfficeId:D}/settings", new UpdateOfficeSettingsRequest(_officeName, _officePool));
+    private Task SaveOfficeAsync() => MutateAsync(HttpMethod.Put, $"api/execution-fleet/nodes/{OfficeId:D}/settings", new UpdateOfficeSettingsRequest(_officeName, _officePool, SelectedOffice?.InstalledWorkspaceBudget == null ? null : new(_workspaceCpu, _workspaceMemory, _workspaceDisk)));
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (_openUpdateOnRender && _officeCare is not null) { _openUpdateOnRender = false; await OpenUpdateAsync(); }
@@ -555,6 +566,8 @@
             if (SelectedOffice is { } selectedOffice && _settingsOffice != selectedOffice.Id)
             {
                 _settingsOffice = selectedOffice.Id;
+                if ((selectedOffice.WorkspaceBudget ?? selectedOffice.InstalledWorkspaceBudget) is { } budget)
+                    (_workspaceCpu, _workspaceMemory, _workspaceDisk) = (budget.CpuCount, budget.MemoryMiB, budget.DiskMiB);
                 _officeName = selectedOffice.Name;
                 _officePool = selectedOffice.ExecutionPoolId;
             }

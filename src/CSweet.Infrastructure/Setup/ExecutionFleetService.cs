@@ -12,6 +12,7 @@ using CSweet.Application.Setup;
 using CSweet.Contracts.Setup;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Compute;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
@@ -335,6 +336,12 @@ public sealed partial class ExecutionFleetService(
             return await LocalFailureAsync("invalid_capacity",
                 "The selected allocation is outside this machine's current safe limits.", cancellationToken);
 
+        var workspaceBudget = upgradeOffice == null ? request.WorkspaceBudget ?? OfficeWorkspaceBudget.Suggested(
+            request.AllocatableCpuCount, request.AllocatableMemoryMb, request.AllocatableDiskMb) : null;
+        if (workspaceBudget != null && !workspaceBudget.Fits(request.AllocatableCpuCount - 1,
+                request.AllocatableMemoryMb - 128, request.AllocatableDiskMb - 64))
+            return await LocalFailureAsync("invalid_workspace_budget", "The workspace budget must fit the Office allocation and leave capacity for agent runtimes.", cancellationToken);
+
         var presetKey = request.PresetKey.Trim().ToLowerInvariant();
         if (presetKey is not ("small" or "balanced" or "performance" or "custom"))
             return await LocalFailureAsync("invalid_preset", "Choose a valid Office capacity profile.", cancellationToken);
@@ -416,8 +423,9 @@ public sealed partial class ExecutionFleetService(
             AllocatableCpuCount = request.AllocatableCpuCount,
             AllocatableMemoryMb = request.AllocatableMemoryMb,
             AllocatableDiskMb = request.AllocatableDiskMb,
-            MaximumConcurrentWorkloads = upgradeOffice?.MaximumConcurrentWorkloads ?? LocalOfficeCapacityCalculator.MaximumConcurrentWorkloads(
-                request.AllocatableCpuCount),
+            WorkspaceBudgetJson = workspaceBudget == null ? null : JsonSerializer.Serialize(workspaceBudget),
+            MaximumConcurrentWorkloads = upgradeOffice?.MaximumConcurrentWorkloads ?? (workspaceBudget?.CpuCount ?? 0) +
+                LocalOfficeCapacityCalculator.MaximumConcurrentWorkloads(request.AllocatableCpuCount - (workspaceBudget?.CpuCount ?? 0)),
             ExpiresAt = now.Add(AssistedSetupLifetime),
             CreatedAt = now,
             UpdatedAt = now
@@ -1216,11 +1224,11 @@ public sealed partial class ExecutionFleetService(
                     Encoding.ASCII.GetBytes(binding)))
                 return new ClaimOfficeResponse(false, "assisted_session_mismatch",
                     "The assisted setup session does not match this Office.", null, null);
-            var reserved = assistedSession.ComputeReservationBusinessId.HasValue ? 1 : 0;
-            if (request.AllocatableCpuCount != assistedSession.AllocatableCpuCount - 2 * reserved ||
-                request.AllocatableMemoryMb != assistedSession.AllocatableMemoryMb - 2048 * reserved ||
-                request.AllocatableDiskMb != assistedSession.AllocatableDiskMb - 20480 * reserved ||
-                request.MaximumConcurrentWorkloads != assistedSession.MaximumConcurrentWorkloads - reserved)
+            var reserved = assistedSession.ComputeReservationBusinessId.HasValue ? WorkspacePlan(assistedSession, assistedSession.ComputeReservationBusinessId.Value) : new OfficeComputeSetupPlan(false, null);
+            if (request.AllocatableCpuCount != assistedSession.AllocatableCpuCount - reserved.CpuCount ||
+                request.AllocatableMemoryMb != assistedSession.AllocatableMemoryMb - reserved.MemoryMiB ||
+                request.AllocatableDiskMb != assistedSession.AllocatableDiskMb - reserved.DiskMiB ||
+                request.MaximumConcurrentWorkloads != assistedSession.MaximumConcurrentWorkloads - reserved.MaximumEnvironments)
                 return new ClaimOfficeResponse(false, "assisted_allocation_mismatch",
                     "The Office did not apply the CPU, memory, and storage selected during setup.", null, null);
         }
@@ -1777,7 +1785,9 @@ public sealed partial class ExecutionFleetService(
             provider.IsAvailable, provider.UnavailableReason) { SupportsPublicInternet = provider.SupportsPublicInternet }).ToArray(),
         DeserializeLabels(node.LabelsJson),
         IsLocalMachine(node.MachineName, node.OperatingSystem, Environment.MachineName, LocalOperatingSystem()),
-        node.WorkPauseReason?.ToString().ToLowerInvariant());
+        node.WorkPauseReason?.ToString().ToLowerInvariant(),
+        OfficeComputePlacement.InstalledBudget(node.ComputeCapacityJson),
+        node.WorkspaceBudgetJson is null ? null : JsonSerializer.Deserialize<OfficeWorkspaceBudget>(node.WorkspaceBudgetJson));
 
     internal static bool IsLocalMachine(
         string machineName,

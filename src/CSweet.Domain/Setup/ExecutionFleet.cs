@@ -98,6 +98,7 @@ public sealed class ExecutionNode
     public string CertificateSigningRequestPem { get; set; } = string.Empty;
     public string? IssuedCertificateBase64 { get; set; }
     public string? ComputeTemplateId { get; set; }
+    public string? WorkspaceBudgetJson { get; set; }
     public string? ComputeCapacityJson { get; set; }
     public string LabelsJson { get; set; } = "{}";
     public int AllocatableCpuCount { get; set; }
@@ -163,6 +164,7 @@ public sealed class ExecutionNodeEnrollment
 public sealed class LocalOfficeSetupSession
 {
     public Guid? ComputeReservationBusinessId { get; set; }
+    public string? WorkspaceBudgetJson { get; set; }
     [System.ComponentModel.DataAnnotations.MaxLength(71)]
     public string? ComputeReservationImageDigest { get; set; }
     public string? StorageVolumeId { get; set; }

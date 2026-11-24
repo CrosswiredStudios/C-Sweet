@@ -167,6 +167,25 @@ public sealed class ComputeProgressRenderingTests
     }
 
     [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task ReservedOfficeAwaitsRegistrationWithoutPromptingForSetup(int waitingEmployees)
+    {
+        var html = await Render(new("Pending", "Waiting for Office compute registration", null, null, null)
+        {
+            Health = ComputeSetupStatus.AwaitingOfficeRegistration,
+            OfficeCapacity = new(false, waitingEmployees, waitingEmployees > 0 ? "Victor Lin" : null, null)
+        }, canManage: true, legacyLocalSetupEnabled: false);
+        Assert.Contains("Reserved", html);
+        Assert.Contains("Waiting for Office compute registration", html);
+        Assert.Contains("Office setup reserved Linux compute for this business", html);
+        Assert.Equal(waitingEmployees > 0, html.Contains("Victor Lin"));
+        Assert.DoesNotContain("Blocked", html);
+        Assert.DoesNotContain("An administrator must enable compute", html);
+        Assert.DoesNotContain("Create instance", html);
+    }
+
+    [Theory]
     [InlineData("Pending", false, 1, "Workspace provisioning is blocked")]
     [InlineData("Pending", true, 2, "Workspace provisioning is blocked")]
     [InlineData("Unavailable", false, 0, "No Office capacity available")]

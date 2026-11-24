@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Options;
 using MudBlazor.Services;
+using CSweet.UI.Localization;
 if (args.Length == 2 && args[0] == "--migration-sql")
 {
     using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>().UseNpgsql("Host=unused;Database=unused").Options);
@@ -21,6 +22,7 @@ if (args.Length == 2 && args[0] == "--migration-sql")
     return;
 }
 var builder = WebApplication.CreateBuilder(args); builder.WebHost.UseStaticWebAssets();
+builder.Services.AddCSweetLocalization();
 builder.Services.AddRazorComponents().AddInteractiveServerComponents(); builder.Services.AddMudServices();
 var dbOptions = new DbContextOptionsBuilder<CSweetDbContext>().UseInMemoryDatabase("isolated-selection-" + Guid.NewGuid()).Options;
 using (var db = new CSweetDbContext(dbOptions)) await new SetupService(db).EnsureSeededAsync();
@@ -28,11 +30,28 @@ builder.Services.AddScoped(_ => new HttpClient(new FixtureHandler(dbOptions)) { 
 var app = builder.Build(); app.UseStaticFiles(); app.UseAntiforgery(); app.MapRazorComponents<App>().AddInteractiveServerRenderMode(); app.Run();
 sealed class FixtureHandler(DbContextOptions<CSweetDbContext> options) : HttpMessageHandler
 {
+    private bool _paired;
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
         using var db = new CSweetDbContext(options); var store = new ConnectionServiceSelectionStore(db, Options.Create(new PluginConnectionOptions()));
         object result;
-        if (request.RequestUri!.AbsolutePath.EndsWith("/probe")) result = new ConnectionServiceProbe("UnavailableOrUnsupported", false, false, false);
+        var origin = store.Current().Origin ?? "";
+        const string browserReturn = "https://localhost:7125/settings/plugins/managed-return";
+        if (request.RequestUri!.AbsolutePath.EndsWith("/probe"))
+            result = origin == "https://ready.example.test" ? new ConnectionServiceProbe("OAuthSetupAvailable", true, false, false)
+                : new ConnectionServiceProbe("UnavailableOrUnsupported", false, false, false);
+        else if (request.RequestUri.AbsolutePath.EndsWith("/status"))
+            result = new ManagedConnectionStatus(true, _paired, origin, browserReturn) { PairingState = _paired ? "Paired" : "NotPaired" };
+        else if (request.RequestUri.AbsolutePath.EndsWith("/pairing"))
+            result = new ManagedConnectionPairing(origin, "synthetic-public-key", "test-key-id", browserReturn);
+        else if (request.RequestUri.AbsolutePath.EndsWith("/pairing/complete"))
+        {
+            var enrollment = await request.Content!.ReadFromJsonAsync<CompleteManagedConnectionPairing>(ct);
+            _paired = enrollment == new CompleteManagedConnectionPairing(Guid.Parse("22222222-2222-2222-2222-222222222222"), "fixture-tenant", 1);
+            if (!_paired) return new(HttpStatusCode.BadRequest);
+            result = new { };
+        }
+        else if (request.RequestUri.AbsolutePath.EndsWith("/phone-setup")) result = new ConnectionPhoneSetup("LinkRequired");
         else if (request.Method == HttpMethod.Get) result = store.Current();
         else result = await store.Save(Guid.Parse("11111111-1111-1111-1111-111111111111"), (await request.Content!.ReadFromJsonAsync<SaveConnectionServiceChoice>(ct))!, ct);
         return new(HttpStatusCode.OK) { Content = JsonContent.Create(result) };

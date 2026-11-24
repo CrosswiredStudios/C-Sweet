@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using CSweet.Compute.Contracts;
+using CSweet.Contracts.Setup;
 using CSweet.Domain.Compute;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -33,6 +34,12 @@ public static class OfficeComputePlacement
     private const string TemplatePrefix = "office-linux-";
     internal static readonly ComputeResources WorkspaceResources = new(2, 2048, 20480);
     private sealed record Capacity(int Slots, ComputeResources Resources);
+
+    public static OfficeWorkspaceBudget? InstalledBudget(string? offer)
+    {
+        if (offer is null || JsonSerializer.Deserialize<Capacity>(offer, ComputeProtocol.Json) is not { } capacity) return null;
+        return new(capacity.Resources.CpuCount, checked((int)capacity.Resources.MemoryMiB), checked((int)capacity.Resources.DiskMiB));
+    }
 
     public static string TemplateId(string digest) => TemplatePrefix + digest.Substring(7, 48);
     public static bool IsOfficeTemplate(string templateId) =>
@@ -119,25 +126,34 @@ public static class OfficeComputePlacement
     {
         var released = await db.ComputeEnvironments.Where(x => x.OrganizationId == business && x.ProviderNodeId == office)
             .MaxAsync(x => x.TeardownConfirmedAt, token);
-        var wake = $"office-compute:{office:N}:{epoch}:{template}:{released?.UtcTicks ?? 0}:";
-        var waiting = await db.Set<OfficeComputeCapacityRequest>().AsNoTracking().Where(x => x.OrganizationId == business &&
-            !db.ComputeEnvironments.Any(e => e.InstallationId == x.InstallationId && e.TeardownConfirmedAt == null) &&
-            !db.AgentPlatformEventOutbox.Any(sent => sent.OrganizationId == business &&
-                sent.TargetInstallationId == x.InstallationId && sent.IdempotencyKey.StartsWith(wake))).OrderBy(x => x.InstallationId)
-            .Select(x => x.InstallationId).Take(64).ToListAsync(token);
-        foreach (var installation in waiting)
+        var stopped = await db.ComputeOperations.Where(x => x.OrganizationId == business && x.Action == InfrastructureActions.Stop &&
+            db.ComputeEnvironments.Any(e => e.Id == x.EnvironmentId && e.ProviderNodeId == office && e.State == ComputeLifecycleState.Stopped))
+            .MaxAsync(x => x.CompletedAt, token);
+        var node = db.ExecutionNodes.Local.FirstOrDefault(x => x.Id == office) ??
+            await db.ExecutionNodes.AsNoTracking().SingleOrDefaultAsync(x => x.Id == office, token);
+        var budgetStamp = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+            $"{node?.ComputeCapacityJson}|{node?.WorkspaceBudgetJson}")))[..16];
+        var cycle = $"{office:N}:{epoch}:{template}:{budgetStamp}:{released?.UtcTicks ?? 0}:{stopped?.UtcTicks ?? 0}";
+        var wake = "office-compute:" + ComputeProtocol.Digest(cycle) + ":";
+        var waiting = await db.Set<OfficeComputeCapacityRequest>().AsNoTracking()
+            .Where(x => x.OrganizationId == business && x.ProjectId != Guid.Empty &&
+                !db.AgentPlatformEventOutbox.Any(sent => sent.OrganizationId == business &&
+                    sent.TargetInstallationId == x.InstallationId && sent.IdempotencyKey == wake + x.RequestId.ToString()))
+            .OrderBy(x => x.InstallationId).ThenBy(x => x.ProjectId).Take(64).ToListAsync(token);
+        foreach (var request in waiting)
         {
-            var key = wake + installation.ToString("N");
+            var installation = request.InstallationId;
+            var key = wake + request.RequestId.ToString();
             var id = new Guid(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)).AsSpan(0, 16));
             db.AgentPlatformEventOutbox.Add(new() { Id = id, OrganizationId = business, TargetInstallationId = installation,
-                EventType = "com.csweet.compute.available.v1", DataJson = JsonSerializer.Serialize(new { officeId = office, templateId = template }),
+                EventType = "com.csweet.compute.available.v1", DataJson = JsonSerializer.Serialize(new { officeId = office, templateId = template, workstreamId = request.ProjectId }),
                 IdempotencyKey = key, OccurredAt = now, NextAttemptAt = now });
         }
     }
 
     public static async Task<(ComputeTemplateRegistration Template, ComputeNodeRegistration Node)?> FindAsync(
         CSweetDbContext db, Guid business, DateTimeOffset now, CancellationToken token, string? templateId = null,
-        Guid? officeId = null, ComputeResources? requested = null)
+        Guid? officeId = null, ComputeResources? requested = null, Guid? activatingEnvironment = null)
     {
         var earliest = now.AddSeconds(-30);
         var query = from office in db.OfficesForPlacement(now).AsNoTracking()
@@ -151,7 +167,7 @@ public static class OfficeComputePlacement
                         (officeId == null || office.Id == officeId) && office.Status == ExecutionNodeStatus.Ready &&
                         office.ApprovedAt != null && office.RevokedAt == null && office.DrainingAt == null &&
                         office.WorkPauseReason == null && office.CertificateExpiresAt > now && office.LastHeartbeatAt >= earliest && pool.IsEnabled
-                    select new { template, node, pool, office.ComputeCapacityJson };
+                    select new { template, node, pool, office.ComputeCapacityJson, office.WorkspaceBudgetJson };
         Guid? after = null;
         do
         {
@@ -160,7 +176,8 @@ public static class OfficeComputePlacement
             foreach (var row in candidates)
             {
                 if (!IsOfficeTemplate(row.template.TemplateId) || !Allows(row.pool, business)) continue;
-                if (officeId.HasValue || await HasRoomAsync(db, row.node.Id, row.ComputeCapacityJson, requested ?? WorkspaceResources, token))
+                if ((officeId.HasValue && activatingEnvironment is null) ||
+                    await HasRoomAsync(db, row.node.Id, row.ComputeCapacityJson, row.WorkspaceBudgetJson, requested ?? WorkspaceResources, activatingEnvironment, token))
                     return (row.template, row.node);
             }
             after = candidates.Count == 32 ? candidates[^1].node.Id : null;
@@ -168,22 +185,38 @@ public static class OfficeComputePlacement
         return null;
     }
 
-    private static async Task<bool> HasRoomAsync(CSweetDbContext db, Guid node, string? json, ComputeResources requested, CancellationToken token)
+    private static async Task<bool> HasRoomAsync(CSweetDbContext db, Guid node, string? json, string? budgetJson, ComputeResources requested, Guid? activatingEnvironment, CancellationToken token)
     {
         if (json is null || JsonSerializer.Deserialize<Capacity>(json, ComputeProtocol.Json) is not { } capacity) return false;
+        var budget = budgetJson is null ? null : JsonSerializer.Deserialize<OfficeWorkspaceBudget>(budgetJson);
         long cpu = requested.CpuCount, memory = requested.MemoryMiB, disk = requested.DiskMiB;
         var count = 1;
-        var held = db.ComputeEnvironments.AsNoTracking().Where(x => x.ProviderNodeId == node && x.TeardownConfirmedAt == null);
-        await foreach (var spec in held.Select(x => x.SpecificationJson).AsAsyncEnumerable().WithCancellation(token))
+        var held = db.ComputeEnvironments.AsNoTracking().Where(x => x.ProviderNodeId == node && x.TeardownConfirmedAt == null && (activatingEnvironment == null || x.Id != activatingEnvironment));
+        await foreach (var spec in held.Select(x => new { x.State, x.DesiredState, x.SpecificationJson }).AsAsyncEnumerable().WithCancellation(token))
         {
-            if (JsonSerializer.Deserialize<ComputeSpecification>(spec, ComputeProtocol.Json)?.Resources is not { } used) return false;
+            if (JsonSerializer.Deserialize<ComputeSpecification>(spec.SpecificationJson, ComputeProtocol.Json)?.Resources is not { } used) return false;
+            disk = checked(disk + used.DiskMiB);
+            if (spec.State == ComputeLifecycleState.Stopped && spec.DesiredState != ComputeDesiredState.Running) continue;
             count++;
             cpu += used.CpuCount;
             memory = checked(memory + used.MemoryMiB);
-            disk = checked(disk + used.DiskMiB);
         }
         return count <= capacity.Slots && cpu <= capacity.Resources.CpuCount && memory <= capacity.Resources.MemoryMiB &&
-            disk <= capacity.Resources.DiskMiB && requested.GpuCount == 0;
+            disk <= capacity.Resources.DiskMiB && requested.GpuCount == 0 &&
+            (budget == null || cpu <= budget.CpuCount && memory <= budget.MemoryMiB && disk <= budget.DiskMiB);
+    }
+
+    internal static async Task TrackDemandAsync(CSweetDbContext db, Guid organization, Guid installation, Guid project,
+        DateTimeOffset now, CancellationToken token)
+    {
+        if (await db.Set<OfficeComputeCapacityRequest>().FindAsync([installation, project], token) is null)
+            db.Add(new OfficeComputeCapacityRequest { OrganizationId = organization, InstallationId = installation, ProjectId = project, RequestedAt = now });
+    }
+
+    internal static async Task ClearDemandAsync(CSweetDbContext db, Guid installation, Guid project, CancellationToken token)
+    {
+        if (await db.Set<OfficeComputeCapacityRequest>().FindAsync([installation, project], token) is { } demand)
+            db.Remove(demand);
     }
 
     internal static bool Allows(ExecutionPool pool, Guid? business)

@@ -9,6 +9,7 @@ public sealed record ComputeSetupStatus(string State, string Stage, DateTimeOffs
     double? DownloadBytesPerSecond = null, double? DownloadSecondsRemaining = null, bool DownloadWaitingForProgress = false,
     int PreparationStep = 0, bool? InstallerRunning = null)
 {
+    public const string AwaitingOfficeRegistration = "AwaitingOfficeRegistration";
     public OfficeComputeCapacityStatus? OfficeCapacity { get; init; }
     public Guid? AttemptId { get; init; }
     public string? Phase { get; init; }
@@ -33,6 +34,9 @@ public sealed record ComputeResourceStatus(Guid Id, string Agent, string Project
     string DesiredState, string OperatingSystem, int CpuCount, long MemoryMiB, long DiskMiB,
     DateTimeOffset UpdatedAt, DateTimeOffset LeaseExpiresAt, string? FailureCode, bool LocalLinkAllowed = false)
 {
+    public long Generation { get; init; }
+    public bool CanPowerOn { get; init; }
+    public bool CanPowerOff { get; init; }
     public Guid? EmployeeId { get; init; }
     public bool LocalLinkRequested { get; init; }
     public string? Name { get; init; }

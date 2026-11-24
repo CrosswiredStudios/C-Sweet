@@ -70,7 +70,7 @@
                         <div class="setup-art-line"></div><div class="setup-art-line short"></div>
                     </div>
                 </div>
-                <div class="setup-story-note"><MudIcon Icon="@Icons.Material.Outlined.VerifiedUser" /><span>@L["Setup.YouChooseWhereYourAgents"]</span></div>
+                <div class="setup-story-note"><MudIcon Icon="@Icons.Material.Outlined.VerifiedUser" /><span>@(_activeStepKey == "connection-service" ? L["ConnectionSetup.StoryNote"] : L["Setup.YouChooseWhereYourAgents"])</span></div>
             </aside>
             <div class="setup-stage" @key="_activeStepKey" aria-busy="@_isBusy">
                 @if (_status?.IsFirstRunComplete == true)
@@ -98,7 +98,7 @@
         "llm-provider" => "The thinking behind your team.",
         "personal-assistant" => "An assistant, made yours.",
         "genai-provider" => "Make room for imagination.",
-        "connection-service" => "Connect on your terms.",
+        "connection-service" => L["ConnectionSetup.StoryTitle"],
         _ => "Your next great team starts here."
     };
     private string StoryDescription => _activeStepKey switch
@@ -107,6 +107,7 @@
         "llm-provider" => "Use your own hardware, a hosted service, or both. Start with one connection and add more as you grow.",
         "personal-assistant" => "Give your assistant a name and choose how it thinks. You can change these settings anytime.",
         "genai-provider" => "Give your agents tools to create images and video. You can always add these later.",
+        "connection-service" => L["ConnectionSetup.StoryDescription"],
         _ => "Connect the essentials. Then bring your ideas to life with a team of your own."
     };
     private string StoryIcon => _activeStepKey switch
@@ -115,17 +116,28 @@
         "llm-provider" => Icons.Material.Outlined.Hub,
         "personal-assistant" => Icons.Material.Outlined.AutoAwesome,
         "genai-provider" => Icons.Material.Outlined.PermMedia,
+        "connection-service" => Icons.Material.Outlined.Link,
         _ => Icons.Material.Outlined.Groups
     };
     private static readonly IReadOnlyList<WizardStep> SetupSteps =
     [
-        new(1, "welcome", "Welcome", "What to expect"),
-        new(2, "agent-execution", "Agent hosting", "Required · Connect a machine"),
-        new(3, "llm-provider", "AI models", "Required · Connect a provider"),
-        new(4, "personal-assistant", "AI Assistant", "Required · Make it yours"),
-        new(5, "genai-provider", "Images & video", "Optional"),
-        new(6, "connection-service", "Connections", "Optional")
+        new(1, "welcome", "Welcome"),
+        new(2, "agent-execution", "Agent hosting"),
+        new(3, "llm-provider", "AI models"),
+        new(4, "personal-assistant", "AI Assistant"),
+        new(5, "genai-provider", "Images & video", Optional: true),
+        new(6, "connection-service", "Connections", Optional: true)
     ];
+
+    private string StepCaption
+    {
+        get
+        {
+            var current = SetupSteps.First(step => step.Key == _activeStepKey);
+            return L.Format(current.Optional ? "Setup.OptionalStepPosition" : "Setup.StepPosition",
+                new { step = current.Number, total = SetupSteps.Count });
+        }
+    }
 
     private SetupStatusResponse? _status;
     private IReadOnlyList<LlmProviderProfileResponse> _profiles = [];
@@ -193,17 +205,17 @@
         _ => WelcomeStep
     };
 
-    private RenderFragment ConnectionServiceStep => @<ConnectionServiceSetupStep OnContinue="FinishSetupAsync" OnBack="BackToGenAi" />;
+    private RenderFragment ConnectionServiceStep => @<ConnectionServiceSetupStep ContextLabel="@StepCaption" OnContinue="FinishSetupAsync" OnBack="BackToGenAi" />;
 
     private RenderFragment WelcomeStep => @<WelcomeSetupStep IsBusy="@_isBusy" OnContinue="@ContinueFromWelcomeAsync" />;
 
     private RenderFragment AgentExecutionStep =>
-        @<AgentHostOnboardingStep OnBack="@BackToWelcome"
+        @<AgentHostOnboardingStep ContextLabel="@StepCaption" OnBack="@BackToWelcome"
                                   OnContinue="@ContinueFromExecutionAsync"
                                   IsCompleting="@_isBusy"
                                   CompletionMessage="@_stepMessage" />;
 
-    private RenderFragment LlmProviderStep => @<LlmProviderSetupStep Profiles="@_profiles"
+    private RenderFragment LlmProviderStep => @<LlmProviderSetupStep ContextLabel="@StepCaption" Profiles="@_profiles"
                                                                          SelectedProviderId="@_providerProfileId"
                                                                          ProfilesChanged="@HandleProfilesChangedAsync"
                                                                          AutoDiscoverLocalProviders="@(!_localProviderDiscoveryAttempted)"
@@ -211,10 +223,10 @@
                                                                          OnContinue="@ContinueFromProviderAsync"
                                                                          OnBack="@BackToExecution" />;
 
-    private RenderFragment AssistantStep => @<PersonalAssistantSetupStep PreferredProviderId="@_providerProfileId" IsCompleting="@_isBusy"
+    private RenderFragment AssistantStep => @<PersonalAssistantSetupStep ContextLabel="@StepCaption" PreferredProviderId="@_providerProfileId" IsCompleting="@_isBusy"
         OnBack="@BackToProvider" OnContinue="@ContinueFromAssistantAsync" />;
 
-    private RenderFragment GenAiProviderStep => @<GenAiProviderSetupStep IsFinalStep="false" IsCompleting="@_isBusy" AutoDiscoverLocalProviders="@(!_localGenAiProviderDiscoveryAttempted)"
+    private RenderFragment GenAiProviderStep => @<GenAiProviderSetupStep ContextLabel="@StepCaption" IsFinalStep="false" IsCompleting="@_isBusy" AutoDiscoverLocalProviders="@(!_localGenAiProviderDiscoveryAttempted)"
                                                                               LocalProviderDiscoveryAttempted="@HandleLocalGenAiProviderDiscoveryAttempted"
                                                                               OnContinue="@ContinueFromGenAiProviderAsync"
                                                                               OnBack="@BackToAssistant" />;
@@ -342,5 +354,5 @@
         return _status?.Steps.Any(x => x.Key == key && x.IsComplete) == true;
     }
 
-    private sealed record WizardStep(int Number, string Key, string Title, string Description);
+    private sealed record WizardStep(int Number, string Key, string Title, bool Optional = false);
 }

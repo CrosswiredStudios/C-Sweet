@@ -172,42 +172,105 @@ function Expand-CSweetOfficeArchive([string] $Archive, [string] $Destination) {
     [IO.Compression.ZipFile]::ExtractToDirectory($Archive, $Destination)
 }
 
-function Receive-CSweetOfficeAsset([object] $Asset, [string] $Destination, [int] $TimeoutSeconds = 1800) {
-    if ($Asset.name -cnotmatch '^csweet-office-([0-9]+\.[0-9]+\.[0-9]+)-(windows-support|windows-x64)\.zip$') { throw 'Office download asset name is invalid.' }
-    Assert-CSweetOfficeAsset $Asset $Matches[1] $Matches[2] $true
-    if ($TimeoutSeconds -le 0 -or $TimeoutSeconds -gt 1800) { throw 'Office download timeout is invalid.' }
-    $archive = "$Destination.zip"
-    $partPath = "$Destination.part-$([guid]::NewGuid().ToString('N'))"
-    $ownedArchive = $false
-    $output = $null
-    $elapsed = [Diagnostics.Stopwatch]::StartNew()
+function Test-CSweetOfficeFile([string] $Path, [object] $Expected) {
+    return [IO.File]::Exists($Path) -and (Get-Item -LiteralPath $Path).Length -eq [long]$Expected.size -and
+        (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash -ieq $Expected.sha256
+}
+
+# On a partial or damaged cache hit, validate each range against the current manifest.
+# A terminated process may have written only a prefix of its last part.
+function Test-CSweetOfficePart([IO.FileStream] $Archive, [long] $Offset, [object] $Part) {
+    $remaining = [long]$Part.size
+    if ($Offset + $remaining -gt $Archive.Length) { return $false }
+    $Archive.Position = $Offset
+    $hash = [Security.Cryptography.SHA256]::Create()
     try {
-        if (Test-Path -LiteralPath $Destination) { throw 'Office extraction requires a new directory.' }
-        $output = [IO.File]::Open($archive, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
-        $ownedArchive = $true
-        $downloads = if ($null -ne $Asset.PSObject.Properties['parts']) { @($Asset.parts) } else { @($Asset) }
-        foreach ($download in $downloads) {
-            $remainingSeconds = [int][Math]::Ceiling($TimeoutSeconds - $elapsed.Elapsed.TotalSeconds)
+        $buffer = [byte[]]::new(1MB)
+        while ($remaining -gt 0) {
+            $count = $Archive.Read($buffer, 0, [int][Math]::Min($remaining, $buffer.Length))
+            if ($count -eq 0) { return $false }
+            $null = $hash.TransformBlock($buffer, 0, $count, $buffer, 0)
+            $remaining -= $count
+        }
+        $null = $hash.TransformFinalBlock($buffer, 0, 0)
+        return [BitConverter]::ToString($hash.Hash).Replace('-', '') -ieq $Part.sha256
+    } finally { $hash.Dispose() }
+}
+
+function Write-CSweetOfficeArchive([IO.FileStream] $OutputStream, [object] $Asset, [string] $PartPath,
+    [Diagnostics.Stopwatch] $Elapsed, [int] $TimeoutSeconds, [scriptblock] $OnDownload) {
+    $parts = @(if ($null -ne $Asset.PSObject.Properties['parts']) { $Asset.parts } else { $Asset })
+    $downloaded = $false
+    $offset = 0L
+    for ($index = 0; $index -lt $parts.Count; $index++) {
+        $part = $parts[$index]
+        if (-not (Test-CSweetOfficePart $OutputStream $offset $part)) {
+            if ($OnDownload) { & $OnDownload ($index + 1) $parts.Count }
+            $remainingSeconds = [int][Math]::Ceiling($TimeoutSeconds - $Elapsed.Elapsed.TotalSeconds)
             if ($remainingSeconds -le 0) { throw 'Office release download timed out.' }
             try {
-                Invoke-CSweetReleaseDownload -Uri $download.url -OutputPath $partPath -MaximumBytes ([long]$download.size) -TimeoutSeconds $remainingSeconds
-                if ((Get-Item -LiteralPath $partPath).Length -ne [long]$download.size -or
-                    (Get-FileHash -LiteralPath $partPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $download.sha256) {
-                    throw 'The Office release part failed its size or SHA-256 check. Retry the release download.'
+                Invoke-CSweetReleaseDownload -Uri $part.url -OutputPath $PartPath -MaximumBytes ([long]$part.size) -TimeoutSeconds $remainingSeconds
+                if (-not (Test-CSweetOfficeFile $PartPath $part)) { throw 'The Office release part failed its size or SHA-256 check. Retry the release download.' }
+                $OutputStream.Position = $offset
+                $input = [IO.File]::OpenRead($PartPath)
+                try { $input.CopyTo($OutputStream, 1MB) } finally { $input.Dispose() }
+                $downloaded = $true
+            } finally { [IO.File]::Delete($PartPath) }
+        }
+        $offset += [long]$part.size
+    }
+    $OutputStream.SetLength($offset)
+    return $downloaded
+}
+
+function Receive-CSweetOfficeAsset([object] $Asset, [string] $Destination, [int] $TimeoutSeconds = 1800,
+    [string] $CacheRoot, [scriptblock] $OnDownload, [scriptblock] $OnVerified) {
+    if ($Asset.name -cnotmatch '^csweet-office-([0-9]+\.[0-9]+\.[0-9]+)-(windows-support|windows-x64)\.zip$') { throw 'Office download asset name is invalid.' }
+    $kind = $Matches[2]
+    Assert-CSweetOfficeAsset $Asset $Matches[1] $kind $true
+    if ($TimeoutSeconds -le 0 -or $TimeoutSeconds -gt 1800) { throw 'Office download timeout is invalid.' }
+    if (Test-Path -LiteralPath $Destination) { throw 'Office extraction requires a new directory.' }
+    $archive = "$Destination.zip"
+    $partPath = "$Destination.part-$([guid]::NewGuid().ToString('N'))"
+    $cacheLock = $null
+    $temporaryArchive = $false
+    $downloaded = $false
+    $elapsed = [Diagnostics.Stopwatch]::StartNew()
+    try {
+        $mode = [IO.FileMode]::CreateNew
+        if ($CacheRoot) {
+            # Keep one archive per asset kind across releases. Serialize repair and extraction
+            # so another elevated setup cannot change the verified bytes underneath us.
+            $cache = [IO.Directory]::CreateDirectory((Join-Path $CacheRoot $kind)).FullName
+            $lockPath = Join-Path $cache 'writer.lock'
+            while ($null -eq $cacheLock) {
+                try { $cacheLock = [IO.File]::Open($lockPath, 'OpenOrCreate', 'ReadWrite', 'None') }
+                catch [IO.IOException] {
+                    if (($_.Exception.HResult -band 0xffff) -notin @(11, 32, 33)) { throw }
+                    if ($elapsed.Elapsed.TotalSeconds -ge $TimeoutSeconds) { throw 'Timed out waiting for the Office download cache.' }
+                    Start-Sleep -Milliseconds 250
                 }
-                $input = [IO.File]::OpenRead($partPath)
-                try { $input.CopyTo($output, 1MB) } finally { $input.Dispose() }
-            } finally { if (Test-Path -LiteralPath $partPath) { Remove-Item -LiteralPath $partPath -Force } }
+            }
+            $mode = [IO.FileMode]::OpenOrCreate
+            $archive = Join-Path $cache 'package.zip'
+            $partPath = Join-Path $cache 'download.tmp'
+            [IO.File]::Delete($partPath)
         }
-        $output.Dispose(); $output = $null
-        if ((Get-Item -LiteralPath $archive).Length -ne [long]$Asset.size -or
-            (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne $Asset.sha256) {
-            throw 'The Office release download failed its size or SHA-256 check. Retry the release download.'
+        if (-not $CacheRoot -or -not (Test-CSweetOfficeFile $archive $Asset)) {
+            $output = [IO.File]::Open($archive, $mode, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+            $temporaryArchive = -not $CacheRoot
+            try {
+                $downloaded = Write-CSweetOfficeArchive $output $Asset $partPath $elapsed $TimeoutSeconds $OnDownload
+            } finally { $output.Dispose() }
+            if (-not (Test-CSweetOfficeFile $archive $Asset)) {
+                throw 'The Office release download failed its size or SHA-256 check. Retry the release download.'
+            }
         }
+        if ($OnVerified) { & $OnVerified $downloaded }
         Expand-CSweetOfficeArchive -Archive $archive -Destination $Destination
         return [IO.Path]::GetFullPath($Destination)
     } finally {
-        if ($null -ne $output) { $output.Dispose() }
-        if ($ownedArchive -and (Test-Path -LiteralPath $archive)) { Remove-Item -LiteralPath $archive -Force }
+        if ($null -ne $cacheLock) { $cacheLock.Dispose() }
+        if ($temporaryArchive) { [IO.File]::Delete($archive) }
     }
 }

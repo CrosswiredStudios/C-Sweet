@@ -13,7 +13,8 @@
     @if (_bootstrap is not null)
     {
         <MudText>Review these public details on the service machine. Global scope is powerful: narrow capabilities and tenant scope before local approval if appropriate. This has not granted access.</MudText>
-        <MudTextField T="string" Value="_bootstrap" ReadOnly="true" Lines="8" Label="Public local-bootstrap request" />
+        <MudTextField T="string" Value="@_bootstrap" ReadOnly="true" Lines="8" Label="Public local-bootstrap request" />
+        <a class="connection-download" download="owner.json" href="@ConnectionServiceInstallFile.DownloadUrl(_bootstrap)">Download owner.json</a>
     }
     @if (_access is not null)
     {
@@ -52,12 +53,24 @@
             <MudButton Color="Color.Error" Disabled="_busy" OnClick="Revoke">Revoke this deployment</MudButton>
         }
     }
-    @if (_result is not null) { <MudTextField T="string" Label="Public result" Value="_result" ReadOnly="true" Lines="4" /> }
+    @if (_result is not null) { <MudTextField T="string" Label="Public result" Value="@_result" ReadOnly="true" Lines="4" /> }
     @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
 </MudExpansionPanel>
 </MudExpansionPanels>
 
 @code {
+    [Parameter] public ManagedConnectionPairing? Pairing { get; set; }
+    [Parameter] public EventCallback<CompleteManagedConnectionPairing> OnEnrolled { get; set; }
+    private ManagedConnectionPairing? _lastPairing;
+    protected override void OnParametersSet()
+    {
+        if (Pairing is null || Pairing == _lastPairing) return;
+        _lastPairing = Pairing;
+        _key = Pairing.PublicKey;
+        _keyId = Pairing.KeyId;
+        _returnUri = Pairing.ReturnUri;
+        _name = "Headquarters";
+    }
     private sealed record AccessView(Guid ActorId, long GrantRevision, string TenantScope, string[] Capabilities);
     private AccessView? _access;
     private bool _busy;
@@ -93,7 +106,15 @@
             _error = "The tenant ID must match your current service enrollment permission. Check your service permissions before submitting.";
             return Task.CompletedTask;
         }
-        return Run(async () => { using var r = await Post("enroll", new { tenantId = _tenant, deployment = new { name = _name, publicKey = _key, keyId = _keyId, returnUris = new[] { _returnUri } } }); _result = "Deployment: " + r.RootElement.GetProperty("deploymentId").GetGuid() + "\nTenant: " + r.RootElement.GetProperty("tenantId").GetString() + "\nRevision: " + r.RootElement.GetProperty("revision").GetInt64(); });
+        return Run(async () =>
+        {
+            using var response = await Post("enroll", new { tenantId = _tenant, deployment = new { name = _name, publicKey = _key, keyId = _keyId, returnUris = new[] { _returnUri } } });
+            var result = response.RootElement.Deserialize<CompleteManagedConnectionPairing>(new JsonSerializerOptions(JsonSerializerDefaults.Web))
+                ?? throw new InvalidOperationException();
+            _result = $"Deployment: {result.DeploymentId}\nTenant: {result.TenantId}\nRevision: {result.Revision}";
+            if (Pairing is not null && _key == Pairing.PublicKey && _keyId == Pairing.KeyId && _returnUri == Pairing.ReturnUri)
+                await OnEnrolled.InvokeAsync(result);
+        });
     }
     private Task Revoke() => Run(async () => { using var r = await Post("revoke", new { tenantId = _tenant, deploymentId = Guid.Parse(_revokeId) }); _result = "Deployment revoked; provider cleanup may still be pending."; });
 }

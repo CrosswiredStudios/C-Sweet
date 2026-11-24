@@ -57,10 +57,12 @@ and answer controls stay in the structured decision widget, including Markdown h
 emphasis. `DecisionMessageBody` suppresses message text that repeats its attached question, including
 the former generated project-review wrapper, while preserving distinct context and mentions.
 `WorkstreamDecisionChatReview.PresentAsync` now stores only the question as its searchable message
-body and attaches the actionable decision to it, without adding a second prose request. **Choose an answer** expands choices inside the card. `DecisionChoices` shows short labels,
-recommendations and the main trade-off. Each option has an independent **Show impact** control.
-New requirement drafts keep technical follow-through in the planning record. Older options can
-request a plain-English explanation and expose the full original wording.
+body and attaches the actionable decision to it, without adding a second prose request.
+`DecisionPrompt` displays the agent's saved question verbatim. **Choose an answer** opens a
+dropdown with the authored option labels. Selecting an option opens its details panel and
+requests an explanation from `DecisionExplanationService.GetWordingAsync` for that option.
+The panel shows the saved description and impact while loading or if generation fails.
+Switching options updates the panel and reuses explanations already loaded on the card.
 
 **Ask a follow-up** works in Overview, Approvals, incident cards and Communications, including
 questions with fixed answers. `DecisionFollowUpService.AskAsync` starts an idempotent employee chat turn.
@@ -76,7 +78,7 @@ The common employee handler ships in `CSweet.Agent.SDK` 5.45.0. Publish that pac
 `CSweet.Agent.Testing` before building consumers. Deploy Headquarters and update employee bundles
 through Installed Agents. The authoring template declares the coordination subscription and capabilities.
 Custom protocol implementations receive the same evidence context and can implement the same handoff.
-Decision wording previews use `DecisionExplanationService.GetWordingAsync`. Only an explicit answer goes to the response endpoint. Free-form direction
+Only an explicit answer goes to the response endpoint. Free-form direction
 is available once when permitted. Confirmed submissions dismiss the card using its stable answer
 key and refresh pending questions. A failed submission keeps the card available for retry.
 

@@ -1,4 +1,6 @@
+using CSweet.Api.Compute;
 using CSweet.Application.Setup;
+using CSweet.Contracts.Compute;
 using CSweet.Contracts.Setup;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
@@ -132,7 +134,7 @@ public sealed partial class ExecutionFleetServiceTests
             fleetOptions: new() { PublicLaunchEnabled = true, AllowUnpinnedDevelopmentImages = installBeforeBusiness,
                 WindowsPackageOverrideUrl = "https://downloads.example.test/csweet-office.msi" });
         var selected = capacity.Presets.Single(x => x.Key == "balanced");
-        var created = await fleet.CreateLocalSetupSessionAsync(new("balanced", selected.CpuCount, selected.MemoryMb, selected.DiskMb), user);
+        var created = await fleet.CreateLocalSetupSessionAsync(new("balanced", selected.CpuCount, selected.MemoryMb, selected.DiskMb, WorkspaceBudget: new(4, 4096, 40960)), user);
         Assert.True(created.Succeeded);
         var handoff = new Uri(created.Session!.LaunchUri!).Fragment["#handoff=".Length..];
         var machine = Environment.MachineName;
@@ -143,7 +145,7 @@ public sealed partial class ExecutionFleetServiceTests
         Assert.False((await fleet.PrepareHostedComputeAsync(request with { ImageDigest = "sha256:" + new string('b', 64) }, default))!.Enabled);
         var plan = await fleet.PrepareHostedComputeAsync(request, default);
         if (installBeforeBusiness) business = Assert.IsType<Guid>(plan?.OrganizationId);
-        Assert.Equal(new OfficeComputeSetupPlan(true, null, business, 1, 2, 2048, 20480), plan);
+        Assert.Equal(new OfficeComputeSetupPlan(true, null, business, 4, 4, 4096, 40960), plan);
         var audit = new TestAuditEventWriter();
         var organizations = new CoreOrganizationService(db, audit, new RoleService(db, audit));
         if (installBeforeBusiness)
@@ -162,9 +164,9 @@ public sealed partial class ExecutionFleetServiceTests
             MaximumConcurrentWorkloads = redeemed.MaximumConcurrentWorkloads
         };
         Assert.Equal("assisted_allocation_mismatch", (await fleet.ClaimNodeAsync(claim)).ErrorCode);
-        var result = await fleet.ClaimNodeAsync(claim with { AllocatableCpuCount = claim.AllocatableCpuCount - 2,
-            AllocatableMemoryMb = claim.AllocatableMemoryMb - 2048, AllocatableDiskMb = claim.AllocatableDiskMb - 20480,
-            MaximumConcurrentWorkloads = claim.MaximumConcurrentWorkloads - 1 });
+        var result = await fleet.ClaimNodeAsync(claim with { AllocatableCpuCount = claim.AllocatableCpuCount - plan!.CpuCount,
+            AllocatableMemoryMb = claim.AllocatableMemoryMb - plan.MemoryMiB, AllocatableDiskMb = claim.AllocatableDiskMb - plan.DiskMiB,
+            MaximumConcurrentWorkloads = claim.MaximumConcurrentWorkloads - plan.MaximumEnvironments });
         Assert.True(result.Succeeded, result.ErrorCode);
         Assert.Null(await fleet.PrepareHostedComputeAsync(request, default));
         if (installBeforeBusiness)
@@ -175,11 +177,18 @@ public sealed partial class ExecutionFleetServiceTests
             var next = await organizations.CreateAsync(new("Second studio", null, null, null, null, null), default, user);
             Assert.NotEqual(business, next.Organization!.Id);
             Assert.Null((await db.SystemConfigurations.SingleAsync()).FirstOfficeBusinessId);
+            var reservedCapacity = await ComputeDashboardEndpoints.ReadOfficeCapacityAsync(db, business, Now, default);
+            Assert.Equal("Pending", reservedCapacity.State);
+            Assert.Equal(ComputeSetupStatus.AwaitingOfficeRegistration, reservedCapacity.Health);
+            Assert.False(reservedCapacity.OfficeCapacity!.HasRegisteredOffice);
+            var otherCapacity = await ComputeDashboardEndpoints.ReadOfficeCapacityAsync(db, next.Organization.Id, Now, default);
+            Assert.Equal("Unavailable", otherCapacity.State);
             // Emulate a fresh authenticated heartbeat with a real Office verification key.
             using var key = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
             using var cert = new System.Security.Cryptography.X509Certificates.CertificateRequest("CN=Office", key,
                 System.Security.Cryptography.HashAlgorithmName.SHA256).CreateSelfSigned(Now.AddDays(-1), Now.AddDays(1));
             var office = await db.ExecutionNodes.SingleAsync();
+            office.LastHeartbeatAt = Now;
             office.IssuedCertificateBase64 = Convert.ToBase64String(cert.RawData);
             office.CertificateThumbprint = cert.Thumbprint;
             var offer = new CSweet.Office.Contracts.ControlPlane.OfficeComputeOffer { OrganizationId = business.ToString("D"),
@@ -190,6 +199,9 @@ public sealed partial class ExecutionFleetServiceTests
             await db.SaveChangesAsync();
             Assert.Equal(offer.TemplateId, office.ComputeTemplateId);
             Assert.Equal(business, (await db.ComputeNodes.SingleAsync()).OrganizationId);
+            var readyCapacity = await ComputeDashboardEndpoints.ReadOfficeCapacityAsync(db, business, Now, default);
+            Assert.Equal("Ready", readyCapacity.State);
+            Assert.True(readyCapacity.OfficeCapacity!.HasRegisteredOffice);
         }
     }
 

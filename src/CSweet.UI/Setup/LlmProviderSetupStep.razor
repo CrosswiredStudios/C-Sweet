@@ -6,7 +6,7 @@
 <section class="provider-step" aria-labelledby="provider-step-title">
     <header class="provider-step-header">
         <div>
-            <MudText Typo="Typo.overline">@L["LlmProviderSetupStep.Step3Of5"]</MudText>
+            <MudText Typo="Typo.overline">@ContextLabel</MudText>
             <h1 id="provider-step-title">@L["LlmProviderSetupStep.ConnectYourModelProviders"]</h1>
             <p>@L["LlmProviderSetupStep.ConnectLocalRuntimesHostedServices"]</p>
         </div>
@@ -378,6 +378,7 @@
 </section>
 
 @code {
+    [Parameter] public string? ContextLabel { get; set; }
     private static readonly IReadOnlyList<LlmProviderSetupPreset> LocalPresets = SetupWizardState.LocalProviderPresets();
     private static readonly IReadOnlyList<LlmProviderSetupPreset> HostedPresets = SetupWizardState.HostedProviderPresets();
     private static readonly LlmProviderSetupPreset CustomPreset = SetupWizardState.CustomProviderPreset();

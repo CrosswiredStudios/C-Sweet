@@ -82,12 +82,7 @@ public sealed partial class ComputeBroker(CSweetDbContext db, IComputeTemplateCa
                 if (transaction is not null) await transaction.CommitAsync(token);
                 return View(existing);
             }
-            var registered = await templates.ResolveAsync(organizationId, spec, token)
-                ?? throw new InvalidOperationException("No approved compute template is available.");
-            if (!ComputeSpecification.Identifier(registered.ProviderId) || registered.NodeId == Guid.Empty)
-                throw new InvalidOperationException("The compute template has no registered provider placement.");
-            var active = await db.ComputeEnvironments.CountAsync(x => x.OrganizationId == organizationId &&
-                x.InstallationId == installationId && x.TeardownConfirmedAt == null, token);
+            var active = await RunningReservations(db, organizationId, installationId).CountAsync(token);
             var now = clock.GetUtcNow();
             var authority = new List<ComputeActionAuthorization>();
             // Every contributing action must independently accept the complete requested boundary.
@@ -107,6 +102,20 @@ public sealed partial class ComputeBroker(CSweetDbContext db, IComputeTemplateCa
                 // Installation capabilities are a separate ceiling for each composed permission.
                 await RequireActorAsync(organizationId, installationId, request.WorkstreamId, action, token);
             }
+            var registered = await templates.ResolveAsync(organizationId, spec, token);
+            if (registered is null && OfficeComputePlacement.IsOfficeTemplate(spec.TemplateId))
+            {
+                var definition = await db.ComputeTemplates.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
+                    x.Enabled && x.TemplateId == spec.TemplateId).Select(x => x.TemplateJson).SingleOrDefaultAsync(token);
+                if (definition != null && JsonSerializer.Deserialize<ComputeTemplate>(definition, Json) is { Enabled: true } approved && approved.Matches(spec))
+                {
+                    await WaitForOfficeCapacityAsync(organizationId, installationId, request.WorkstreamId, transaction, token);
+                    throw new OfficeCapacityUnavailableException();
+                }
+            }
+            if (registered is null) throw new InvalidOperationException("No approved compute template is available.");
+            if (!ComputeSpecification.Identifier(registered.ProviderId) || registered.NodeId == Guid.Empty)
+                throw new InvalidOperationException("The compute template has no registered provider placement.");
             if (!registered.Template.Matches(spec)) throw new InvalidOperationException("The approved template does not match the requested operating system and architecture.");
             var environment = new ComputeEnvironment
             {
@@ -117,6 +126,7 @@ public sealed partial class ComputeBroker(CSweetDbContext db, IComputeTemplateCa
                 CreatedAt = now, UpdatedAt = now, LeaseExpiresAt = spec.ExpiresAt(now), NextAttemptAt = now
             };
             db.ComputeEnvironments.Add(environment);
+            await OfficeComputePlacement.ClearDemandAsync(db, installationId, request.WorkstreamId, token);
             await EnsureLocalLinksAsync(environment, token);
             db.ComputeOperations.Add(new()
             {
@@ -133,6 +143,20 @@ public sealed partial class ComputeBroker(CSweetDbContext db, IComputeTemplateCa
             return View(environment);
         }
         catch { db.ChangeTracker.Clear(); throw; }
+    }
+
+    internal static IQueryable<ComputeEnvironment> RunningReservations(CSweetDbContext database, Guid business, Guid installation) =>
+        database.ComputeEnvironments.Where(e => e.OrganizationId == business && e.InstallationId == installation &&
+            e.TeardownConfirmedAt == null && (e.State != ComputeLifecycleState.Stopped || e.DesiredState == ComputeDesiredState.Running ||
+                !OfficeComputePlacement.OfficeProviders.Contains(e.ProviderId!)));
+
+    private async Task WaitForOfficeCapacityAsync(Guid organizationId, Guid installationId, Guid projectId,
+        Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? transaction, CancellationToken token)
+    {
+        await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock).LockAsync(organizationId, token);
+        await OfficeComputePlacement.TrackDemandAsync(db, organizationId, installationId, projectId, clock.GetUtcNow(), token);
+        await db.SaveChangesAsync(token);
+        if (transaction != null) await transaction.CommitAsync(token);
     }
 
     internal async Task RequireActorAsync(Guid organizationId, Guid installationId, Guid workstreamId, string action, CancellationToken token, Guid? environmentId = null)

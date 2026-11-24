@@ -81,6 +81,11 @@ public sealed partial class OfficeGatewayService(
                          x.Status == LocalOfficeSetupSessionStatus.Ready))
                     .OrderByDescending(x => x.UpdatedAt)
                     .FirstOrDefaultAsync(context.CancellationToken);
+                if (assistedSession != null && message.Heartbeat.ComputeOffer is { } offeredBudget &&
+                    (offeredBudget.CpuCount < 2 || offeredBudget.CpuCount >= assistedSession.AllocatableCpuCount ||
+                     offeredBudget.MemoryMib < 2048 || offeredBudget.MemoryMib > assistedSession.AllocatableMemoryMb - 128 ||
+                     offeredBudget.DiskMib < 20480 || offeredBudget.DiskMib > assistedSession.AllocatableDiskMb - 64))
+                    message.Heartbeat.ComputeOffer = null;
                 ApplyHeartbeatCapacity(node, message.Heartbeat, assistedSession);
                 node.UpdatedAt = timeProvider.GetUtcNow();
                 if (message.Heartbeat.Providers.Count > 0)
@@ -441,11 +446,32 @@ public sealed partial class OfficeGatewayService(
         LocalOfficeSetupSession? assistedSession)
     {
         if (!string.IsNullOrWhiteSpace(heartbeat.OfficeVersion)) node.NodeVersion = heartbeat.OfficeVersion;
-        var reserved = assistedSession?.ComputeReservationBusinessId.HasValue == true ? 1 : 0;
-        node.AllocatableCpuCount = assistedSession?.AllocatableCpuCount - 2 * reserved ?? heartbeat.AllocatableCpuCount;
-        node.AllocatableMemoryMb = assistedSession?.AllocatableMemoryMb - 2048 * reserved ?? heartbeat.AllocatableMemoryMb;
-        node.AllocatableDiskMb = assistedSession?.AllocatableDiskMb - 20480 * reserved ?? heartbeat.AllocatableDiskMb;
-        node.MaximumConcurrentWorkloads = assistedSession?.MaximumConcurrentWorkloads - reserved ?? heartbeat.MaximumConcurrentWorkloads;
+        if (assistedSession?.ComputeReservationBusinessId is { } business)
+        {
+            var reservation = ExecutionFleetService.WorkspacePlan(assistedSession, business);
+            node.AllocatableCpuCount = assistedSession.AllocatableCpuCount - reservation.CpuCount;
+            node.AllocatableMemoryMb = assistedSession.AllocatableMemoryMb - reservation.MemoryMiB;
+            node.AllocatableDiskMb = assistedSession.AllocatableDiskMb - reservation.DiskMiB;
+            node.MaximumConcurrentWorkloads = assistedSession.MaximumConcurrentWorkloads - reservation.MaximumEnvironments;
+            if (Version.TryParse(node.NodeVersion, out var version) && version >= new Version(0, 18, 0))
+            {
+                // The local owner can repartition an enrolled Office during an identity-preserving upgrade.
+                // Compute may be temporarily offline. The authenticated Node still reports its own partition.
+                var offer = heartbeat.ComputeOffer;
+                node.AllocatableCpuCount = Math.Clamp(heartbeat.AllocatableCpuCount, 0,
+                    Math.Max(0, assistedSession.AllocatableCpuCount - (offer?.CpuCount ?? 0)));
+                node.AllocatableMemoryMb = Math.Clamp(heartbeat.AllocatableMemoryMb, 0,
+                    Math.Max(0, assistedSession.AllocatableMemoryMb - (offer?.MemoryMib ?? 0)));
+                node.AllocatableDiskMb = Math.Clamp(heartbeat.AllocatableDiskMb, 0,
+                    Math.Max(0, assistedSession.AllocatableDiskMb - (offer?.DiskMib ?? 0)));
+                node.MaximumConcurrentWorkloads = Math.Clamp(heartbeat.MaximumConcurrentWorkloads, 0, node.AllocatableCpuCount);
+            }
+            return;
+        }
+        node.AllocatableCpuCount = assistedSession?.AllocatableCpuCount ?? heartbeat.AllocatableCpuCount;
+        node.AllocatableMemoryMb = assistedSession?.AllocatableMemoryMb ?? heartbeat.AllocatableMemoryMb;
+        node.AllocatableDiskMb = assistedSession?.AllocatableDiskMb ?? heartbeat.AllocatableDiskMb;
+        node.MaximumConcurrentWorkloads = assistedSession?.MaximumConcurrentWorkloads ?? heartbeat.MaximumConcurrentWorkloads;
     }
 
     private static bool IsValidUnixSeconds(long value) =>

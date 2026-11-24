@@ -6,12 +6,16 @@ on:
     paths:
       - '.github/workflows/office-release-tests.yml'
       - 'src/CSweet.Api/Setup/CSweet.OfficeRelease.ps1'
+      - 'src/CSweet.Api/Setup/Start-CSweetDevelopmentOfficeSetup.ps1'
+      - 'scripts/tests/Test-DevelopmentOfficePayload.ps1'
       - 'tests/OfficeRelease.Tests.ps1'
   push:
     branches: [main]
     paths:
       - '.github/workflows/office-release-tests.yml'
       - 'src/CSweet.Api/Setup/CSweet.OfficeRelease.ps1'
+      - 'src/CSweet.Api/Setup/Start-CSweetDevelopmentOfficeSetup.ps1'
+      - 'scripts/tests/Test-DevelopmentOfficePayload.ps1'
       - 'tests/OfficeRelease.Tests.ps1'
 
 permissions:
@@ -34,4 +38,6 @@ jobs:
       - name: Verify Windows PowerShell 5.1 installer compatibility
         if: runner.os == 'Windows'
         shell: powershell
-        run: ./tests/OfficeRelease.Tests.ps1
+        run: |
+          ./tests/OfficeRelease.Tests.ps1
+          ./scripts/tests/Test-DevelopmentOfficePayload.ps1

@@ -25,6 +25,7 @@
     <Content Remove="Catalog\plugins.json" />
     <None Remove="Catalog\plugins.json" />
     <EmbeddedResource Include="Catalog\plugins.json" LogicalName="CSweet.PluginCatalog" />
+    <EmbeddedResource Include="Setup\connection-service.compose.yaml" LogicalName="CSweet.ConnectionService.Compose" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CSweet.Api.Auth;
+using CSweet.Compute.Contracts;
 using CSweet.Contracts.Compute;
 using CSweet.Domain.Compute;
 using CSweet.Domain.Core;
@@ -134,6 +135,10 @@ public static class ComputeDashboardEndpoints
                 spec?.Resources?.DiskMiB ?? 0, x.UpdatedAt, x.LeaseExpiresAt, x.LastFailureCode,
                 ComputeNetworkGrantEndpoints.Actions.All(a => networkGrants.Any(g => g.Id == ComputeNetworkGrantEndpoints.GrantId(x.Id, a))))
             {
+                Generation = x.Generation,
+                CanPowerOn = x.State == ComputeLifecycleState.Stopped && x.DesiredState == ComputeDesiredState.Stopped &&
+                    approved.Contains(InfrastructureActions.Start) && x.LeaseExpiresAt > DateTimeOffset.UtcNow,
+                CanPowerOff = x.State == ComputeLifecycleState.Ready && x.DesiredState == ComputeDesiredState.Running && approved.Contains(InfrastructureActions.Stop),
                 EmployeeId = employee?.Id,
                 Name = x.DesiredEnvironmentKey,
                 LocalLinkRequested = installation is { IsEnabled: true } && employee is { IsActive: true, ArchivedAt: null } &&
@@ -156,7 +161,7 @@ public static class ComputeDashboardEndpoints
         return new(now, progress, resources, environments.Count > 100, canManage, LegacyLocalSetupEnabled: true);
     }
 
-    private static async Task<ComputeSetupStatus> ReadOfficeCapacityAsync(CSweetDbContext db, Guid business,
+    internal static async Task<ComputeSetupStatus> ReadOfficeCapacityAsync(CSweetDbContext db, Guid business,
         DateTimeOffset now, CancellationToken token)
     {
         var businessId = business.ToString("D");
@@ -166,22 +171,37 @@ public static class ComputeDashboardEndpoints
                       where request.OrganizationId == business && employee.OrganizationId == business && install.BusinessId == businessId &&
                           install.IsEnabled && install.RevisionStatus == PluginRevisionStatus.Active && install.SetupState == PluginSetupState.Ready &&
                           employee.EmployeeType == EmployeeType.Agent && employee.IsActive && employee.ArchivedAt == null &&
-                          !db.ComputeEnvironments.Any(e => e.OrganizationId == business && e.InstallationId == install.Id && e.TeardownConfirmedAt == null)
+                          request.ProjectId != Guid.Empty
                       orderby request.RequestedAt, request.InstallationId
-                      select new { employee.DisplayName, request.RequestedAt };
-        var first = await waiting.Select(w => new { w.DisplayName, w.RequestedAt, Total = waiting.Count() })
+                      select new { request.InstallationId, employee.DisplayName, request.RequestedAt };
+        var first = await waiting.Select(w => new { w.DisplayName, w.RequestedAt, Total = waiting.Select(x => x.InstallationId).Distinct().Count() })
             .FirstOrDefaultAsync(token);
         var count = first?.Total ?? 0;
         var available = await OfficeComputePlacement.FindAsync(db, business, now, token) is not null;
+        var reserved = !available && await db.LocalOfficeSetupSessions.AnyAsync(s => s.ComputeReservationBusinessId == business &&
+            s.ComputeReservationImageDigest != null &&
+            (s.Status == LocalOfficeSetupSessionStatus.Connected || s.Status == LocalOfficeSetupSessionStatus.Ready) &&
+            s.ExecutionNode != null && s.ExecutionNode.ApprovedAt != null && s.ExecutionNode.RevokedAt == null &&
+            !db.ComputeNodes.Any(n => n.Id == s.ExecutionNodeId), token);
         var registered = available || await db.ComputeNodes.AnyAsync(n => n.OrganizationId == business &&
             (n.ProviderId == OfficeComputePlacement.ProviderId || n.ProviderId == OfficeComputePlacement.AppleProviderId) && n.Enabled, token);
+        var capacity = new OfficeComputeCapacityStatus(registered, count, first?.DisplayName, first?.RequestedAt);
+        if (reserved && !registered)
+        {
+            return new("Pending", "Waiting for Office compute registration", null, null, null)
+            {
+                Health = ComputeSetupStatus.AwaitingOfficeRegistration,
+                Phase = "office-capacity",
+                OfficeCapacity = capacity
+            };
+        }
         var state = available ? "Ready" : count > 0 ? "Pending" : "Unavailable";
         return new(state, available ? "Office compute available" : "Office compute unavailable", null, null,
             state == "Pending" ? OfficeComputeCapacityRequest.WaitingReason : null)
         {
             Health = available ? "Ready" : "WaitingForOffice",
             Phase = "office-capacity",
-            OfficeCapacity = new(registered, count, first?.DisplayName, first?.RequestedAt)
+            OfficeCapacity = capacity
         };
     }
 

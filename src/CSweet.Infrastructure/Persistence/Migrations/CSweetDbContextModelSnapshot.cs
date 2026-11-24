@@ -1869,13 +1869,19 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("InstallationId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RequestId")
                         .HasColumnType("uuid");
 
                     b.Property<DateTimeOffset>("RequestedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.HasKey("InstallationId");
+                    b.HasKey("InstallationId", "ProjectId");
 
                     b.HasIndex("OrganizationId", "RequestedAt", "InstallationId");
 
@@ -11441,6 +11447,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)");
 
+                    b.Property<string>("WorkspaceBudgetJson")
+                        .HasColumnType("text");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CertificateThumbprint")
@@ -12371,6 +12380,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("WorkRestoredAt")
                         .IsConcurrencyToken()
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("WorkspaceBudgetJson")
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 

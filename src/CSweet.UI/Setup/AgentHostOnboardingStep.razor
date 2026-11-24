@@ -8,7 +8,7 @@
     @if (RemoteOnly) { <h2 id="host-onboarding-title">Connect a device</h2> }
     else {
     <header class="host-onboarding-header">
-        <MudText Typo="Typo.overline">@L["AgentHostOnboardingStep.Step2Of5"]</MudText>
+        <MudText Typo="Typo.overline">@ContextLabel</MudText>
         <h1 id="host-onboarding-title">@L["AgentHostOnboardingStep.WhereShouldYourAgentsWork"]</h1>
         <p>@L["AgentHostOnboardingStep.ChooseTheFirstMachineThat"]</p>
     </header>
@@ -137,6 +137,7 @@
 </section>
 
 @code {
+    [Parameter] public string? ContextLabel { get; set; }
     [Parameter] public bool RemoteOnly { get; set; }
     [Parameter] public EventCallback OnBack { get; set; }
     [Parameter] public EventCallback OnContinue { get; set; }
@@ -155,6 +156,9 @@
     private string? _storageVolumeId;
     private bool _storageSelectionInitialized;
     private int _customCpuCount;
+    private bool _customWorkspaceBudget;
+    private int _workspaceCpu = 2, _workspaceMemory = 2048, _workspaceDisk = 20480;
+    private OfficeWorkspaceBudget? RequestedWorkspaceBudget => _customWorkspaceBudget && OfficeWorkspaceBudget.Suggested(SelectedAllocation.CpuCount, SelectedAllocation.MemoryMb, SelectedAllocation.DiskMb) is not null ? new(_workspaceCpu, _workspaceMemory, _workspaceDisk) : null;
     private int _customMemoryGb;
     private int _customStorageGb;
     private bool _customInitialized;
@@ -245,7 +249,7 @@
         {
             var allocation = SelectedAllocation;
             var result = await SetupApi.CreateLocalOfficeSetupSessionAsync(new(
-                _capacityPreset, allocation.CpuCount, allocation.MemoryMb, allocation.DiskMb, StorageVolumeId: _storageVolumeId));
+                _capacityPreset, allocation.CpuCount, allocation.MemoryMb, allocation.DiskMb, StorageVolumeId: _storageVolumeId, WorkspaceBudget: RequestedWorkspaceBudget));
             _status = result.Status;
             _localSession = result.Session;
             AdoptLocalSession(result.Session);
@@ -647,7 +651,7 @@
                         @foreach (var volume in volumes)
                         {
                             <option value="@volume.Id" disabled="@(!volume.IsEligible)">
-                                @volume.MountPath @volume.Label � @FormatBytes(volume.FreeBytes) free of @FormatBytes(volume.TotalBytes) @(volume.IsSystemVolume ? "(System)" : "") @volume.UnavailableReason
+                                @volume.MountPath @volume.Label &mdash; @FormatBytes(volume.FreeBytes) free of @FormatBytes(volume.TotalBytes) @(volume.IsSystemVolume ? "(System)" : "") @volume.UnavailableReason
                             </option>
                         }
                     </select>
@@ -703,6 +707,25 @@
                             @AllocationEditor("Storage", _customStorageGb, "GB", "storage")
                         </div>
                         <small class="@(LocalAllocationIsValid ? null : "invalid")">@CustomAllocationHint</small>
+                    </fieldset>
+                }
+                @if (OfficeWorkspaceBudget.Suggested(SelectedAllocation.CpuCount, SelectedAllocation.MemoryMb, SelectedAllocation.DiskMb) is { } suggested)
+                {
+                    <fieldset class="custom-allocation">
+                        <legend>Separate workspace VMs</legend>
+                        <label><input type="checkbox" @bind="_customWorkspaceBudget" /> Set workspace limits</label>
+                        @if (_customWorkspaceBudget)
+                        {
+                            <div class="allocation-input-grid">
+                                <label>CPU cores <input type="number" min="2" @bind="_workspaceCpu" /></label>
+                                <label>RAM (MiB) <input type="number" min="2048" @bind="_workspaceMemory" /></label>
+                                <label>Disk (MiB) <input type="number" min="20480" @bind="_workspaceDisk" /></label>
+                            </div>
+                        }
+                        else
+                        {
+                            <small>@suggested.CpuCount cores · @suggested.MemoryMiB MiB RAM · @suggested.DiskMiB MiB disk</small>
+                        }
                     </fieldset>
                 }
             }
@@ -1297,7 +1320,8 @@
         {
             var capacity = SelectedCapacity;
             var value = SelectedAllocation;
-            return capacity is { IsSupported: true } &&
+            return (RequestedWorkspaceBudget?.Fits(value.CpuCount - 1, value.MemoryMb - 128, value.DiskMb - 64) ?? true) &&
+                capacity is { IsSupported: true } &&
                 value.CpuCount >= capacity.MinimumCpuCount && value.CpuCount <= capacity.SafeCpuCount &&
                 value.MemoryMb >= capacity.MinimumMemoryMb && value.MemoryMb <= capacity.SafeMemoryMb &&
                 value.DiskMb >= capacity.MinimumDiskMb && value.DiskMb <= capacity.SafeDiskMb;

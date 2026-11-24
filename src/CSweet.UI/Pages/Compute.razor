@@ -120,6 +120,11 @@
                             }
                             else
                             {
+                                @if (context.CanPowerOff || context.CanPowerOn)
+                                {
+                                    <MudButton Size="Size.Small" Disabled="_grantBusy.HasValue" OnClick="@(() => ChangePowerAsync(context))">@(context.CanPowerOn ? "Start VM" : "Stop VM")</MudButton>
+                                }
+                                @if (context.State == "Stopped") { <span>Disk retained</span> }
                                 <MudButton Size="Size.Small" Disabled="_grantBusy.HasValue" OnClick="@(() => _releaseConfirm = context.Id)">@L["Compute.ReleaseInstance"]</MudButton>
                             }
                         }
@@ -317,6 +322,21 @@
         catch (Exception) { _error = L["Compute.CouldNotReleaseTheInstance"]; }
         finally { _grantBusy = null; }
     }
+    private async Task ChangePowerAsync(ComputeResourceStatus resource)
+    {
+        if (_grantBusy.HasValue) return;
+        _grantBusy = resource.Id;
+        try
+        {
+            var action = resource.CanPowerOn ? "start" : "stop";
+            using var response = await Http.PostAsync($"api/organizations/{OrganizationId}/compute/{resource.Id}/power/{action}?generation={resource.Generation}", null, _stop.Token);
+            await LoadAsync();
+            if (!response.IsSuccessStatusCode) _error = "The power request could not be accepted. Check Office capacity and current instance state.";
+        }
+        catch (HttpRequestException) { _error = "The Office power request could not be delivered."; }
+        finally { _grantBusy = null; }
+    }
+
     private async Task SetLocalLinkAsync(ComputeResourceStatus resource)
     {
         if (_grantBusy.HasValue) return;

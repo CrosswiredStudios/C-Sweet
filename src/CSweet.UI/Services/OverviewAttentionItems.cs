@@ -83,7 +83,9 @@ public static class OverviewAttentionItems
             : [];
 
     public static bool WaitingForOfficeCapacity(ComputeDashboard? dashboard) =>
-        dashboard is { CanManageNetwork: true, Setup.Health: "WaitingForOffice" };
+        dashboard is { CanManageNetwork: true, Setup: { } setup } &&
+        (setup.Health == "WaitingForOffice" ||
+         setup is { Health: ComputeSetupStatus.AwaitingOfficeRegistration, OfficeCapacity.WaitingEmployees: > 0 });
 
     public static ComputeSetupStatus? FailedComputePreparation(ComputeDashboard? dashboard) =>
         dashboard is { CanManageNetwork: true, Setup.State: "Failed" } ? dashboard.Setup : null;

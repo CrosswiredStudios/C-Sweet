@@ -87,7 +87,7 @@ public static class ComputeManagementEndpoints
         await RequireOwnerAsync(db, business, user, token);
         if (request.RequestId == Guid.Empty || request.InstallationId == Guid.Empty || request.ProjectId == Guid.Empty ||
             !ComputeSpecification.Identifier(request.Name) || request.LifetimeSeconds < 0) throw new ArgumentException();
-        var policy = await defaults.ReadProjectAsync(business, request.InstallationId, request.ProjectId, token);
+        var policy = await defaults.RequestProjectWorkspaceAsync(business, request.InstallationId, request.ProjectId, token);
         if (policy.State != "Ready" || policy.TemplateId is null) throw new InvalidOperationException();
         if (policy.MaximumLifetimeSeconds > 0 && (request.LifetimeSeconds == 0 || request.LifetimeSeconds > policy.MaximumLifetimeSeconds))
             throw new ArgumentException();

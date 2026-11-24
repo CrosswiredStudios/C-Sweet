@@ -1,74 +1,313 @@
 @using CSweet.Contracts.Plugins
-@using System.Net.Http.Json
 @inject HttpClient Http
+@inject IAppLocalizer L
+@inject NavigationManager Navigation
 
-<section>
-    <MudText Typo="Typo.h5">Connect to external services</MudText>
-    <MudText>Choose where C-Sweet handles supported provider connections. Connecting an account still requires that provider's consent. You can skip this and change it in Settings.</MudText>
-    @if (_choice is null)
-    {
-        @if (_error is null) { <MudProgressLinear Indeterminate="true" /> }
+<section class="provider-step connection-step" aria-labelledby="connection-title" aria-busy="@_busy">
+    <header class="provider-step-header">
+        @if (OnContinue.HasDelegate)
+        {
+            <MudText Typo="Typo.overline">@ContextLabel</MudText>
+            <h1 id="connection-title" tabindex="-1" @ref="_heading">@L[TitleKey]</h1>
+        }
         else
         {
-            <MudButton OnClick="OnInitializedAsync">Retry</MudButton>
-            @if (OnContinue.HasDelegate)
+            <h2 id="connection-title" tabindex="-1" @ref="_heading">@L[TitleKey]</h2>
+        }
+        <p>@L[IntroKey]</p>
+        @if (IsInstall)
+        {
+            <MudLink Href="https://docs.docker.com/compose/install/" Target="_blank">@L["ConnectionGuide.InstallDocker"]</MudLink>
+        }
+    </header>
+
+    @if (_choice is null && _error is null)
+    {
+        <MudProgressLinear Color="Color.Primary" Indeterminate="true" aria-label="@L["Common.Loading"]" />
+    }
+    else if (_choice is not null)
+    {
+        @if (_screen is Screen.Choices or Screen.Location)
+        {
+            <div class="connection-options">
+                @foreach (var option in _screen == Screen.Choices ? Hosting : Locations)
+                {
+                    <button type="button" class="connection-option" disabled="@_busy" @onclick="() => OpenAsync(option.Target)">
+                        <span class="connection-icon" aria-hidden="true"><MudIcon Icon="@option.Icon" /></span>
+                        <span class="connection-copy">
+                            <strong>@L[option.Title] @if (option.Target == Screen.Hosted) { <span class="connection-price">@L["ConnectionGuide.Free"]</span> }</strong>
+                            <small>@L[option.Detail]</small>
+                        </span>
+                        <MudIcon Icon="@Icons.Material.Filled.ChevronRight" Class="connection-chevron" />
+                    </button>
+                }
+            </div>
+        }
+        else
+        {
+            @if (IsSelfHosted)
             {
-                <MudButton OnClick="OnBack">Back</MudButton>
-                <MudButton OnClick="OnContinue">Leave unchanged and continue</MudButton>
+                <MudTextField T="string" Label="@L["ConnectionSetup.Address"]" Value="@_origin" ValueChanged="ChangeOrigin"
+                              Immediate="true" Disabled="_busy" Variant="Variant.Outlined" Placeholder="https://connections.example.com"
+                              HelperText="@(IsInstall ? L["ConnectionGuide.Domain"] : L["ConnectionSetup.AddressHint"])" />
+                @if (IsInstall && _origin.Length > 0 && Compose is null)
+                {
+                    <p role="status">@L["ConnectionGuide.DomainRequired"]</p>
+                }
+                @if (IsInstall && Compose is { } file)
+                {
+                    <div class="connection-guide">
+                        <a class="connection-download" download="compose.yaml" href="@ConnectionServiceInstallFile.DownloadUrl(file)">
+                            <MudIcon Icon="@Icons.Material.Outlined.Download" /> @L["ConnectionGuide.Download"]
+                        </a>
+                        <p>@L[_screen == Screen.Remote ? "ConnectionGuide.Transfer" : "ConnectionGuide.Run"]</p>
+                        <pre dir="ltr">docker compose up -d --build</pre>
+                    </div>
+                }
+                @if (!IsInstall || Compose is not null)
+                {
+                    <details class="connection-details">
+                        <summary>@L["ConnectionGuide.HqSettings"]</summary>
+                        <p>@L["ConnectionGuide.AllowOrigin"]</p>
+                        <code>CSweet:ConnectionServiceNetwork:AllowedOrigins</code>
+                        <p>@L["ConnectionGuide.PairSettings"]</p>
+                        <pre dir="ltr">CSweet:PluginConnections:Managed:ReturnUri = @BrowserReturn
+CSweet:PluginConnections:Managed:RegistrationPath
+CSweet:ConnectionServiceOwner:RegistrationPath</pre>
+                    </details>
+                }
+            }
+            else
+            {
+                <div class="connection-origin"><MudIcon Icon="@Icons.Material.Outlined.CloudQueue" /> @ManagedServiceTrust.OfficialOrigin</div>
+            }
+
+            @if (!IsInstall || Compose is not null)
+            {
+                <div class="connection-verify">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="CheckAsync"
+                               StartIcon="@Icons.Material.Outlined.NetworkCheck">
+                        @(ChoiceChanged ? L["ConnectionSetup.SaveAndCheck"] : L["ConnectionSetup.Check"])
+                    </MudButton>
+                    @if (_probe is not null)
+                    {
+                        <p role="status">@ProbeLabel</p>
+                    }
+                </div>
+            }
+
+            @if (_probe?.OAuthAccountSetup == true)
+            {
+                <ConnectionServicePairingPanel @key="_choice.Revision" SelfHosted="IsSelfHosted" />
+            }
+            @if (!ChoiceChanged && _choice.Mode != "Skip")
+            {
+                <ConnectionServicePhoneGuide @key="_choice" Choice="_choice" InSettings="@(!OnContinue.HasDelegate)" />
+            }
+        }
+        @if (_screen == Screen.Choices && !OnContinue.HasDelegate)
+        {
+            <p role="status">@L["ConnectionGuide.Current"] <strong>@(_choice.Mode == "Skip" ? L["Common.Disabled"] : _choice.Origin)</strong></p>
+            @if (_choice.Mode != "Skip")
+            {
+                <ConnectionServicePairingPanel @key="_choice.Revision" SelfHosted="@(_choice.Mode == "SelfHosted")" InSettings="true" />
+                <ConnectionServicePhoneGuide @key="_choice" Choice="_choice" InSettings="true" />
             }
         }
     }
-    else
+
+    @if (_error is not null)
     {
-        <MudSelect T="string" Label="Connection service" @bind-Value="_mode" Disabled="_busy">
-            <MudSelectItem T="string" Value='@("Official")'>Official managed service</MudSelectItem>
-            <MudSelectItem T="string" Value='@("SelfHosted")'>Self-hosted service</MudSelectItem>
-            <MudSelectItem T="string" Value='@("Skip")'>Skip for now</MudSelectItem>
-        </MudSelect>
-        @if (_mode == "Official")
-        { <MudText>C-Sweet operates @ManagedServiceTrust.OfficialOrigin and holds provider authorization credentials. Availability and account pairing must be verified.</MudText> }
-        @if (_mode == "SelfHosted")
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@_error</MudAlert>
+        @if (_screen == Screen.Choices || _saveFailed)
         {
-            <MudTextField T="string" Label="Your service HTTPS address" @bind-Value="_origin" Disabled="_busy" />
-            <MudText>Your operator manages provider applications, protected storage, backups and availability. Using a service does not make this installation its administrator.</MudText>
-        }
-        @if (_mode == "Skip") { <MudText>Continue using local C-Sweet features. Managed provider connections will remain unavailable; existing cleanup obligations are preserved.</MudText> }
-        <MudAlert Severity="Severity.Info" Class="my-3">This pilot supports OAuth account setup and resource import. Mobile app pairing is planned and unavailable. General managed uploads and other provider actions are not enabled.</MudAlert>
-        <MudButton Disabled="_busy" OnClick="Save" Variant="Variant.Filled">Save choice</MudButton>
-        <MudButton Disabled="@(_busy || _choice.Mode == "Skip")" OnClick="Probe">Check service</MudButton>
-        @if (_probe is not null) { <MudText>Service status: @ProbeLabel. A successful check does not grant access or finish pairing.</MudText> }
-        <MudText Class="my-3">Moving an already paired installation to another service is not available in this pilot. You can skip and re-enable its current service; existing provider grants are not transferred.</MudText>
-        @if (OnContinue.HasDelegate)
-        {
-            <MudButton Disabled="_busy" OnClick="OnBack">Back</MudButton>
-            <MudButton Disabled="_busy" OnClick="Continue">Continue</MudButton>
+            <MudButton OnClick="LoadAsync" Disabled="_busy">@L["Common.Retry"]</MudButton>
         }
     }
-    @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
+    <footer class="provider-step-actions connection-actions">
+        @if (_screen != Screen.Choices || OnBack.HasDelegate)
+        {
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ArrowBack" Disabled="_busy" OnClick="BackAsync">@L["Common.Back"]</MudButton>
+        }
+        @if (OnContinue.HasDelegate && (_screen != Screen.Choices || _error is not null))
+        {
+            <MudButton Variant="Variant.Text" Disabled="_busy" OnClick="FinishLaterAsync">
+                @(_probe?.OAuthAccountSetup == true ? L["ConnectionSetup.Finish"] : L["ConnectionGuide.FinishLater"])
+            </MudButton>
+        }
+    </footer>
 </section>
+
 @code {
+    [Parameter] public string? ContextLabel { get; set; }
     [Parameter] public EventCallback OnContinue { get; set; }
     [Parameter] public EventCallback OnBack { get; set; }
     [Parameter] public EventCallback OnSaved { get; set; }
+
+    private enum Screen { Choices, Hosted, Location, Local, Remote, Existing, Later }
+    private sealed record Option(Screen Target, string Icon, string Title, string Detail);
+    private Option[] Hosting => [
+        new(Screen.Hosted, Icons.Material.Outlined.CloudQueue, "ConnectionGuide.Hosted", "ConnectionGuide.HostedDetail"),
+        new(Screen.Location, Icons.Material.Outlined.Dns, "ConnectionGuide.Self", "ConnectionGuide.SelfDetail"),
+        new(Screen.Later, Icons.Material.Outlined.Schedule, OnContinue.HasDelegate ? "ConnectionGuide.Later" : "ConnectionGuide.Off",
+            OnContinue.HasDelegate ? "ConnectionGuide.LaterDetail" : "ConnectionSetup.LaterDetail")
+    ];
+    private static readonly Option[] Locations = [
+        new(Screen.Local, Icons.Material.Outlined.Computer, "ConnectionGuide.Local", "ConnectionGuide.LocalDetail"),
+        new(Screen.Remote, Icons.Material.Outlined.Dns, "ConnectionGuide.Remote", "ConnectionGuide.RemoteDetail"),
+        new(Screen.Existing, Icons.Material.Outlined.Link, "ConnectionGuide.Existing", "ConnectionGuide.ExistingDetail")
+    ];
+    private Screen _screen = Screen.Choices;
     private ConnectionServiceChoice? _choice;
     private ConnectionServiceProbe? _probe;
-    private string ProbeLabel => _probe?.State switch { "OAuthSetupAvailable" => "OAuth account setup is available", "Skipped" => "not connected", "Unsupported" => "this service does not support account setup", _ => "currently unavailable or unsupported" };
-    private string _mode = "Skip", _origin = "";
-    private string? _error;
-    private bool _busy;
-    protected override async Task OnInitializedAsync()
+    private string _origin = "";
+    private string? _returnUri, _error;
+    private bool _busy, _saveFailed;
+    private ElementReference _heading;
+    private bool _focusHeading;
+    private bool IsInstall => _screen is Screen.Local or Screen.Remote;
+    private bool IsSelfHosted => IsInstall || _screen == Screen.Existing;
+    private string Mode => IsSelfHosted ? "SelfHosted" : "Official";
+    private string BrowserReturn => !string.IsNullOrWhiteSpace(_returnUri) ? _returnUri : Navigation.ToAbsoluteUri("settings/plugins/managed-return").AbsoluteUri;
+    private string? Compose => IsInstall ? ConnectionServiceInstallFile.Build(_origin, BrowserReturn) : null;
+    private bool ChoiceChanged => _choice?.Mode != Mode || IsSelfHosted && _choice.Origin != _origin;
+    private string TitleKey => _screen switch {
+        Screen.Choices => OnContinue.HasDelegate ? "ConnectionGuide.Title" : "ConnectionSetup.Title", Screen.Hosted => "ConnectionGuide.Hosted",
+        Screen.Location => "ConnectionGuide.Where", Screen.Existing => "ConnectionGuide.Existing", _ => "ConnectionGuide.Install"
+    };
+    private string IntroKey => _screen switch {
+        Screen.Hosted => "ConnectionGuide.HostedIntro", Screen.Location => "ConnectionGuide.LocationIntro",
+        Screen.Local => "ConnectionGuide.LocalIntro", Screen.Remote => "ConnectionGuide.RemoteIntro", Screen.Existing => "ConnectionGuide.ExistingDetail", _ => "ConnectionGuide.Intro"
+    };
+    private string ProbeLabel => _probe?.State switch {
+        "OAuthSetupAvailable" => L["ConnectionSetup.Available"], "Unsupported" => L["ConnectionSetup.Unsupported"], _ => L["ConnectionSetup.Unavailable"]
+    };
+    protected override Task OnInitializedAsync() => LoadAsync();
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        try { _choice = await Http.GetFromJsonAsync<ConnectionServiceChoice>("api/plugins/connection-service/selection"); _mode = _choice?.Mode ?? "Skip"; _origin = _choice?.Origin ?? ""; }
-        catch { _error = "Sign in as a current system administrator to review this choice. Local setup remains available."; }
+        if (!_focusHeading) return;
+        _focusHeading = false;
+        await _heading.FocusAsync();
     }
-    private async Task<bool> Persist()
+
+    private async Task LoadAsync()
     {
-        if (_choice is null) return false;
-        using var response = await Http.PutAsJsonAsync("api/plugins/connection-service/selection", new SaveConnectionServiceChoice(_mode, _origin, _choice.Revision));
-        if (!response.IsSuccessStatusCode) { _error = "Choice could not be saved. Reload if another administrator changed it. An existing pairing must be retired safely before changing its service address."; return false; }
-        _choice = await response.Content.ReadFromJsonAsync<ConnectionServiceChoice>(); _probe = null; await OnSaved.InvokeAsync(); return true;
+        _busy = true;
+        _error = null;
+        try
+        {
+            _choice = await Http.GetFromJsonAsync<ConnectionServiceChoice>("api/plugins/connection-service/selection") ?? throw new HttpRequestException();
+            _origin = _choice.Origin != ManagedServiceTrust.OfficialOrigin ? _choice.Origin ?? "" : "";
+            _probe = null;
+            _saveFailed = false;
+        }
+        catch (Exception ex) when (IsRequestFailure(ex)) { _error = L["ConnectionSetup.LoadError"]; }
+        finally { _busy = false; }
     }
-    private async Task Save() { _busy = true; _error = null; try { await Persist(); } catch { _error = "Service choice could not be saved."; } finally { _busy = false; } }
-    private async Task Continue() { _busy = true; _error = null; try { if (await Persist()) await OnContinue.InvokeAsync(); } catch { _error = "Your choice could not be saved. Try again before continuing."; } finally { _busy = false; } }
-    private async Task Probe() { _busy = true; _error = null; try { using var response = await Http.PostAsync("api/plugins/connection-service/probe", null); response.EnsureSuccessStatusCode(); _probe = await response.Content.ReadFromJsonAsync<ConnectionServiceProbe>(); } catch { _error = "The service cannot be checked now. You can continue and pair later."; } finally { _busy = false; } }
+
+    private async Task OpenAsync(Screen target)
+    {
+        if (_busy || _choice is null) return;
+        _error = null;
+        _saveFailed = false;
+        _probe = null;
+        if (target == Screen.Later)
+        {
+            _busy = true;
+            try
+            {
+                // Imported installations can already have a protected pairing before a selection was ever saved.
+                var disable = _choice.Revision == 0 || !OnContinue.HasDelegate && _choice.Mode != "Skip";
+                if (OnContinue.HasDelegate && disable && _choice.Mode != "Skip")
+                {
+                    var status = await Http.GetFromJsonAsync<ManagedConnectionStatus>("api/plugins/managed-connections/status");
+                    disable = status?.PairingState is "NotPaired" or "ConfigurationRequired";
+                }
+                if (disable && !await SaveAsync("Skip", null)) return;
+                await OnContinue.InvokeAsync();
+            }
+            catch (Exception ex) when (IsRequestFailure(ex)) { _error = L["ConnectionSetup.SaveError"]; }
+            finally { _busy = false; }
+            return;
+        }
+        _screen = target;
+        _focusHeading = true;
+        if (IsInstall)
+        {
+            _busy = true;
+            try { _returnUri = (await Http.GetFromJsonAsync<ManagedConnectionStatus>("api/plugins/managed-connections/status"))?.ReturnUri; }
+            catch (Exception ex) when (IsRequestFailure(ex)) { _returnUri = null; }
+            finally { _busy = false; }
+        }
+    }
+
+    private Task BackAsync()
+    {
+        if (_screen == Screen.Choices) return OnBack.InvokeAsync();
+        _screen = IsSelfHosted ? Screen.Location : Screen.Choices;
+        _focusHeading = true;
+        _error = null;
+        _saveFailed = false;
+        _probe = null;
+        return Task.CompletedTask;
+    }
+
+    private async Task FinishLaterAsync()
+    {
+        if (_busy) return;
+        if (_choice?.Revision == 0 && _error is null)
+        {
+            await OpenAsync(Screen.Later);
+            return;
+        }
+        _busy = true;
+        try { await OnContinue.InvokeAsync(); }
+        finally { _busy = false; }
+    }
+
+    private void ChangeOrigin(string origin) { _origin = origin; _probe = null; _error = null; _saveFailed = false; }
+
+    private async Task<bool> SaveAsync(string mode, string? origin)
+    {
+        using var response = await Http.PutAsJsonAsync("api/plugins/connection-service/selection",
+            new SaveConnectionServiceChoice(mode, origin, _choice!.Revision));
+        if (!response.IsSuccessStatusCode)
+        {
+            _saveFailed = true;
+            _error = L["ConnectionSetup.SaveError"];
+            return false;
+        }
+        _choice = await response.Content.ReadFromJsonAsync<ConnectionServiceChoice>() ?? throw new HttpRequestException();
+        if (mode == "SelfHosted") _origin = _choice.Origin ?? "";
+        await OnSaved.InvokeAsync();
+        return true;
+    }
+
+    private async Task CheckAsync()
+    {
+        if (_busy || _choice is null) return;
+        _busy = true;
+        _saveFailed = false;
+        _error = null;
+        _probe = null;
+        try
+        {
+            string? origin = null;
+            if (IsSelfHosted)
+            {
+                try { origin = ManagedServiceTrust.CanonicalOrigin(_origin); }
+                catch (InvalidOperationException) { _error = L["ConnectionSetup.InvalidAddress"]; return; }
+                if (IsInstall && Compose is null) { _error = L["ConnectionGuide.DomainRequired"]; return; }
+                if (IsInstall) origin = "https://" + new Uri(origin).IdnHost;
+            }
+            if ((ChoiceChanged || _choice.Revision == 0) && !await SaveAsync(Mode, origin)) return;
+            using var response = await Http.PostAsync("api/plugins/connection-service/probe", null);
+            response.EnsureSuccessStatusCode();
+            _probe = await response.Content.ReadFromJsonAsync<ConnectionServiceProbe>() ?? throw new HttpRequestException();
+        }
+        catch (Exception ex) when (IsRequestFailure(ex)) { _error = L["ConnectionSetup.CheckError"]; }
+        finally { _busy = false; }
+    }
+
+    private static bool IsRequestFailure(Exception ex) => ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException;
 }

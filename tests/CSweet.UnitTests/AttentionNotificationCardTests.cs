@@ -127,6 +127,7 @@ public sealed class AttentionNotificationCardTests
         {
             var collection = new ServiceCollection().AddLogging(); collection.AddMudServices(); collection.AddCSweetLocalization();
             collection.AddSingleton<IJSRuntime, NoJavaScript>(); collection.AddSingleton<NavigationManager, TestNavigation>();
+            collection.AddSingleton<AppRealtimeState>();
             collection.AddSingleton(new HttpClient { BaseAddress = new("http://localhost/") });
             collection.AddSingleton<IComponentActivator>(components);
             services = collection.BuildServiceProvider(); renderer = new(services, services.GetRequiredService<ILoggerFactory>());

@@ -24,7 +24,7 @@ else
                     {
                         @if (!Item.Questions.Any(q => q.Decision.Id == decision.Id))
                         {
-                            <DecisionPrompt Content="@decision.Prompt" OrganizationId="OrganizationId" ConversationId="chat" PendingDecisionId="@(decision.Status == "Pending" ? decision.Id : (Guid?)null)" />
+                            <DecisionPrompt Content="@decision.Prompt" />
                             <IncidentResolutionChoices @key="decision.Id" OrganizationId="OrganizationId" ConversationId="chat" Decision="decision" Answered="RefreshRequested" />
                         }
                     }

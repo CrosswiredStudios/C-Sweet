@@ -29,6 +29,13 @@ public static class ExecutionFleetEndpoints
             x.ExecutionNodeId == nodeId && (x.Status == ExecutionAssignmentStatus.Pending || x.Status == ExecutionAssignmentStatus.Assigned || x.Status == ExecutionAssignmentStatus.Starting ||
                 x.Status == ExecutionAssignmentStatus.Running || x.Status == ExecutionAssignmentStatus.Stopping), cancellationToken))
             return Results.BadRequest(new ExecutionFleetMutationResponse(false, "office_busy", "Let current work finish before changing the workload group."));
+        if (request.WorkspaceBudget is { } budget)
+        {
+            var installed = CSweet.Infrastructure.Compute.OfficeComputePlacement.InstalledBudget(node.ComputeCapacityJson);
+            if (installed == null || !budget.Fits(installed.CpuCount, installed.MemoryMiB, installed.DiskMiB))
+                return Results.BadRequest(new ExecutionFleetMutationResponse(false, "invalid_workspace_budget", "Choose compute limits within the Office machine allocation."));
+            node.WorkspaceBudgetJson = JsonSerializer.Serialize(budget);
+        }
         node.Name = request.Name.Trim();
         node.ExecutionPoolId = request.ExecutionPoolId;
         node.UpdatedAt = clock.GetUtcNow();

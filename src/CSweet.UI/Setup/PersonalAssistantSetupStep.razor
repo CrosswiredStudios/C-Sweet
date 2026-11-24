@@ -1,7 +1,7 @@
 @inject IAppLocalizer L
 <section class="provider-setup-step assistant-setup-step">
     <header class="provider-step-heading">
-        <MudText Typo="Typo.overline">@L["PersonalAssistantSetupStep.Step4Of5"]</MudText>
+        <MudText Typo="Typo.overline">@ContextLabel</MudText>
         <h1>@L["PersonalAssistantSetupStep.MakeYourAssistantYours"]</h1>
         <p>@L["PersonalAssistantSetupStep.ChooseANameAndModel"]</p>
     </header>
@@ -16,6 +16,7 @@
 </section>
 
 @code {
+    [Parameter] public string? ContextLabel { get; set; }
     [Parameter] public Guid? PreferredProviderId { get; set; }
     [Parameter] public bool IsCompleting { get; set; }
     [Parameter] public EventCallback OnBack { get; set; }

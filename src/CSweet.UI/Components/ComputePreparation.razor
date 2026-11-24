@@ -26,6 +26,7 @@
         {
             <div class="preparation-detail office-capacity" aria-live="polite">
                 <h4>@(Setup.State == "Ready" ? "An Office can accept a Linux workspace" :
+                    Setup.Health == ComputeSetupStatus.AwaitingOfficeRegistration ? Setup.Stage :
                     office.WaitingEmployees > 0 ? "Workspace provisioning is blocked" : "No Office capacity available")</h4>
                 @if (office.WaitingEmployees > 0)
                 {
@@ -35,7 +36,11 @@
                         <p>@office.WaitingEmployees employees are awaiting placement.</p>
                     }
                 }
-                @if (Setup.State != "Ready")
+                @if (Setup.Health == ComputeSetupStatus.AwaitingOfficeRegistration)
+                {
+                    <p class="preparation-description">Office setup reserved Linux compute for this business. Headquarters is waiting for the Office to report its capacity.</p>
+                }
+                else if (Setup.State != "Ready")
                 {
                     <p class="preparation-description">@(office.HasRegisteredOffice
                         ? "An Office has registered compute, but none can accept a new workspace right now. Check the Office connection and its reserved capacity."
@@ -173,6 +178,7 @@
     private int Milestone => Setup?.Milestone > 0 ? Setup.Milestone : Setup?.PreparationStep switch { 1 => 2, 2 => 3, 3 => 5, _ => 0 };
     private string StatusLabel => Setup switch
     {
+        { Health: ComputeSetupStatus.AwaitingOfficeRegistration } => "Reserved",
         { OfficeCapacity: not null, State: "Pending" } => "Blocked",
         { OfficeCapacity: not null, State: "Unavailable" } => "Unavailable",
         _ when WaitingForOffice => "Waiting for Office",
@@ -187,6 +193,7 @@
     };
     private string BadgeClass => Setup switch
     {
+        { Health: ComputeSetupStatus.AwaitingOfficeRegistration } => "",
         { OfficeCapacity: not null, State: "Pending" } => "warning",
         { State: "Ready" } => "success",
         { Health: "NeedsPermission" } => "warning",

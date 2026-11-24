@@ -1,0 +1,85 @@
+@using CSweet.Contracts.Plugins
+@inject HttpClient Http
+@inject IAppLocalizer L
+
+<section class="connection-pairing">
+    <MudText>Pair Headquarters once. Each account owner can then sign in through their plugin.</MudText>
+    @if (_status is not null) { <ManagedServiceOriginNotice Origin="@_status.ServiceOrigin" /> }
+    @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
+    @if (_status is null && _error is not null) { <MudButton OnClick="Reload">@L["Common.Retry"]</MudButton> }
+    else if (_status is null) { <MudProgressLinear Indeterminate="true" /> }
+    else if (_status.PairingState == "OriginChanged")
+    { <MudAlert Severity="Severity.Warning">The stored pairing belongs to @_status.PairedServiceOrigin. New connections are blocked. Existing cleanup stays bound to that original service. Finish that cleanup, then enroll a fresh deployment for the new service.</MudAlert> }
+    else if (_status.PairingState == "LegacyUnbound")
+    { <MudAlert Severity="Severity.Warning">This older pairing has no verified service address and is blocked. Preserve it for operator-assisted recovery and enroll a fresh deployment before connecting accounts.</MudAlert> }
+    else if (!_status.Enabled || _status.PairingState == "ConfigurationRequired" || string.IsNullOrWhiteSpace(_status.ReturnUri))
+    {
+        <MudAlert Severity="Severity.Info">On the Headquarters API, set the managed browser return address to the HTTPS address of your Headquarters UI followed by /settings/plugins/managed-return. Set the deployment registration path to a protected absolute file path, restart the API, and check again.</MudAlert>
+    }
+    else if (_status.Paired) { <MudAlert Severity="Severity.Success">This installation is paired. Provider credentials stay at the connection service.</MudAlert> }
+    else
+    {
+        <MudText Typo="Typo.h6">Pair this installation</MudText>
+        <MudText>Browser return: @_status.ReturnUri</MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="Prepare" Class="my-4">Prepare pairing</MudButton>
+        @if (_pairing is not null)
+        {
+            <MudText>Register this public key with the service using your authorized enterprise administrator account. No Google secret is needed on this installation.</MudText>
+            <MudTextField T="string" Value="@System.Text.Json.JsonSerializer.Serialize(_pairing)" ReadOnly="true" Lines="5" Label="Public pairing details" Variant="Variant.Outlined" Class="my-4" />
+            @if (SelfHosted)
+            {
+                <details class="connection-details">
+                    <summary>@L["ConnectionGuide.OwnerApproval"]</summary>
+                    <p>@L["ConnectionGuide.OwnerCommand"]</p>
+                    <pre dir="ltr">docker compose cp owner.json connections:/tmp/owner.json
+docker compose exec connections dotnet CSweet.ConnectionService.dll --owner-admin /tmp/owner.json</pre>
+                    <ConnectionServiceOwnerPanel Pairing="_pairing" OnEnrolled="UseEnrollment" />
+                </details>
+            }
+            <MudTextField T="string" @bind-Value="_deployment" Label="Deployment ID returned by service" Variant="Variant.Outlined" />
+            <MudTextField T="string" @bind-Value="_tenant" Label="Tenant ID returned by service" Variant="Variant.Outlined" Class="my-3" />
+            <MudNumericField T="long" @bind-Value="_revision" Min="1" Label="Registration revision" Variant="Variant.Outlined" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy" OnClick="Complete" Class="my-4">Verify and finish pairing</MudButton>
+        }
+    }
+    @if (InSettings && (_pairing is null || !SelfHosted)) { <ConnectionServiceOwnerPanel /> }
+</section>
+
+@code {
+    [Parameter] public bool SelfHosted { get; set; }
+    [Parameter] public bool InSettings { get; set; }
+    private void UseEnrollment(CompleteManagedConnectionPairing enrollment)
+    {
+        _deployment = enrollment.DeploymentId.ToString();
+        _tenant = enrollment.TenantId;
+        _revision = enrollment.Revision;
+    }
+    private ManagedConnectionStatus? _status;
+    private ManagedConnectionPairing? _pairing;
+    private string? _error;
+    private bool _busy;
+    private string _deployment = "", _tenant = "";
+    private long _revision = 1;
+    protected override Task OnInitializedAsync() => Reload();
+    private Task Reload() => Run(async () => _status = await Http.GetFromJsonAsync<ManagedConnectionStatus>("api/plugins/managed-connections/status") ?? throw new HttpRequestException());
+    private Task Prepare() => Run(async () => { using var response = await Http.PostAsync("api/plugins/managed-connections/pairing", null); response.EnsureSuccessStatusCode(); _pairing = await response.Content.ReadFromJsonAsync<ManagedConnectionPairing>(); });
+    private Task Complete() => Run(async () =>
+    {
+        if (!Guid.TryParse(_deployment, out var id) || string.IsNullOrWhiteSpace(_tenant) || _revision < 1) throw new InvalidOperationException();
+        using var response = await Http.PostAsJsonAsync("api/plugins/managed-connections/pairing/complete", new CompleteManagedConnectionPairing(id, _tenant, _revision));
+        response.EnsureSuccessStatusCode(); _status = await Http.GetFromJsonAsync<ManagedConnectionStatus>("api/plugins/managed-connections/status") ?? throw new HttpRequestException();
+        if (_status.Paired) _pairing = null;
+    });
+    private async Task Run(Func<Task> action)
+    {
+        if (_busy) return;
+        _busy = true;
+        _error = null;
+        try { await action(); }
+        catch (Exception error) when (error is HttpRequestException or InvalidOperationException or TaskCanceledException or System.Text.Json.JsonException)
+        {
+            _error = "Pairing could not be verified. Check administrator access, deployment configuration and the service registration.";
+        }
+        finally { _busy = false; }
+    }
+}

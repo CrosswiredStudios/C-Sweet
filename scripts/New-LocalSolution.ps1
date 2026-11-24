@@ -19,13 +19,22 @@ try {
     $solution = New-Object Xml.XmlDocument
     $solution.Load($baseSolution)
     if ($AdditionalConfiguration -and $AdditionalConfiguration -notin @('Debug', 'Release')) {
-        $configurations = $solution.CreateElement('Configurations')
-        foreach ($name in @('Debug', 'Release', $AdditionalConfiguration)) {
+        $configurations = $solution.SelectSingleNode('/Solution/Configurations')
+        if ($null -eq $configurations) {
+            $configurations = $solution.CreateElement('Configurations')
+            $solution.DocumentElement.PrependChild($configurations) | Out-Null
+        }
+        $names = @($AdditionalConfiguration)
+        if ($configurations.SelectNodes('BuildType').Count -eq 0) {
+            $names = @('Debug', 'Release', $AdditionalConfiguration)
+        }
+        $existing = @($configurations.SelectNodes('BuildType') | ForEach-Object { $_.GetAttribute('Name') })
+        foreach ($name in $names) {
+            if ($name -in $existing) { continue }
             $buildType = $solution.CreateElement('BuildType')
             $buildType.SetAttribute('Name', $name)
-            $configurations.AppendChild($buildType) | Out-Null
+            $configurations.InsertBefore($buildType, $configurations.SelectSingleNode('Platform | ProjectType')) | Out-Null
         }
-        $solution.DocumentElement.PrependChild($configurations) | Out-Null
     }
     $included = @{}
     foreach ($project in $solution.SelectNodes('//Project')) {

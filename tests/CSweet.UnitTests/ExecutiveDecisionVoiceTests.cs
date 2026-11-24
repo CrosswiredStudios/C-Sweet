@@ -19,7 +19,7 @@ public sealed partial class ExecutiveDecisionServiceTests
     [Theory, Trait("Category", "AgentHarness")]
     [InlineData("independent.research", "Avery", "Research Director", "research brief")]
     [InlineData("studio.production", "Gabriel", "Producer", "release plan")]
-    public async Task AgentQuestionUsesItsRequestersVoiceThroughConfirmation(string package, string name, string role, string work)
+    public async Task AuthoredQuestionStaysVerbatimAndOnlyTheSelectedOptionGetsGeneratedDetails(string package, string name, string role, string work)
     {
         await using var db = CreateDb();
         var setup = await SeedAsync(db);
@@ -46,7 +46,7 @@ public sealed partial class ExecutiveDecisionServiceTests
                 throw new InvalidOperationException("Missing broker response.");
             });
         var host = new AgentTestHost(new AskingAgent(package), runtime, businessId: session.BusinessId, installationId: session.InstallationId);
-        var request = new AskUserRequest(setup.ConversationId, setup.TurnId, $"The owner must decide whether to review the {work}.",
+        var request = new AskUserRequest(setup.ConversationId, setup.TurnId, $"Would you like to review my {work}?",
             [new("review", "Review first", "Hold for review.") { Impact = "Owner approval is required." }, new("later", "Defer")], "review", "review");
         var delivery = await host.DeliverEventAsync("test.user-question", request);
         Assert.True(delivery.Succeeded, delivery.Error);
@@ -62,11 +62,11 @@ public sealed partial class ExecutiveDecisionServiceTests
             Assert.Equal(name, facts.GetProperty("speaker").GetProperty("Name").GetString());
             Assert.Equal(role, facts.GetProperty("speaker").GetProperty("Role").GetString());
             Assert.Equal(request.Prompt, facts.GetProperty("Prompt").GetString());
-            var option = ((ChatOptions?)args[1])?.ResponseFormat is not null;
-            if (option) Assert.Equal("Owner approval is required.", Assert.Single(facts.GetProperty("options").EnumerateArray()).GetProperty("Impact").GetString());
+            Assert.Equal("Review first", facts.GetProperty("option").GetProperty("Label").GetString());
+            Assert.Equal("Owner approval is required.", facts.GetProperty("option").GetProperty("Impact").GetString());
+            Assert.DoesNotContain("Defer", messages[1].Text);
             calls++;
-            var text = option ? """{"text":"I would wait for your review.","impact":"You would approve the next step."}""" :
-                $"Would you like to review my {work}?";
+            const string text = """{"text":"I would wait for your review.","impact":"You would approve the next step."}""";
             return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, text)));
         });
         var provider = Guid.NewGuid();
@@ -81,12 +81,13 @@ public sealed partial class ExecutiveDecisionServiceTests
             Proxy<ILlmProviderFactory>((_, _) => Task.FromResult(client)), cache);
         Task<DecisionWordingResponse?> Wording(Guid user, string? option) =>
             service.GetWordingAsync(setup.OrganizationId, setup.ConversationId, original.Id, user, new(option), default);
-        Assert.Equal($"Would you like to review my {work}?", (await Wording(setup.OwnerId, null))?.Text);
+        Assert.Equal(request.Prompt, (await Wording(setup.OwnerId, null))?.Text);
+        Assert.Equal(0, calls);
         Assert.Equal("You would approve the next step.", (await Wording(setup.OwnerId, "review"))?.Impact);
         Assert.Equal("I would wait for your review.", (await Wording(setup.OwnerId, "review"))?.Text);
         Assert.Null(await Wording(Guid.NewGuid(), "review"));
         Assert.Null(await Wording(setup.OwnerId, "unknown"));
-        Assert.Equal(2, calls);
+        Assert.Equal(1, calls);
         var pending = Assert.Single(await decisions.ListPendingForUserAsync(setup.OrganizationId, setup.OwnerId)).Decision;
         Assert.Equal(request.Prompt, pending.Prompt);
         Assert.Equal("Owner approval is required.", pending.Options[0].Impact);

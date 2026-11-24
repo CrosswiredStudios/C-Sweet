@@ -1,0 +1,68 @@
+@using CSweet.Contracts.Plugins
+@inject HttpClient Http
+@inject IAppLocalizer L
+
+<details class="connection-details">
+    <summary>@L["ConnectionSetup.PhoneTitle"]</summary>
+    <p>@L["ConnectionSetup.PhoneHelp"]</p>
+    <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="LoadAsync">@L["ConnectionGuide.PhoneCheck"]</MudButton>
+    @if (_result is not null)
+    {
+        <p role="status">@L[StatusKey]</p>
+        @if (InSettings && _result.State is ("LinkRequired" or "LinkingDisabled"))
+        {
+            <MudLink Href="/settings/c-sweet">@L["Linking.PageTitle"]</MudLink>
+        }
+        @if (_result.State == "HostedRouteRequired")
+        {
+            <pre dir="ltr">MobileRelay__Enabled=true
+MobileRelay__Origin=&lt;relay origin&gt;
+MobileRelay__RouteId=&lt;route ID&gt;</pre>
+        }
+        @if (_result.State == "Configured")
+        {
+            <code>@_result.RelayOrigin</code>
+            @if (InSettings) { <MudLink Href="/settings/phones">@L["Phones.PageTitle"]</MudLink> }
+        }
+        @if (_result.DirectoryTicketKey is not null)
+        {
+            <p>@L["ConnectionGuide.PhoneService"]</p>
+            <a class="connection-download" download="phone.env" href="@ConnectionServiceInstallFile.DownloadUrl(PhoneEnvironment)">phone.env</a>
+            <pre dir="ltr">@PhoneEnvironment</pre>
+            <p>@L["ConnectionGuide.PhoneHeadquarters"]</p>
+            <pre dir="ltr">MobileRelay__Enabled=true
+MobileRelay__Origin=@Choice.Origin
+MobileRelay__RouteId=@_result.RouteId</pre>
+        }
+    }
+</details>
+
+@code {
+    [Parameter, EditorRequired] public ConnectionServiceChoice Choice { get; set; } = default!;
+    [Parameter] public bool InSettings { get; set; }
+    private ConnectionPhoneSetup? _result;
+    private bool _busy;
+    private string StatusKey => _result?.State switch {
+        "LinkingDisabled" => "ConnectionGuide.LinkDisabled",
+        "LinkRequired" => "ConnectionGuide.LinkRequired",
+        "HostedRouteRequired" => "ConnectionGuide.HostedRoute",
+        "Configured" => "ConnectionGuide.PhoneConfigured",
+        "SetupRequired" => "ConnectionGuide.PhoneRoute",
+        _ => "ConnectionGuide.PhoneError"
+    };
+    private string PhoneEnvironment => $"""
+        MobileRelay__Enabled=true
+        MobileRelay__DirectoryTicketKey={_result!.DirectoryTicketKey}
+        MobileRelay__Routes__0__InstallationId={_result.InstallationId:D}
+        MobileRelay__Routes__0__RouteId={_result.RouteId}
+        MobileRelay__Routes__0__HeadquartersKey={_result.HeadquartersKey}
+        """;
+    private async Task LoadAsync()
+    {
+        if (_busy) return;
+        _busy = true;
+        try { _result = await Http.GetFromJsonAsync<ConnectionPhoneSetup>("api/plugins/connection-service/phone-setup") ?? new("Unavailable"); }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException) { _result = new("Unavailable"); }
+        finally { _busy = false; }
+    }
+}

@@ -27,7 +27,14 @@ public sealed class ComputeCapabilityHandler(IComputeBroker broker, IComputeDefa
             else if (request.Capability == InfrastructureActions.Read)
             {
                 var input = Read<ReadInput>(request);
-                if (input.ArtifactId is { } artifactId && input.OperationId is null && input.EnvironmentId is null && input.Defaults is null && input.WorkstreamId is null)
+                if (input.RequestWorkspace == true)
+                {
+                    if (!session.Grant.RequiredCapabilities.Contains(InfrastructureActions.Provision)) throw new UnauthorizedAccessException();
+                    if (input.Defaults != true || input.WorkstreamId is not { } project || project == Guid.Empty ||
+                        input.OperationId != null || input.EnvironmentId != null || input.ArtifactId != null || input.Offset != null) throw new ArgumentException();
+                    response = await (defaults ?? throw new InvalidOperationException()).RequestProjectWorkspaceAsync(organizationId, installationId, project, token);
+                }
+                else if (input.ArtifactId is { } artifactId && input.OperationId is null && input.EnvironmentId is null && input.Defaults is null && input.WorkstreamId is null)
                     response = await broker.ReadEvidencePageAsync(organizationId, installationId, artifactId, input.Offset ?? 0, token);
                 else if (input.ArtifactId is not null || input.Offset is not null) throw new ArgumentException();
                 else if (input.Defaults == true && input.OperationId is null && input.EnvironmentId is null)
@@ -71,6 +78,7 @@ public sealed class ComputeCapabilityHandler(IComputeBroker broker, IComputeDefa
                 InvalidOperationException when error.Message.StartsWith("project.required:", StringComparison.Ordinal) => "compute_project_board_required",
                 InvalidOperationException when error.Message.StartsWith("project.assignment_required:", StringComparison.Ordinal) => "compute_project_assignment_required",
                 InvalidOperationException when error.Message.StartsWith("project.board_selection_required:", StringComparison.Ordinal) => "compute_project_board_ambiguous",
+                OfficeCapacityUnavailableException => "compute_capacity_unavailable",
                 InvalidOperationException => "compute_conflict",
                 _ => "compute_unavailable"
             };
@@ -82,7 +90,7 @@ public sealed class ComputeCapabilityHandler(IComputeBroker broker, IComputeDefa
                 _ => null
             };
             result = new() { RequestId = request.RequestId, Succeeded = false, Error = code, FailureCode = code,
-                Retryable = code == "compute_unavailable", Payload = recovery is null
+                Retryable = code is "compute_unavailable" or "compute_capacity_unavailable", Payload = recovery is null
                     ? JsonPayload.From(new { error = code }) : JsonPayload.From(new { error = code, recovery }) };
         }
         yield return result;
@@ -90,7 +98,7 @@ public sealed class ComputeCapabilityHandler(IComputeBroker broker, IComputeDefa
 
     private static T Read<T>(RequestCapability request) => JsonSerializer.Deserialize<T>(request.Payload.Span, ComputeProtocol.Json)
         ?? throw new JsonException("Compute input is missing.");
-    private sealed record ReadInput(Guid? EnvironmentId = null, Guid? OperationId = null, bool? Defaults = null, Guid? WorkstreamId = null, Guid? ArtifactId = null, int? Offset = null);
+    private sealed record ReadInput(Guid? EnvironmentId = null, Guid? OperationId = null, bool? Defaults = null, Guid? WorkstreamId = null, Guid? ArtifactId = null, int? Offset = null, bool? RequestWorkspace = null);
     private sealed record ListInput(Guid WorkstreamId, Guid? AfterId = null, int Limit = 50);
     private sealed record LifecycleInput(Guid EnvironmentId, long ExpectedGeneration, string IdempotencyKey);
 }

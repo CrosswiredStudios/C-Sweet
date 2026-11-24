@@ -29,7 +29,7 @@ public sealed class ComputeEnvironment
     public DateTimeOffset LeaseExpiresAt { get; set; }
     public DateTimeOffset? TeardownConfirmedAt { get; set; }
 
-    // Failed, expired or stopped does not prove physical resources have been released.
+    // The disk reservation lasts until confirmed teardown, including while the VM is stopped.
     public bool HoldsReservation => TeardownConfirmedAt is null;
 
     public bool ShouldRequestAutomaticDestruction(DateTimeOffset now, bool ownerDeleted) =>

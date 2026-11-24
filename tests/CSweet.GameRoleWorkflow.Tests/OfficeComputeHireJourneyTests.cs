@@ -15,7 +15,7 @@ public sealed class OfficeComputeHireJourneyTests
     [Theory, Trait("Category", "AgentHarness")]
     [InlineData("Game Engineer")]
     [InlineData("Software Developer")]
-    public async Task Hired_developer_consumes_the_Headquarters_wake_and_claims_one_Office_workspace(string role)
+    public async Task Hired_developer_receives_replayed_Office_capacity_without_allocating_a_VM(string role)
     {
         var fixture = new ComputeBrokerTests.Fixture();
         AgentOperatingStateResponse? saved = null;
@@ -37,7 +37,7 @@ public sealed class OfficeComputeHireJourneyTests
                     })
                 .RegisterCapability<JsonElement, PersonalTodoDirectory>(PersonalTodoCapabilities.Read, (_, _) =>
                     Task.FromResult(new PersonalTodoDirectory([]))));
-        Assert.Equal(1, writes);
-        Assert.Equal(claimedEnvironment, saved!.Payload.GetProperty("environmentId").GetGuid());
+        Assert.Equal(0, writes);
+        Assert.Null(claimedEnvironment);
     }
 }

@@ -20,6 +20,20 @@ namespace CSweet.UnitTests;
 
 public sealed class OverviewAttentionStateTests
 {
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(1, true)]
+    public void ReservedOfficeCountsAsWaitingOnlyWhenAnEmployeeNeedsIt(int employees, bool expected)
+    {
+        var setup = new ComputeSetupStatus("Pending", "Waiting for Office compute registration", null, null, null)
+        {
+            Health = ComputeSetupStatus.AwaitingOfficeRegistration,
+            OfficeCapacity = new(false, employees, null, null)
+        };
+        var dashboard = new ComputeDashboard(DateTimeOffset.UtcNow, setup, [], false, CanManageNetwork: true);
+        Assert.Equal(expected, OverviewAttentionItems.WaitingForOfficeCapacity(dashboard));
+    }
+
     [Fact]
     public async Task ExistingComputeFailureCountsOnceForTheOwnerAcrossReconnect()
     {

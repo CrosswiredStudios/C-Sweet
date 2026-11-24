@@ -27,6 +27,20 @@ public static class ComputeNetworkGrantEndpoints
             catch (UnauthorizedAccessException) { return Results.Forbid(); }
             catch (InvalidOperationException) { return Results.Conflict(new { error = "The resource changed. Refresh Compute before releasing it." }); }
         }).RequireAuthorization();
+        endpoints.MapPost("/api/organizations/{organizationId:guid}/compute/{environmentId:guid}/power/{action}", async
+            (Guid organizationId, Guid environmentId, string action, long generation, HttpContext http, CSweetDbContext db, IComputeBroker broker, CancellationToken ct) =>
+        {
+            if (http.User.GetApplicationUserId() is not { } user) return Results.Unauthorized();
+            if (generation < 1 || action is not ("start" or "stop")) return Results.BadRequest();
+            try
+            {
+                await OwnerLifecycleAsync(db, broker, organizationId, user, environmentId,
+                    action == "start" ? InfrastructureActions.Start : InfrastructureActions.Stop, generation, ct);
+                return Results.NoContent();
+            }
+            catch (UnauthorizedAccessException) { return Results.Forbid(); }
+            catch (InvalidOperationException) { return Results.Conflict(new { error = "Check the instance state and available Office capacity." }); }
+        }).RequireAuthorization();
         endpoints.MapPut("/api/organizations/{organizationId:guid}/compute/{environmentId:guid}/local-link", async
             (Guid organizationId, Guid environmentId, LocalLinkRequest request, HttpContext http, CSweetDbContext db,
                 ComputeGrantAdministration grants, CancellationToken ct) =>
@@ -39,7 +53,11 @@ public static class ComputeNetworkGrantEndpoints
         return endpoints;
     }
 
-    internal static async Task ReleaseAsync(CSweetDbContext db, IComputeBroker broker, Guid business, Guid user, Guid environmentId, CancellationToken ct)
+    internal static Task ReleaseAsync(CSweetDbContext db, IComputeBroker broker, Guid business, Guid user, Guid environmentId, CancellationToken ct) =>
+        OwnerLifecycleAsync(db, broker, business, user, environmentId, InfrastructureActions.Destroy, null, ct);
+
+    internal static async Task OwnerLifecycleAsync(CSweetDbContext db, IComputeBroker broker, Guid business, Guid user,
+        Guid environmentId, string action, long? generation, CancellationToken ct)
     {
         if (!await db.CoreOrganizationUsers.AnyAsync(x => x.OrganizationId == business && x.ApplicationUserId == user &&
             x.EmployeeType == EmployeeType.Human && x.PermissionLevel == OrganizationPermissionLevel.Owner && x.IsActive && x.ArchivedAt == null, ct))
@@ -48,7 +66,8 @@ public static class ComputeNetworkGrantEndpoints
             ?? throw new UnauthorizedAccessException();
         if (environment.DesiredState == ComputeDesiredState.Destroyed || environment.TeardownConfirmedAt is not null) return;
         await broker.ChangeLifecycleAsync(business, environment.InstallationId,
-            new(environment.Id, environment.Generation, InfrastructureActions.Destroy, $"owner-release:{environment.Id:N}:{environment.Generation}"), ct);
+            new(environment.Id, generation ?? environment.Generation, action, action == InfrastructureActions.Destroy
+                ? $"owner-release:{environment.Id:N}:{environment.Generation}" : $"owner-power:{action}:{environment.Id:N}:{generation}"), ct);
     }
 
     internal static async Task SetLocalLinkAsync(CSweetDbContext db, ComputeGrantAdministration grants, Guid business,

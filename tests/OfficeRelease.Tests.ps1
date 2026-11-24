@@ -191,6 +191,66 @@ try {
     [IO.File]::WriteAllText("$testRoot/existing.zip", 'preserve')
     Reject { Receive-CSweetOfficeAsset $multipart "$testRoot/existing" } 'Do not overwrite another archive.'
     Check ((Get-Content "$testRoot/existing.zip") -eq 'preserve') 'Cleanup must preserve files this invocation did not create.'
+
+    $cacheRoot = Join-Path $testRoot 'release-cache'
+    # Use the launcher's progress callbacks and selected-drive cache as a normal retry would.
+    $launcher = Join-Path $PSScriptRoot '../src/CSweet.Api/Setup/Start-CSweetDevelopmentOfficeSetup.ps1'
+    $ast = [Management.Automation.Language.Parser]::ParseFile($launcher, [ref]$null, [ref]$null)
+    $wrapper = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -ceq 'Receive-CSweetOfficeSetupBundle' }, $true)
+    Invoke-Expression $wrapper.Extent.Text
+    $progressPath = Join-Path $testRoot 'progress.json'
+    $sessionId = [guid]::NewGuid()
+    $release = [pscustomobject]@{ Version = '0.6.0'; Bundle = $multipart }
+    $script:phases = @()
+    function Write-CSweetSetupProgress {
+        param($Path, $JobId, $Workflow, $State, $PercentComplete, $PhaseKey, $PhaseDisplayName, $Message)
+        $script:phases += $PhaseKey
+    }
+    $script:downloadFault = 'missing-last'
+    Reject { Receive-CSweetOfficeAsset $multipart "$testRoot/interrupted" -CacheRoot $cacheRoot } 'An interrupted cached download cannot extract.'
+    $script:downloadFault = ''
+    $script:requestedParts = @()
+    Receive-CSweetOfficeSetupBundle $release $testRoot "$testRoot/resumed" | Out-Null
+    Check (($script:requestedParts -join ',') -ceq $parts[2].url) 'A new attempt downloads only the missing last part.'
+    Check (($script:phases -join ',') -ceq 'check-office,download-office,extract-office') 'Only a real transfer reports a download.'
+    $script:requestedParts = @()
+    $script:phases = @()
+    $sessionId = [guid]::NewGuid()
+    Receive-CSweetOfficeSetupBundle $release $testRoot "$testRoot/retry" | Out-Null
+    Check (($script:phases -join ',') -ceq 'check-office,extract-office' -and $script:requestedParts.Count -eq 0) 'A retry reports cache reuse with zero asset downloads.'
+    Check ((Get-Content "$testRoot/retry/guest/image.vhdx") -eq 'fixture') 'A cached retry extracts the verified bundle into a fresh destination.'
+    $cachedArchive = Join-Path $cacheRoot 'windows-x64/package.zip'
+    $corrupted = [IO.File]::ReadAllBytes($cachedArchive)
+    $corrupted[$partBytes] = $corrupted[$partBytes] -bxor 255
+    [IO.File]::WriteAllBytes($cachedArchive, $corrupted)
+    Receive-CSweetOfficeAsset $multipart "$testRoot/repaired" -CacheRoot $cacheRoot | Out-Null
+    Check (($script:requestedParts -join ',') -ceq $parts[1].url) 'A same-size corrupted cached part is the only file downloaded again.'
+    $candidate = $multipartJson | ConvertFrom-Json
+    $candidate.sha256 = '0' * 64
+    Reject { Receive-CSweetOfficeAsset $candidate "$testRoot/stale-release" -CacheRoot $cacheRoot } 'Cached parts cannot bypass the selected release archive digest.'
+    Check (-not (Test-Path "$testRoot/stale-release")) 'A stale archive never reaches extraction.'
+
+    $support = [pscustomobject]@{ name = $asset.name.Replace('windows-x64', 'windows-support')
+        url = $asset.url.Replace('windows-x64', 'windows-support'); size = $asset.size; sha256 = $asset.sha256 }
+    $script:partFiles[$support.url] = $archive
+    $script:requestedParts = @()
+    Receive-CSweetOfficeAsset $support "$testRoot/support-first" -CacheRoot $cacheRoot | Out-Null
+    Receive-CSweetOfficeAsset $support "$testRoot/support-retry" -CacheRoot $cacheRoot | Out-Null
+    Check (($script:requestedParts -join ',') -ceq $support.url) 'Two sessions download the single-file support package only once.'
+    $heldLock = [IO.File]::Open((Join-Path $cacheRoot 'windows-x64/writer.lock'), 'Open', 'ReadWrite', 'None')
+    try {
+        $lockError = $null
+        try { Receive-CSweetOfficeAsset $multipart "$testRoot/busy" -CacheRoot $cacheRoot -TimeoutSeconds 1 } catch { $lockError = $_.Exception.Message }
+        Check ($lockError -eq 'Timed out waiting for the Office download cache.') 'A second launcher waits for the active cache owner and observes its deadline.'
+    } finally { $heldLock.Dispose() }
+    $nextArchive = New-TestZip 'new-version.zip' @('updated.txt')
+    $next = [pscustomobject]@{ name = $asset.name.Replace('0.6.0', '0.7.0'); url = $asset.url.Replace('0.6.0', '0.7.0')
+        size = (Get-Item $nextArchive).Length; sha256 = (Get-FileHash $nextArchive -Algorithm SHA256).Hash.ToLowerInvariant() }
+    $script:partFiles[$next.url] = $nextArchive
+    $script:requestedParts = @()
+    Receive-CSweetOfficeAsset $next "$testRoot/next-version" -CacheRoot $cacheRoot | Out-Null
+    Check (($script:requestedParts -join ',') -ceq $next.url -and (Test-Path "$testRoot/next-version/updated.txt")) 'A smaller new release replaces the archive and extracts its own files.'
     Write-Host "Passed $script:checks Office release checks."
 } finally {
     # This exact GUID directory was created above and contains only test fixtures.

@@ -109,8 +109,8 @@ public sealed class ComputeDispatchAuthorizer(CSweetDbContext db, ComputeBroker 
                         if (recorded.Length != required.Length || recorded.Select(x => x.Action).Distinct().Count() != required.Length)
                             throw new UnauthorizedAccessException();
                         var current = await broker.GrantsAsync(environment.OrganizationId, environment.InstallationId, environment.WorkstreamId, token);
-                        var reservations = await db.ComputeEnvironments.CountAsync(x => x.OrganizationId == environment.OrganizationId &&
-                            x.InstallationId == environment.InstallationId && x.TeardownConfirmedAt == null, token);
+                        var otherRunning = await ComputeBroker.RunningReservations(db, environment.OrganizationId, environment.InstallationId)
+                            .CountAsync(x => x.Id != environment.Id, token);
                         foreach (var action in required)
                         {
                             await broker.RequireActorAsync(environment.OrganizationId, environment.InstallationId, environment.WorkstreamId, action, token, environment.Id);
@@ -118,13 +118,13 @@ public sealed class ComputeDispatchAuthorizer(CSweetDbContext db, ComputeBroker 
                             var grant = current.SingleOrDefault(x => x.Id == evidence.GrantId && x.Revision == evidence.Revision &&
                                 x.Action == action && x.ExpiresAt == evidence.ExpiresAt) ?? throw new UnauthorizedAccessException();
                             if (energizing && (grant.ExpiresAt < environment.LeaseExpiresAt ||
-                                JsonSerializer.Deserialize<ComputeGrantConstraints>(grant.ConstraintsJson, ComputeBroker.Json)?.Allows(spec, Math.Max(0, reservations - 1)) != true))
+                                JsonSerializer.Deserialize<ComputeGrantConstraints>(grant.ConstraintsJson, ComputeBroker.Json)?.Allows(spec, otherRunning) != true))
                                 throw new UnauthorizedAccessException();
                             if (workloadAction) {
                                 var constraints = JsonSerializer.Deserialize<ComputeGrantConstraints>(grant.ConstraintsJson, ComputeBroker.Json);
                                 // An instance-bound grant covers only its exact instance. Sibling
                                 // reservations still count against project-wide grants.
-                                var otherReservations = constraints?.EnvironmentId == environment.Id ? 0 : Math.Max(0, reservations - 1);
+                                var otherReservations = constraints?.EnvironmentId == environment.Id ? 0 : otherRunning;
                                 if (grant.ExpiresAt < environment.LeaseExpiresAt || constraints?.Allows(spec, otherReservations) != true ||
                                     constraints.EnvironmentId is { } target && target != environment.Id ||
                                     workload!.PublishPort is { } port && action is (InfrastructureActions.Inbound or InfrastructureActions.PublishPort) && constraints.AllowedPublishedPorts?.Contains(port) != true ||

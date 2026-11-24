@@ -1,0 +1,65 @@
+# Save as compose.yaml on the Connection Service host. Requires Docker Compose 2.24+.
+name: csweet-connections
+x-service: &service
+  build: https://github.com/CrosswiredStudios/CSweet.ConnectionService.git#2722476241b8b4930ed44e61a88c965486a52a5b
+  environment:
+    ASPNETCORE_URLS: http://127.0.0.1:8080
+    ConnectionService__PublicOrigin: 'SERVICE_ORIGIN'
+    ConnectionService__KnownProxyAddresses__0: '127.0.0.1'
+    ConnectionService__Database: 'Data Source=/var/lib/connections/connections.db'
+    ConnectionService__KeyRingDirectory: /var/lib/connections/keys
+    ConnectionService__ProtectionCertificatePath: /run/protection/keyring.pfx
+    # LOCAL_RETURN
+  volumes:
+    - store:/var/lib/connections
+    - protection:/run/protection:ro
+
+services:
+  initialize:
+    image: mcr.microsoft.com/dotnet/sdk:10.0
+    user: '0:0'
+    volumes:
+      - store:/store
+      - protection:/protection
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        umask 077
+        if [ ! -s /protection/keyring.pfx ]; then
+          test -z "$$(ls -A /store)" || { echo "Restore the original protection certificate for this store."; exit 1; }
+          work=$$(mktemp -d)
+          trap 'rm -rf "$$work"' EXIT
+          openssl req -x509 -newkey rsa:3072 -nodes -days 1825 -subj /CN=CSweet-Keyring -keyout "$$work/key" -out "$$work/cert"
+          openssl pkcs12 -export -inkey "$$work/key" -in "$$work/cert" -passout pass: -out /protection/keyring.new
+          chown 1654:1654 /protection/keyring.new
+          mv /protection/keyring.new /protection/keyring.pfx
+        fi
+        chown 1654:1654 /store
+        chmod 700 /store
+  migrate:
+    <<: *service
+    command: [--migrate-store]
+    depends_on:
+      initialize: {condition: service_completed_successfully}
+  connections:
+    <<: *service
+    restart: unless-stopped
+    env_file:
+      - path: ./phone.env
+        required: false
+    ports: ["80:80", "443:443"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+  https:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    network_mode: service:connections
+    command: [caddy, reverse-proxy, --from, 'SERVICE_ORIGIN', --to, '127.0.0.1:8080']
+    volumes:
+      - certificates:/data
+      - proxy-config:/config
+volumes:
+  store:
+  protection:
+  certificates:
+  proxy-config:

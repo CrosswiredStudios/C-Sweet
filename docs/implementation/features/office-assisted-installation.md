@@ -94,6 +94,24 @@ Coverage: `ExecutionFleetStorageTests` verifies C: to D: replacement, rejected o
 revoked handoffs and launch rejection; `OnboardingWorkspaceRenderingTests` verifies the summary
 control, restored machine choices, cancellation failure, and installation-state visibility.
 
+## Windows retries after a compute-plan rejection (2026-11-24)
+
+AppHost can issue the development handoff through its loopback HTTP listener.
+`Request-CSweetOfficeComputePlan` sends the setup receipt to the HTTPS gateway returned
+by redemption using its authorized certificate pin. An HTTP 400 at `compute-plan`
+immediately after a 204 at `enrollment-ready` was the failure in Office 0.17.1 setup.
+
+`Receive-CSweetOfficeAsset` keeps the support archive under the protected setup directory
+and the full bundle under `release-cache` on the selected staging drive. A retry checks the
+archive's length and SHA-256 against the newly selected manifest before extracting it.
+If the archive is incomplete or damaged, setup checks each part and fetches only the
+missing or changed bytes at part boundaries. Concurrent attempts share a cache lock.
+Host certification and enrollment still run for the current attempt. Older launchers
+discarded the archives, so the first attempt after this change may download them once.
+
+Coverage includes `tests/OfficeRelease.Tests.ps1`, `Test-DevelopmentOfficePayload.ps1`,
+and `OnboardingWorkspaceRenderingTests.AssistantPreservesOfficeRecoveryAndReadinessControls`.
+
 ## Failed setup diagnostics (2026-10-15)
 
 `ExecutionFleetService.ReportLocalSetupResultAsync` and `Map` preserve a same-attempt
@@ -650,3 +668,11 @@ Every state must give the user an action that can make progress:
 - Host identity requires explicit approval and readiness requires a healthy authenticated connection.
 - No headquarters component silently installs privileged software or bypasses OS security prompts.
 - C-Sweet and Office remain independently built, tagged, and released.
+
+## Workspace VM capacity
+
+`AgentHostOnboardingStep` lets the machine owner reserve CPU cores, RAM and disk for separate workspace VMs during setup. The remaining resources host agent runtimes. The suggested split uses half of each resource, subject to the minimum workspace size and the resources needed for a runtime. Previously redeemed setup sessions replay their original reservation.
+
+**Offices → Office settings → Workspace VM limits** controls admission within the installed reservation. Lowering a limit lets existing VMs finish. For an existing Windows Office with the original single-workspace partition, drain it and supply all three workspace limits to the Office 0.18 identity-preserving upgrade. For example, `-WorkspaceCpuCount 6 -WorkspaceMemoryMiB 8192 -WorkspaceDiskMiB 81920` reserves six cores, 8 GiB RAM and 80 GiB disk within the machine's existing allocation. Retained VM disks stay on that Office.
+
+In **Compute**, **Stop VM** keeps the disk. CPU and RAM become available after the Office confirms the stop. **Start VM** uses the same disk and requires available running capacity and reviewed start authority. **Release instance** deletes the VM. Normal developer work runs inside the agent runtime. An assigned task can request a separate workspace with the SDK's `RequestProjectWorkspaceAsync`.

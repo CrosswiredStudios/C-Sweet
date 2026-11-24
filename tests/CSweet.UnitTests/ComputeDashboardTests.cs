@@ -108,7 +108,7 @@ public sealed class ComputeDashboardTests
         var employee = await f.Db.CoreOrganizationUsers.SingleAsync(x => x.AgentInstallationId == f.Installation);
         employee.DisplayName = "Victor Lin";
         var requestedAt = DateTimeOffset.UtcNow.AddMinutes(-10);
-        f.Db.Add(new OfficeComputeCapacityRequest { OrganizationId = f.Organization,
+        f.Db.Add(new OfficeComputeCapacityRequest { OrganizationId = f.Organization, ProjectId = f.Workstream,
             InstallationId = f.Installation, RequestedAt = requestedAt });
         await f.Db.SaveChangesAsync();
 

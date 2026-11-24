@@ -21,7 +21,16 @@ function Get-CombinedOfficeComputeSettings($Deployment, $Release, [string] $Sing
         $Release.features -cnotcontains 'docker' -or $Release.features.Count -gt 64 -or
         @($Release.features | Where-Object { $_ -isnot [string] -or $_ -cnotmatch '^[a-z0-9][a-z0-9._-]{0,63}$' }).Count) { throw 'Invalid installed compute image catalog.' }
     $policy = if ($custom) { $custom.Value } else {
-        [pscustomobject]@{ enabled=$true; organizationId=$business.ToString('D'); maximumEnvironments=1; cpuCount=2; memoryMiB=2048; diskMiB=20480 }
+        if (!(Test-OfficeComputeBudget $Deployment $null)) { return }
+        $cpu = [Math]::Max(2, [int][Math]::Floor($Deployment.allocatableCpuCount / 2))
+        [pscustomobject]@{
+            enabled = $true
+            organizationId = $business.ToString('D')
+            maximumEnvironments = [Math]::Min($cpu, $Deployment.maximumConcurrentWorkloads - 1)
+            cpuCount = $cpu
+            memoryMiB = [Math]::Max(2048, [int][Math]::Floor($Deployment.allocatableMemoryMb / 2))
+            diskMiB = [Math]::Max(20480, [int][Math]::Floor($Deployment.allocatableDiskMb / 2))
+        }
     }
     if (!(Test-OfficeComputeBudget $Deployment $policy)) {
         if ($custom) { throw 'The Office allocation cannot cover the requested compute reservation.' }

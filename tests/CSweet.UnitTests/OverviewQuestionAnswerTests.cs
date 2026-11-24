@@ -77,24 +77,45 @@ public sealed class OverviewQuestionAnswerTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task ReviewShowsTheRequestingAgentAndOneDropdownBeforeSelection(bool grouped)
+    public async Task HiringQuestionShowsOnlyTheAuthoredPromptAndDropdownBeforeSelection(bool grouped)
     {
         await using var fixture = new Fixture();
         fixture.Api.Grouped = grouped;
+        var question = fixture.Api.Question;
+        fixture.Api.Question = question with { Decision = question.Decision with
+        {
+            Prompt = "How should I help with hiring?",
+            Options = [
+                new("recommend", "Recommend candidates", "I’d recommend someone for each role.", true),
+                new("choose", "Choose candidates yourself", "I’d explain the role and show you matching candidates.", false),
+                new("automatic", "Automatic hiring", null, false)
+            ],
+            RecommendedOptionId = "recommend"
+        } };
         var output = await fixture.RenderAsync();
+        // HtmlRenderer omits the interactive after-render callback that used to rewrite the question.
+        await fixture.Renderer.Dispatcher.InvokeAsync(((IHandleAfterRender)fixture.Activator.Prompt!).OnAfterRenderAsync);
         var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
         Assert.Contains("https://example.com/requesting-agent.jpg", html);
         Assert.Contains("Custom agent name", html);
         Assert.Contains("Creative Director", html);
-        Assert.Contains("Which direction?", html);
-        Assert.Contains("<select", html);
+        var parts = html.Split("<select");
+        Assert.Equal(2, parts.Length);
+        Assert.Contains("How should I help with hiring?", parts[0]);
+        foreach (var label in fixture.Api.Question.Decision.Options.Select(o => o.Label))
+        {
+            Assert.DoesNotContain(label, parts[0]);
+            Assert.Contains(label, parts[1]);
+        }
         Assert.Contains("Choose an answer", html);
         Assert.DoesNotContain("option-detail", html);
-        Assert.DoesNotContain("Work can start today.", html);
+        Assert.DoesNotContain("recommend someone for each role", html);
+        Assert.DoesNotContain("Original wording", html);
         Assert.DoesNotContain("type=\"radio\"", html);
         Assert.Contains("Ask a follow-up", html);
         Assert.Contains("Give different direction", html);
         Assert.DoesNotContain("Something Else", html);
+        Assert.Empty(fixture.Api.WordingOptions);
         Assert.Empty(fixture.Api.Answers);
         Assert.Empty(fixture.Navigation.Destinations);
     }
@@ -175,7 +196,7 @@ public sealed class OverviewQuestionAnswerTests
     }
 
     [Fact]
-    public async Task SwitchingOptionsShowsOnlyTheCurrentImpactAndReusesTheLegacyExplanation()
+    public async Task SwitchingOptionsShowsOnlyTheSelectedExplanationAndKeepsTheQuestion()
     {
         await using var fixture = new Fixture();
         var output = await fixture.RenderAsync();
@@ -186,16 +207,20 @@ public sealed class OverviewQuestionAnswerTests
             return output.ToHtmlString();
         });
 
-        var saved = await Select("a");
-        Assert.Contains("Keep moving", saved);
-        Assert.Contains("Work can start today.", saved);
-        Assert.Contains("I can start today.", saved);
-        Assert.Contains("Original wording", saved);
+        var selected = await Select("a");
+        var detail = selected.Split("<section class=\"option-detail\"");
+        Assert.Equal(2, detail.Length);
+        Assert.Contains("Which direction?", detail[0]);
+        Assert.DoesNotContain("I could keep going.", detail[0]);
+        Assert.Contains("I could keep going.", detail[1]);
+        Assert.Contains("I can start today.", detail[1]);
+        Assert.DoesNotContain("Keep moving", selected);
+        Assert.DoesNotContain("Original wording", selected);
         Assert.Empty(fixture.Api.Questions);
 
         var legacy = await Select("b");
         Assert.Contains("It needs separate approval.", legacy);
-        Assert.DoesNotContain("Work can start today.", legacy);
+        Assert.DoesNotContain("I can start today.", legacy);
         Assert.DoesNotContain("It needs separate approval.", await Select("a"));
         Assert.Contains("It needs separate approval.", await Select("b"));
         Assert.Equal(["a", "b"], fixture.Api.WordingOptions);
@@ -220,7 +245,7 @@ public sealed class OverviewQuestionAnswerTests
         finally { release.TrySetResult(); }
         await loading;
         var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
-        Assert.Contains("Work can start today.", html);
+        Assert.Contains("I can start today.", html);
         Assert.DoesNotContain("It needs separate approval.", html);
         Assert.Equal(["b", "a"], fixture.Api.WordingOptions);
         Assert.Empty(fixture.Api.Answers);
@@ -330,6 +355,7 @@ public sealed class OverviewQuestionAnswerTests
     }
     private sealed class CapturingActivator : IComponentActivator
     {
+        public DecisionPrompt? Prompt { get; private set; }
         public MudDialog? Dialog { get; private set; }
         public DecisionChoices? Choices { get; private set; }
         public List<DecisionExplanation> Help { get; } = [];
@@ -338,6 +364,7 @@ public sealed class OverviewQuestionAnswerTests
         public IComponent CreateInstance(Type type)
         {
             var component = (IComponent)System.Activator.CreateInstance(type)!;
+            if (component is DecisionPrompt prompt) Prompt = prompt;
             if (component is MudDialog dialog) Dialog = dialog;
             if (component is DecisionChoices choices) Choices = choices;
             if (component is DecisionExplanation followUp) Help.Add(followUp);
@@ -376,7 +403,11 @@ public sealed class OverviewQuestionAnswerTests
                 {
                     "a" => new DecisionWordingResponse("I could keep going.", "I can start today."),
                     "b" => new DecisionWordingResponse("I would wait.", "It needs separate approval."),
-                    _ => new DecisionWordingResponse("Which direction would you like me to take?")
+                    _ => new DecisionWordingResponse("""
+                        How should I help with hiring?
+                        - Recommend candidates — I’d recommend someone for each role. You’d review my pick and decide whether to hire them.
+                        - Choose candidates yourself — I’d explain the role and show you matching candidates.
+                        """)
                 };
                 return new(HttpStatusCode.OK) { Content = JsonContent.Create(copy) };
             }

@@ -12,7 +12,7 @@ internal static class ComputeConfigurations
         model.Entity<OfficeComputeCapacityRequest>(entity =>
         {
             entity.ToTable("OfficeComputeCapacityRequests");
-            entity.HasKey(x => x.InstallationId);
+            entity.HasKey(x => new { x.InstallationId, x.ProjectId });
             entity.HasIndex(x => new { x.OrganizationId, x.RequestedAt, x.InstallationId });
             entity.HasOne<AgentInstallation>().WithMany().HasForeignKey(x => x.InstallationId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId).OnDelete(DeleteBehavior.Restrict);

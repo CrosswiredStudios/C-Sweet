@@ -30,7 +30,7 @@ public sealed class ComputeReplayJournalTests
             await Core.InitializeAsync(); Packet = (await Core.Authorizer().ClaimAsync(Core.OperationId, default))!;
             var claim = Core.Signing.Claims[0];
             Enrollment = new(claim.OrganizationId, claim.NodeId, claim.ProviderId, await Core.Signing.GetIdentityAsync(default));
-            Verifier = new(Enrollment, new(claim.ProviderId, ["ubuntu-clean"], [InfrastructureActions.Provision, InfrastructureActions.Destroy, InfrastructureActions.Start],
+            Verifier = new(Enrollment, new(claim.ProviderId, ["ubuntu-clean"], [InfrastructureActions.Provision, InfrastructureActions.Destroy, InfrastructureActions.Start, InfrastructureActions.Stop],
                 [ComputeNetworkMode.None], false, false), new(4, 8192, 40960),
                 new Dictionary<string, ComputeTemplate> { [Packet.Template!.Id] = Packet.Template }, Core.Time);
             await Journal().InitializeAsync(default);

@@ -43,6 +43,7 @@ public static class ConnectionServiceAdministrationEndpoints
         group.MapGet("/selection", (ConnectionServiceSelectionStore store) => store.Current());
         group.MapPut("/selection", (HttpContext http, SaveConnectionServiceChoice request, ConnectionServiceSelectionStore store, CancellationToken ct) => store.Save(Actor(http), request, ct));
         group.MapPost("/probe", (ConnectionServiceSelectionStore store, CancellationToken ct) => store.Probe(ct));
+        group.MapGet("/phone-setup", ConnectionPhoneSetupEndpoint.Read);
         group.MapPost("/owner/prepare", (HttpContext http, ConnectionServiceOwnerGateway gateway, CancellationToken ct) => gateway.Prepare(Actor(http), ct));
         group.MapPost("/owner/access", (HttpContext http, ConnectionServiceOwnerGateway gateway, CancellationToken ct) => gateway.Access(Actor(http), ct));
         group.MapPost("/owner/import", (HttpContext http, OwnerAction<OwnerCredentialImport> request, ConnectionServiceOwnerGateway gateway, CancellationToken ct) => gateway.Import(Actor(http), request.GrantRevision, request.Request, ct));

@@ -105,6 +105,16 @@ public sealed class OfficeGatewayDeliveryTests
         OfficeGatewayService.ApplyHeartbeatCapacity(node, heartbeat, session);
         Assert.Equal((10, 33792, 49152, 5), (node.AllocatableCpuCount, node.AllocatableMemoryMb,
             node.AllocatableDiskMb, node.MaximumConcurrentWorkloads));
+        session.WorkspaceBudgetJson = System.Text.Json.JsonSerializer.Serialize(new CSweet.Contracts.Setup.OfficeWorkspaceBudget(4, 4096, 40960));
+        session.MaximumConcurrentWorkloads = 8;
+        OfficeGatewayService.ApplyHeartbeatCapacity(node, heartbeat, session);
+        Assert.Equal((8, 31744, 28672, 4), (node.AllocatableCpuCount, node.AllocatableMemoryMb,
+            node.AllocatableDiskMb, node.MaximumConcurrentWorkloads));
+        heartbeat.OfficeVersion = "0.18.0";
+        heartbeat.ComputeOffer = new() { CpuCount = 6, MemoryMib = 8192, DiskMib = 40960 };
+        OfficeGatewayService.ApplyHeartbeatCapacity(node, heartbeat, session);
+        Assert.Equal((4, 4096, 28672, 2), (node.AllocatableCpuCount, node.AllocatableMemoryMb,
+            node.AllocatableDiskMb, node.MaximumConcurrentWorkloads));
     }
 
     [Fact]

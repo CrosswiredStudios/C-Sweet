@@ -53,14 +53,6 @@
                         }
                         else { <p>@L["Communications.Decision.Asking"]</p> }
                     </div>
-                    @if (copy is not null && ((!string.IsNullOrWhiteSpace(choice.Description) && choice.Description != description) ||
-                        (!string.IsNullOrWhiteSpace(choice.Impact) && choice.Impact != impact)))
-                    {
-                        <details class="decision-original"><summary>@L["Communications.Decision.OriginalWording"]</summary>
-                            @if (!string.IsNullOrWhiteSpace(choice.Description)) { <p>@choice.Description</p> }
-                            @if (!string.IsNullOrWhiteSpace(choice.Impact) && choice.Impact != choice.Description) { <p>@choice.Impact</p> }
-                        </details>
-                    }
                 </section>
             }
         </div>

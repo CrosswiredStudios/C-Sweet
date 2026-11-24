@@ -1,6 +1,8 @@
 @page "/"
 @page "/settings"
+@inject NavigationManager Navigation
 @if (_back) { <MudButton OnClick="() => _back = false">Return to connections</MudButton> }
+else if (Navigation.ToBaseRelativePath(Navigation.Uri) == "settings") { <ConnectionServiceSetupStep /> }
 else { <ConnectionServiceSetupStep OnContinue="() => _continued++" OnBack="() => _back = true"/> }
 <p data-testid="continued">@_continued</p>
 @if (_ready) { <span hidden data-testid="interactive-ready"></span> }

@@ -22,6 +22,8 @@ public interface IComputeTemplateCatalog
 public sealed record RequestComputeWorkload(Guid EnvironmentId, long ExpectedGeneration, string IdempotencyKey, ComputeWorkload Workload);
 public sealed record ComputeOperationView(Guid Id, Guid EnvironmentId, long Generation, string Status, string? FailureCode, ComputeWorkloadResult? Result);
 
+public sealed class OfficeCapacityUnavailableException() : InvalidOperationException("Waiting for available Office compute capacity.") { }
+
 public interface IComputeBroker
 {
     Task<ComputeOperationView> SubmitWorkloadAsync(Guid organizationId, Guid installationId, RequestComputeWorkload request, CancellationToken token);

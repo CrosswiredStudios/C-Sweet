@@ -24,6 +24,7 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
 
     public async Task EnsureRequestedAsync(Guid installationId, CancellationToken token, bool retryFailed = false)
     {
+        if (preparation?.LegacyInteractive != true) return;
         var installation = await db.AgentInstallations.AsNoTracking().Include(x => x.Grant)
             .SingleOrDefaultAsync(x => x.Id == installationId && x.IsEnabled &&
                 x.RevisionStatus == PluginRevisionStatus.Active && x.SetupState == PluginSetupState.Ready, token);
@@ -37,21 +38,6 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
             ? await db.Database.BeginTransactionAsync(token) : null;
         await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock).LockAsync(organizationId, token);
         var now = clock.GetUtcNow();
-        if (preparation?.LegacyInteractive != true)
-        {
-            if (!await db.Set<OfficeComputeCapacityRequest>().AnyAsync(x => x.InstallationId == installationId, token))
-            {
-                db.Add(new OfficeComputeCapacityRequest { OrganizationId = organizationId, InstallationId = installationId, RequestedAt = now });
-                var eventId = Guid.NewGuid();
-                db.AuditOutbox.Add(new() { Id = eventId, CreatedAt = now, RequestJson = JsonSerializer.Serialize(
-                    new AuditEventWriteRequest("compute.office.capacity-requested.v1", Category: "Infrastructure",
-                        Outcome: "Accepted", OrganizationId: organizationId, EntityType: "AgentInstallation", EntityId: installationId,
-                        Actor: new("Application", InstallationId: installationId), EventId: eventId, OccurredAt: now, UseAmbientOrganization: false)) });
-                await db.SaveChangesAsync(token);
-            }
-            if (transaction is not null) await transaction.CommitAsync(token);
-            return;
-        }
         var setup = await db.Set<ComputeLocalSetup>().SingleOrDefaultAsync(x => x.OrganizationId == organizationId, token);
         var changed = setup is null || retryFailed && setup.State == "Failed";
         if (setup is null)
@@ -99,7 +85,13 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
             setup?.ErrorCode ?? projectError);
     }
 
-    public async Task<ComputeDefaults> ReadProjectAsync(Guid organizationId, Guid installationId, Guid projectId, CancellationToken token)
+    public Task<ComputeDefaults> ReadProjectAsync(Guid organizationId, Guid installationId, Guid projectId, CancellationToken token)
+        => ProjectDefaultsAsync(organizationId, installationId, projectId, false, token);
+
+    public Task<ComputeDefaults> RequestProjectWorkspaceAsync(Guid organizationId, Guid installationId, Guid projectId, CancellationToken token)
+        => ProjectDefaultsAsync(organizationId, installationId, projectId, true, token);
+
+    private async Task<ComputeDefaults> ProjectDefaultsAsync(Guid organizationId, Guid installationId, Guid projectId, bool requestWorkspace, CancellationToken token)
     {
         var actor = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
             x.AgentInstallationId == installationId && x.IsActive && x.ArchivedAt == null && x.EmployeeType == EmployeeType.Agent, token)
@@ -110,6 +102,7 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
             x.SetupState == PluginSetupState.Ready, token) ?? throw new UnauthorizedAccessException();
         var approved = Approved(installation);
         if (!approved.Contains(InfrastructureActions.Read)) throw new UnauthorizedAccessException();
+        if (requestWorkspace && !approved.Contains(InfrastructureActions.Provision)) throw new UnauthorizedAccessException();
         ComputeTemplateRegistration? template;
         if (preparation?.LegacyInteractive == true)
         {
@@ -126,7 +119,19 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
             var heldTemplate = held is null ? null : JsonSerializer.Deserialize<ComputeSpecification>(held.SpecificationJson, ComputeProtocol.Json)?.TemplateId;
             template = (await OfficeComputePlacement.FindAsync(db, organizationId, clock.GetUtcNow(), token,
                 heldTemplate, held?.ProviderNodeId))?.Template;
-            if (template is null) return new("Pending", projectId, null, OfficeComputeCapacityRequest.WaitingReason);
+            if (template is null)
+            {
+                if (requestWorkspace)
+                {
+                    await using var tx = db.Database.IsRelational() && db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(token) : null;
+                    await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock).LockAsync(organizationId, token);
+                    await RequireProjectAsync(organizationId, installationId, actor.Id, projectId, token);
+                    await OfficeComputePlacement.TrackDemandAsync(db, organizationId, installationId, projectId, clock.GetUtcNow(), token);
+                    await db.SaveChangesAsync(token);
+                    if (tx != null) await tx.CommitAsync(token);
+                }
+                return new("Pending", projectId, null, OfficeComputeCapacityRequest.WaitingReason);
+            }
         }
         if (template is null || JsonSerializer.Deserialize<ComputeTemplate>(template.TemplateJson, ComputeProtocol.Json) is not { } definition || !definition.Features.Contains("docker"))
             return new("Pending", projectId, null, "docker_preparation_pending");
@@ -135,12 +140,23 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
         await RequireProjectAsync(organizationId, installationId, actor.Id, projectId, token);
         var lifetime = configuration?.GetValue<int?>("CSweet:Compute:Defaults:MaximumLifetimeSeconds") ?? 0;
         if (lifetime < 0) throw new InvalidOperationException("Compute maximum lifetime must be zero (until released) or positive.");
-        var constraints = new ComputeGrantConstraints(1, new(2, 2048, 20480), 1, lifetime, ["linux"], [definition.Architecture], [template.TemplateId], AllowedPublishedPorts: [8080]);
+        // A private Office enforces the owner's shared budget at placement and again at physical admission.
+        // Project-specific grants created or edited by an administrator retain their reviewed terms.
+        var concurrency = OfficeComputePlacement.IsOfficeTemplate(template.TemplateId) ? int.MaxValue : 1;
+        var constraints = new ComputeGrantConstraints(1, new(2, 2048, 20480), concurrency, lifetime, ["linux"], [definition.Architecture], [template.TemplateId], AllowedPublishedPorts: [8080]);
         foreach (var action in Actions.Where(approved.Contains))
         {
             var id = StableId($"project-compute:{projectId:D}:{installationId:D}:{action}");
-            if (!await db.ScopedActionGrants.AnyAsync(x => x.Id == id, token))
-                await grants.PutAsync(organizationId, id, new(0, installationId, projectId, action, constraints, lifetime == 0 ? DateTimeOffset.MaxValue : clock.GetUtcNow().AddDays(30)), token);
+            var existing = await db.ScopedActionGrants.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, token);
+            if (existing == null)
+                await grants.PutAsync(organizationId, id, new(0, installationId, projectId, action, constraints,
+                    lifetime == 0 ? DateTimeOffset.MaxValue : clock.GetUtcNow().AddDays(30)), token);
+            else if (requestWorkspace && concurrency > 1 && existing.Revision == 1 && existing.RevokedAt == null &&
+                !await db.ComputeOperations.AnyAsync(op => op.OrganizationId == organizationId && op.InstallationId == installationId &&
+                    op.CompletedAt == null, token) &&
+                existing.ExpiresAt > clock.GetUtcNow() && existing.ConstraintsJson ==
+                    JsonSerializer.Serialize(constraints with { MaximumConcurrentEnvironments = 1 }, ComputeProtocol.Json))
+                await grants.PutAsync(organizationId, id, new(existing.Revision, installationId, projectId, action, constraints, existing.ExpiresAt.Value), token);
         }
         if (transaction is not null) await transaction.CommitAsync(token);
         return new("Ready", projectId, template.TemplateId, null)
