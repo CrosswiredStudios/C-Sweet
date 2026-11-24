@@ -33,7 +33,7 @@ Hire your Chief of Staff. Choose **Creative & Product**. Bring in a Creative Dir
 
 ## Run C-Sweet locally
 
-The recommended source-development path is **Windows + .NET + Docker Desktop**. Headquarters runs through Aspire; agent execution uses a separately installed Office.
+Run Headquarters from source on **macOS or Windows** with Git, the .NET 10 SDK, and Docker Desktop. Headquarters runs through Aspire; agent execution uses a separately installed Office.
 
 ### 1. Prepare your machine
 
@@ -43,19 +43,27 @@ The recommended source-development path is **Windows + .NET + Docker Desktop**. 
 | **Docker Desktop, Linux engine running** | Run PostgreSQL and SearXNG for the development stack. `docker info` must succeed. |
 | **Git** | Clone the source and support repository workflows. |
 | **An OpenAI-compatible model endpoint** | Configure AI features during setup. Use a compatible local server or hosted provider; LM Studio is the default local preset. |
-| **C-Sweet Office, for agent execution** | Install and enroll an [Office](https://github.com/CrosswiredStudios/CSweet.Office) with a supported hardware-isolation provider. Local Hyper-V execution requires Windows Professional, Enterprise, or Education and hardware virtualization. |
+| **C-Sweet Office, for agent execution** | Install and enroll an [Office](https://github.com/CrosswiredStudios/CSweet.Office) with a supported hardware-isolation provider. A Mac Office uses Apple Virtualization.framework on macOS 14 or later and requires a signed package and certified guest for its architecture. Local Hyper-V execution requires Windows Professional, Enterprise, or Education and hardware virtualization. |
 
 ### 2. Launch Headquarters
 
-Start Docker Desktop, then run:
+Install the .NET 10 SDK and Docker Desktop for your processor. On a Mac, choose **Arm64** for Apple silicon or **x64** for Intel. Open Docker Desktop once to complete setup. [Mac SDK installation](https://learn.microsoft.com/en-us/dotnet/core/install/macos) · [Docker Desktop for Mac](https://docs.docker.com/desktop/setup/install/mac-install/)
 
-```powershell
-git clone https://github.com/CrosswiredStudios/csweet.git
-cd csweet
-.\Start-CSweet.cmd
+In Terminal or PowerShell, clone Headquarters and enter its directory.
+
+```sh
+git clone https://github.com/CrosswiredStudios/C-Sweet.git
+cd C-Sweet
 ```
 
-You can also double-click [`Start-CSweet.cmd`](Start-CSweet.cmd). The launcher checks .NET and Docker, attempts to start Docker Desktop if needed, prepares the local HTTPS development certificate with an HTTP fallback, and launches the app. **Keep its terminal open while using C-Sweet.** The first run restores packages, builds services, and initializes the database; wait for the app to become ready.
+| Operating system | Start Headquarters |
+|---|---|
+| macOS | Run `./Start-CSweet.command` in Terminal or double-click [Start-CSweet.command](Start-CSweet.command) in Finder. |
+| Windows | Run `.\Start-CSweet.cmd` in PowerShell or double-click [Start-CSweet.cmd](Start-CSweet.cmd). |
+
+Keep the terminal open during the first package restore, container downloads and database migration. Open the Aspire dashboard URL printed in the terminal, then the **app** endpoint. The local HTTP profile serves Headquarters at <http://localhost:5097>. Press Control-C in the launcher terminal to stop. On macOS, run `dotnet dev-certs https --trust` before launching if you want to use local HTTPS.
+
+An enrolled Mac Studio can host generic Linux Compute VMs locally using Apple Virtualization. Build and approve the arm64 template, then create a workspace from **Compute**. [Mac Studio Compute setup](build/apple-compute/README.md)
 
 <details>
 <summary><strong>Prefer a terminal or IDE?</strong></summary>

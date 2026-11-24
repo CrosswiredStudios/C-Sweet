@@ -32,7 +32,7 @@ public sealed class ComputeManagementTests
             ["CSweet:Compute:Defaults:MaximumLifetimeSeconds"] = lifetime.ToString()
         }).Build(), preparation: new(LegacyInteractive: true));
 
-    private static async Task ReadyAsync(ComputeBrokerTests.Fixture fixture)
+    private static async Task ReadyAsync(ComputeBrokerTests.Fixture fixture, string architecture = "x64")
     {
         (await fixture.Db.Workstreams.SingleAsync()).Status = WorkstreamStatus.Active;
         fixture.Db.Add(new ComputeLocalSetup
@@ -42,7 +42,7 @@ public sealed class ComputeManagementTests
         fixture.Db.ComputeTemplates.Add(new()
         {
             Id = Guid.NewGuid(), OrganizationId = fixture.Organization, TemplateId = "ubuntu-clean", Enabled = true,
-            TemplateJson = JsonSerializer.Serialize(new ComputeTemplate("ubuntu-clean", "linux", "x64", "sha256:" + new string('a', 64), ["docker"]), ComputeProtocol.Json)
+            TemplateJson = JsonSerializer.Serialize(new ComputeTemplate("ubuntu-clean", "linux", architecture, "sha256:" + new string('a', 64), ["docker"]), ComputeProtocol.Json)
         });
         await fixture.Db.SaveChangesAsync();
     }
@@ -65,11 +65,14 @@ public sealed class ComputeManagementTests
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => ComputeManagementEndpoints.StartSetupAsync(fixture.Db, fixture.Organization, user, false, default));
     }
 
-    [Fact]
-    public async Task OwnerCreationUsesLinuxPermissionsAndReplaysOneInstance()
+    [Theory]
+    [InlineData("x64")]
+    [InlineData("arm64")]
+    public async Task OwnerCreationUsesLinuxPermissionsAndReplaysOneInstance(string architecture)
     {
         await using var fixture = new ComputeBrokerTests.Fixture(); await fixture.SeedAsync();
-        var user = await OwnerAsync(fixture); await ReadyAsync(fixture);
+        var user = await OwnerAsync(fixture); await ReadyAsync(fixture, architecture);
+        fixture.Templates.Architecture = architecture;
         var defaults = Defaults(fixture);
         var option = Assert.Single(await defaults.ListCreationOptionsAsync(fixture.Organization, default));
         Assert.Equal(fixture.Workstream, option.ProjectId);
@@ -80,6 +83,7 @@ public sealed class ComputeManagementTests
         var environment = await fixture.Db.ComputeEnvironments.SingleAsync();
         var specification = JsonSerializer.Deserialize<ComputeSpecification>(environment.SpecificationJson, ComputeProtocol.Json)!;
         Assert.Equal("linux", specification.OperatingSystem);
+        Assert.Equal(architecture, specification.Architecture);
         Assert.Equal(ComputeNetworkMode.None, specification.NetworkPolicy.Mode);
         Assert.Equal(new ComputeResources(2, 2048, 20480), specification.Resources);
         Assert.Single(await fixture.Db.ComputeOperations.ToListAsync());

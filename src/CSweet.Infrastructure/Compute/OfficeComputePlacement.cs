@@ -27,6 +27,9 @@ public sealed class OfficeComputeCatalogOptions
 public static class OfficeComputePlacement
 {
     public const string ProviderId = "office-hyperv";
+    public const string AppleProviderId = "office-apple-virtualization";
+    internal static readonly string[] OfficeProviders = [ProviderId, AppleProviderId];
+    public static bool IsOfficeProvider(string? id) => id is ProviderId or AppleProviderId;
     private const string TemplatePrefix = "office-linux-";
     internal static readonly ComputeResources WorkspaceResources = new(2, 2048, 20480);
     private sealed record Capacity(int Slots, ComputeResources Resources);
@@ -49,6 +52,11 @@ public static class OfficeComputePlacement
             offer.ImageDigest.AsSpan(7).ContainsAnyExcept("0123456789abcdef") || offer.TemplateId != TemplateId(offer.ImageDigest) ||
             offer.MaximumEnvironments < 1 || offer.CpuCount < 2 || offer.MemoryMib < 2048 || offer.DiskMib < 20480 ||
             offer.Features.Count > 64) return;
+        var apple = office.OperatingSystem == "macos";
+        var providerId = apple ? AppleProviderId : ProviderId;
+        var architecture = apple ? office.Architecture : "x64";
+        if (apple && architecture is not ("arm64" or "x64") ||
+            !apple && office.OperatingSystem is not ("windows" or "")) return;
         var pool = await db.ExecutionPools.AsNoTracking().SingleAsync(x => x.Id == office.ExecutionPoolId, token);
         if (!Allows(pool, business)) return;
         if (db.Database.IsNpgsql())
@@ -70,15 +78,15 @@ public static class OfficeComputePlacement
             x.Features.ToHashSet(StringComparer.Ordinal).SetEquals(offer.Features)) is { } approval &&
             await db.CoreOrganizations.AnyAsync(x => x.Id == business, token))
         {
-            var image = new ComputeTemplate(offer.TemplateId, "linux", "x64", approval.ImageDigest,
+            var image = new ComputeTemplate(offer.TemplateId, "linux", architecture, approval.ImageDigest,
                 approval.Features.Order(StringComparer.Ordinal).ToHashSet(StringComparer.Ordinal));
             template = new() { Id = Guid.NewGuid(), TemplateId = image.Id, Enabled = true, OrganizationId = business,
                 TemplateJson = JsonSerializer.Serialize(image, ComputeProtocol.Json), UpdatedAt = now };
             db.ComputeTemplates.Add(template);
         }
         if (template is not { Enabled: true } || JsonSerializer.Deserialize<ComputeTemplate>(template.TemplateJson, ComputeProtocol.Json) is not
-            { OperatingSystem: "linux", Architecture: "x64", Enabled: true } definition ||
-            definition.Id != offer.TemplateId || definition.ImageDigest != offer.ImageDigest ||
+            { OperatingSystem: "linux", Enabled: true } definition ||
+            definition.Architecture != architecture || definition.Id != offer.TemplateId || definition.ImageDigest != offer.ImageDigest ||
             !definition.Features.Contains("docker") || !definition.Features.SetEquals(offer.Features)) return;
         using var cert = X509CertificateLoader.LoadCertificate(Convert.FromBase64String(office.IssuedCertificateBase64));
         using var key = cert.GetECDsaPublicKey();
@@ -89,11 +97,11 @@ public static class OfficeComputePlacement
         var node = await db.ComputeNodes.SingleOrDefaultAsync(x => x.Id == office.Id, token);
         if (node is null)
         {
-            node = new() { Id = office.Id, OrganizationId = business, Name = office.Name, ProviderId = ProviderId,
+            node = new() { Id = office.Id, OrganizationId = business, Name = office.Name, ProviderId = providerId,
                 VerificationPublicKeyBase64 = Convert.ToBase64String(spki), KeyId = keyId, Enabled = true, UpdatedAt = now };
             db.ComputeNodes.Add(node);
         }
-        else if (node.OrganizationId != business || node.ProviderId != ProviderId || !node.Enabled ||
+        else if (node.OrganizationId != business || node.ProviderId != providerId || !node.Enabled ||
             node.VerificationPublicKeyBase64 != Convert.ToBase64String(spki) || node.KeyId != keyId) return;
         var placement = await db.ComputeTemplatePlacements.SingleOrDefaultAsync(x => x.TemplateRegistrationId == template.Id &&
             x.NodeId == office.Id, token);
@@ -137,7 +145,7 @@ public static class OfficeComputePlacement
                     join place in db.ComputeTemplatePlacements on node.Id equals place.NodeId
                     join template in db.ComputeTemplates on place.TemplateRegistrationId equals template.Id
                     join pool in db.ExecutionPools on office.ExecutionPoolId equals pool.Id
-                    where node.ProviderId == ProviderId && node.OrganizationId == business && node.Enabled &&
+                    where OfficeProviders.Contains(node.ProviderId) && node.OrganizationId == business && node.Enabled &&
                         place.Enabled && place.OrganizationId == business && template.Enabled && template.OrganizationId == business &&
                         office.ComputeTemplateId == template.TemplateId && (templateId == null || template.TemplateId == templateId) &&
                         (officeId == null || office.Id == officeId) && office.Status == ExecutionNodeStatus.Ready &&

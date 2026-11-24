@@ -325,7 +325,7 @@ public sealed partial class ExecutionFleetService
     private Task<bool> HasUnsettledOfficeComputeAsync(Guid? officeId, CancellationToken ct) =>
         (from operation in dbContext.ComputeOperations.AsNoTracking()
          join environment in dbContext.ComputeEnvironments on operation.EnvironmentId equals environment.Id
-         where environment.ProviderNodeId == officeId && environment.ProviderId == Compute.OfficeComputePlacement.ProviderId &&
+         where environment.ProviderNodeId == officeId && Compute.OfficeComputePlacement.OfficeProviders.Contains(environment.ProviderId) &&
              environment.TeardownConfirmedAt == null && operation.Generation == environment.Generation &&
              (operation.Status == "Dispatching" || operation.Status == "Reconciling")
          select operation.Id).AnyAsync(ct);

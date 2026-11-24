@@ -121,21 +121,21 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
         {
             var held = await db.ComputeEnvironments.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
                     x.InstallationId == installationId && x.WorkstreamId == projectId && x.TeardownConfirmedAt == null &&
-                    x.ProviderId == OfficeComputePlacement.ProviderId)
+                    OfficeComputePlacement.OfficeProviders.Contains(x.ProviderId))
                 .OrderBy(x => x.CreatedAt).Select(x => new { x.ProviderNodeId, x.SpecificationJson }).FirstOrDefaultAsync(token);
             var heldTemplate = held is null ? null : JsonSerializer.Deserialize<ComputeSpecification>(held.SpecificationJson, ComputeProtocol.Json)?.TemplateId;
             template = (await OfficeComputePlacement.FindAsync(db, organizationId, clock.GetUtcNow(), token,
                 heldTemplate, held?.ProviderNodeId))?.Template;
             if (template is null) return new("Pending", projectId, null, OfficeComputeCapacityRequest.WaitingReason);
         }
-        if (template is null || JsonSerializer.Deserialize<ComputeTemplate>(template.TemplateJson, ComputeProtocol.Json)?.Features.Contains("docker") != true)
+        if (template is null || JsonSerializer.Deserialize<ComputeTemplate>(template.TemplateJson, ComputeProtocol.Json) is not { } definition || !definition.Features.Contains("docker"))
             return new("Pending", projectId, null, "docker_preparation_pending");
         await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(token) : null;
         await new CSweet.Infrastructure.Core.ProjectWorkPolicy(db, clock).LockAsync(organizationId, token);
         await RequireProjectAsync(organizationId, installationId, actor.Id, projectId, token);
         var lifetime = configuration?.GetValue<int?>("CSweet:Compute:Defaults:MaximumLifetimeSeconds") ?? 0;
         if (lifetime < 0) throw new InvalidOperationException("Compute maximum lifetime must be zero (until released) or positive.");
-        var constraints = new ComputeGrantConstraints(1, new(2, 2048, 20480), 1, lifetime, ["linux"], ["x64"], [template.TemplateId], AllowedPublishedPorts: [8080]);
+        var constraints = new ComputeGrantConstraints(1, new(2, 2048, 20480), 1, lifetime, ["linux"], [definition.Architecture], [template.TemplateId], AllowedPublishedPorts: [8080]);
         foreach (var action in Actions.Where(approved.Contains))
         {
             var id = StableId($"project-compute:{projectId:D}:{installationId:D}:{action}");
@@ -143,9 +143,9 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
                 await grants.PutAsync(organizationId, id, new(0, installationId, projectId, action, constraints, lifetime == 0 ? DateTimeOffset.MaxValue : clock.GetUtcNow().AddDays(30)), token);
         }
         if (transaction is not null) await transaction.CommitAsync(token);
-        var definition = JsonSerializer.Deserialize<ComputeTemplate>(template.TemplateJson, ComputeProtocol.Json)!;
         return new("Ready", projectId, template.TemplateId, null)
         {
+            Architecture = definition.Architecture,
             Features = definition.Features.Order(StringComparer.Ordinal).ToArray(),
             CachedImages = definition.Features.Contains("docker-apps-v1") ? ["csweet/python:3.12", "csweet/node:22"] : [],
             LinkReachability = OfficeComputePlacement.IsOfficeTemplate(template.TemplateId) ? "unavailable" : "local-machine",

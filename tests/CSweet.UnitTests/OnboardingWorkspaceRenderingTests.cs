@@ -82,6 +82,7 @@ public sealed class OnboardingWorkspaceRenderingTests
     [InlineData("ready", "Your Office is ready")]
     [InlineData("remote", "Generate a new code")]
     [InlineData("remote-approval", "Approve host")]
+    [InlineData("macos", "sudo /usr/local/sbin/csweet-configure-office")]
     [InlineData("linux", "sudo /usr/sbin/csweet-configure-office")]
     [InlineData("unavailable", "Assisted local setup is unavailable")]
     [InlineData("load-error", "Try again")]
@@ -94,6 +95,11 @@ public sealed class OnboardingWorkspaceRenderingTests
         if (scenario is "stalled" or "redeemed" or "connected" or "ready") Assert.DoesNotContain("Change drive or capacity", html);
         if (scenario is "blocked-reuse" or "removal-failed") Assert.DoesNotContain("Reassign this Office", html);
         if (scenario == "recoveryrequired") Assert.Contains("Remove Office", html);
+        if (scenario == "macos")
+        {
+            Assert.Contains("--gateway-sha256 " + new string('a', 64), html);
+            Assert.DoesNotContain("Continue to Windows approval", html);
+        }
         if (scenario == "remote-approval") Assert.Contains("Not my host", html);
         if (scenario == "ready-unhealthy") Assert.DoesNotContain("Setup complete</span>", html);
         if (scenario is "failed" or "expired" or "revoked")
@@ -275,13 +281,14 @@ public sealed class OnboardingWorkspaceRenderingTests
         }
         if (scenario == "load-error") { Set("_error", "Connection interrupted. Please try again."); return; }
         if (scenario == "unavailable") { Set("_status", status with { LocalCapacity = null }); return; }
-        if (scenario is "remote" or "remote-approval" or "linux")
+        if (scenario is "remote" or "remote-approval" or "linux" or "macos")
         {
-            Set("_installationTarget", scenario == "linux" ? "local" : "remote");
-            Set("_remotePlatform", scenario == "linux" ? "linux" : "windows");
+            Set("_installationTarget", scenario is "linux" or "macos" ? "local" : "remote");
+            Set("_remotePlatform", "windows");
             Set("_status", status with {
-                LocalOperatingSystem = scenario == "linux" ? "linux" : "windows",
-                Packages = new("https://example.test/office-release.json", null, null, null, "https://example.test/gateway"),
+                LocalOperatingSystem = scenario is "linux" or "macos" ? scenario : "windows",
+                Packages = new("https://example.test/office-release.json", null, null, null, "https://example.test/gateway",
+                    ControlPlaneCertificateSha256: scenario == "macos" ? new string('a', 64) : null),
                 ActiveEnrollment = scenario == "remote" ? new(Guid.NewGuid(), Guid.NewGuid(), "available", DateTimeOffset.UtcNow.AddMinutes(10)) : null,
                 Nodes = scenario == "remote-approval" ? [new(Guid.NewGuid(), Guid.NewGuid(), "Office", "Workstation", "windows", "x64", "1.0", "1", "pendingapproval", "TEST-FINGERPRINT", null, 4, 8192, 32768, 1, null, [], new Dictionary<string,string>())] : []
             });

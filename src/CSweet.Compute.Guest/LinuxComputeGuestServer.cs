@@ -5,13 +5,13 @@ using Microsoft.Win32.SafeHandles;
 
 namespace CSweet.Compute.Guest;
 
-/// <summary>Hyper-V Linux guest listener. Only host CID 2 is admitted; no TCP fallback.</summary>
+/// <summary>Linux VSOCK guest listener. Only host CID 2 is admitted; no TCP fallback.</summary>
 public static class LinuxComputeGuestServer
 {
-    public static async Task RunAsync(CancellationToken token)
+    public static async Task RunAsync(CancellationToken token, bool virtio = false)
     {
-        if (!OperatingSystem.IsLinux() || !Directory.Exists("/sys/bus/vmbus"))
-            throw new PlatformNotSupportedException("A Linux Hyper-V guest is required.");
+        if (!OperatingSystem.IsLinux() || !(virtio ? Directory.Exists("/sys/bus/virtio") : Directory.Exists("/sys/bus/vmbus")))
+            throw new PlatformNotSupportedException("The configured Linux VM socket transport is required.");
         if (!Directory.Exists("/run/systemd/system") || !File.Exists("/usr/bin/systemd-run"))
             throw new IOException("The Linux guest requires systemd 254 or later.");
         var handler = new ComputeGuestConnection(new ComputeGuestExecution("linux",

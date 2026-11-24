@@ -1,0 +1,17 @@
+[Unit]
+Description=C-Sweet Compute guest over virtio socket
+After=systemd-modules-load.service dbus.socket docker.service
+Requires=dbus.socket docker.service
+
+[Service]
+Type=simple
+ExecStartPre=/usr/sbin/resize2fs /dev/vda
+ExecStart=/opt/csweet/compute-guest/CSweet.Compute.Guest --serve-virtio
+WorkingDirectory=/var/lib/csweet-compute/work
+RuntimeDirectory=csweet-compute
+Environment=TMPDIR=/run/csweet-compute
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

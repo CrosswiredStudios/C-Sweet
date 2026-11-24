@@ -2,6 +2,7 @@ namespace CSweet.Application.Compute;
 
 public sealed record ComputeDefaults(string State, Guid? WorkstreamId, string? TemplateId, string? ErrorCode)
 {
+    public string Architecture { get; init; } = "x64";
     public IReadOnlyList<string> Features { get; init; } = [];
     public IReadOnlyList<string> CachedImages { get; init; } = [];
     public string LinkReachability { get; init; } = "unavailable";
