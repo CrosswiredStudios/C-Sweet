@@ -116,7 +116,9 @@ foreach ($name in $serviceNames) {
 Set-PrivateAcl $root @($sids.Values) $null
 foreach ($name in $serviceNames) { Set-PrivateAcl (Join-Path $root "$name.json") @($sids[$name]) $null }
 . (Join-Path $PSScriptRoot 'HeadquartersServiceSettings.ps1')
-Initialize-HeadquartersServiceSettings $profiles
+$agentSettingsPath = Join-Path $PSScriptRoot 'CSweet.AgentHost\appsettings.json'
+Assert-ProtectedPath $agentSettingsPath
+Initialize-HeadquartersServiceSettings $profiles (Get-Content -LiteralPath $agentSettingsPath -Raw | ConvertFrom-Json)
 
 # Rotate only this setup invocation's private migration workspace. All service
 # executables and their configuration remain read-only to the migration account.

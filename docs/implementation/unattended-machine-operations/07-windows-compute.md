@@ -14,6 +14,8 @@ Office 0.17.0 hosted development bundles shipped without the compute image or an
 
 ## Explicit deployment settings
 
+On Windows, the Headquarters installer reads the named AgentHost MCP listener from the deployment profile or packaged settings. It writes its local address to the ExecutionGateway service defaults so a newly hired agent can initialize its session after reboot. The packaged listener produces `http://localhost:8081/`. A deployment can set `CSweet:AgentRuntime:AgentHostBroker:BaseUrl` explicitly. This service connection is independent of the public fleet switch.
+
 1. Include the normal Office agent image and its hardware certification in the Windows release. Supply the signed Linux compute VHDX separately through `CSWEET_COMPUTE_GUEST_IMAGE` and `CSWEET_COMPUTE_GUEST_SIGNATURE`. The image must boot using generation 2 secure boot, fit the authorized disk ceiling and run the compute guest service on Hyper-V socket port 2763. Declare its installed features with `CSWEET_COMPUTE_GUEST_FEATURES`. The standard developer template requires `docker`.
 2. Set the machine allocation and an explicit compute reservation in the combined install's protected `%ProgramFiles%\CSweet\Provisioning\office.json`. The following fragment reserves one workspace. The rest of the allocation is available for Office agent and builder workloads. Use the actual Headquarters business GUID.
 

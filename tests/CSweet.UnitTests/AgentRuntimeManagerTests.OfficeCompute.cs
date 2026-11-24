@@ -103,10 +103,10 @@ public sealed partial class AgentRuntimeManagerTests
     }
 
     [Fact, Trait("Category", "AgentHarness")]
-    public async Task Hired_employee_replays_office_availability_and_only_the_assigned_office_claims_the_vm()
-        => await VerifyHiredOfficePlacementAsync(new ComputeBrokerTests.Fixture());
+    public Task Hired_employee_replays_office_availability_and_only_the_assigned_office_claims_the_vm()
+        => VerifyHiredOfficePlacementAsync(new ComputeBrokerTests.Fixture());
 
-    internal static async Task VerifyHiredOfficePlacementAsync(ComputeBrokerTests.Fixture storage,
+    internal static async Task<Guid> VerifyHiredOfficePlacementAsync(ComputeBrokerTests.Fixture storage,
         Func<ICSweetAgent>? createEmployee = null, Action<AgentTestRuntime>? configurePlatform = null)
     {
         await using var fixture = storage;
@@ -207,6 +207,7 @@ public sealed partial class AgentRuntimeManagerTests
             Assert.Equal(office.Id, claim.NodeId);
             Assert.Equal(claim.DispatchId, op.DispatchLeaseId);
         }
+        return Assert.Single(signer.Claims).EnvironmentId;
     }
 
     private sealed class ProjectWorkspaceRequester : ICSweetAgent
