@@ -1,0 +1,36 @@
+name: macOS Headquarters
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/macos-headquarters.yml'
+      - 'Start-CSweet.command'
+      - 'global.json'
+      - 'Directory.*'
+      - 'src/**'
+      - 'tests/CSweet.UnitTests/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: '10.0.x'
+      - name: Check the Mac launcher and build Headquarters
+        run: |
+          test -x Start-CSweet.command
+          bash -n Start-CSweet.command
+          dotnet build src/CSweet.AppHost/CSweet.AppHost.csproj -c Release
+      - name: Test Office setup and certificates
+        run: >
+          dotnet test tests/CSweet.UnitTests/CSweet.UnitTests.csproj -c Release
+          --filter 'FullyQualifiedName~AssistantPreservesOfficeRecoveryAndReadinessControls|FullyQualifiedName~ExecutionNodeCertificateAuthorityTests'

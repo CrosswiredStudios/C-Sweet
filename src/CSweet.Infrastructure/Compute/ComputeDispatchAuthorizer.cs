@@ -22,16 +22,16 @@ public sealed class ComputeDispatchAuthorizer(CSweetDbContext db, ComputeBroker 
         var now = clock.GetUtcNow();
         var due = await (from operation in db.ComputeOperations.AsNoTracking()
                          join environment in db.ComputeEnvironments.AsNoTracking() on operation.EnvironmentId equals environment.Id
-                         where environment.ProviderNodeId == officeId && environment.ProviderId == OfficeComputePlacement.ProviderId &&
+                         where environment.ProviderNodeId == officeId && OfficeComputePlacement.OfficeProviders.Contains(environment.ProviderId) &&
                              environment.OrganizationId == operation.OrganizationId && environment.Generation == operation.Generation &&
                              environment.TeardownConfirmedAt == null && operation.NextAttemptAt <= now &&
                              (operation.Status == "Pending" || operation.Status == "Dispatching" || operation.Status == "Reconciling") &&
                              (operation.DispatchLeaseExpiresAt == null || operation.DispatchLeaseExpiresAt <= now)
                          orderby operation.NextAttemptAt, operation.Id
-                         select new { operation.Id, environment.OrganizationId }).Take(8).ToArrayAsync(token);
+                         select new { operation.Id, environment.OrganizationId, environment.ProviderId }).Take(8).ToArrayAsync(token);
         foreach (var item in due)
         {
-            var scope = new ComputeProviderWorkRequest(item.OrganizationId, officeId, OfficeComputePlacement.ProviderId,
+            var scope = new ComputeProviderWorkRequest(item.OrganizationId, officeId, item.ProviderId,
                 Guid.NewGuid(), now, now.AddMinutes(1), item.Id);
             var packet = await ClaimCoreAsync(item.Id, scope, token, officeSigner);
             if (packet is not null) return packet;
@@ -51,7 +51,7 @@ public sealed class ComputeDispatchAuthorizer(CSweetDbContext db, ComputeBroker 
             if (operation is null || operation.Status is not ("Pending" or "Dispatching" or "Reconciling") ||
                 operation.NextAttemptAt > now || operation.DispatchLeaseExpiresAt > now) return null;
             var environment = await db.ComputeEnvironments.SingleAsync(x => x.Id == operation.EnvironmentId, token);
-            if ((environment.ProviderId == OfficeComputePlacement.ProviderId) != (officeSigner is not null)) return null;
+            if ((OfficeComputePlacement.OfficeProviders.Contains(environment.ProviderId)) != (officeSigner is not null)) return null;
             if (requestingNode is not null && (environment.OrganizationId != requestingNode.OrganizationId ||
                 environment.ProviderNodeId != requestingNode.NodeId || environment.ProviderId != requestingNode.ProviderId))
                 throw new UnauthorizedAccessException("The operation belongs to another provider placement.");

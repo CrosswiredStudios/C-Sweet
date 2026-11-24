@@ -20,13 +20,13 @@ namespace CSweet.UnitTests;
 public sealed class ComputePostgresTests
 {
     [PostgresTheory, Trait("Category", "AgentHarness")]
-    [InlineData("office-hyperv")]
-    public async Task Hired_employee_replays_office_placement_with_relational_capacity_and_scope_filters(string provider)
+    [InlineData("x64")]
+    [InlineData("arm64")]
+    public async Task Hired_employee_replays_office_placement_with_relational_capacity_and_scope_filters(string architecture)
     {
-        Assert.Equal(OfficeComputePlacement.ProviderId, provider);
         await using var database = new Database();
         await database.CreateAsync();
-        await AgentRuntimeManagerTests.VerifyHiredOfficePlacementAsync(new ComputeBrokerTests.Fixture(database.Options()));
+        await AgentRuntimeManagerTests.VerifyHiredOfficePlacementAsync(new ComputeBrokerTests.Fixture(database.Options()), architecture: architecture);
     }
     [PostgresTheory]
     [InlineData(0)]

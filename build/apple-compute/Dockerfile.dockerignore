@@ -1,0 +1,10 @@
+**
+!Directory.*
+!src/
+!src/CSweet.Compute.Guest/
+!src/CSweet.Compute.Guest/**
+**/bin/
+**/obj/
+!build/
+!build/apple-compute/
+!build/apple-compute/csweet-compute-guest.service

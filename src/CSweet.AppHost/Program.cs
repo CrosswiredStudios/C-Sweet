@@ -1,3 +1,4 @@
+using System.Security.Cryptography.X509Certificates;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using CSweet.Infrastructure.Setup;
@@ -334,7 +335,7 @@ static (string Path, string Sha256) EnsureDevelopmentExecutionGatewayCertificate
                 .LoadPkcs12FromFile(
                     certificatePath,
                     password: null,
-                    System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.EphemeralKeySet);
+                    OperatingSystem.IsMacOS() ? X509KeyStorageFlags.DefaultKeySet : X509KeyStorageFlags.EphemeralKeySet);
             if (existing.HasPrivateKey &&
                 existing.NotBefore.ToUniversalTime() <= DateTime.UtcNow &&
                 existing.NotAfter.ToUniversalTime() > DateTime.UtcNow.AddDays(30))

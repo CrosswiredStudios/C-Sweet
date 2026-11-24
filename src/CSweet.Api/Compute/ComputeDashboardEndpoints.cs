@@ -174,7 +174,7 @@ public static class ComputeDashboardEndpoints
         var count = first?.Total ?? 0;
         var available = await OfficeComputePlacement.FindAsync(db, business, now, token) is not null;
         var registered = available || await db.ComputeNodes.AnyAsync(n => n.OrganizationId == business &&
-            n.ProviderId == OfficeComputePlacement.ProviderId && n.Enabled, token);
+            (n.ProviderId == OfficeComputePlacement.ProviderId || n.ProviderId == OfficeComputePlacement.AppleProviderId) && n.Enabled, token);
         var state = available ? "Ready" : count > 0 ? "Pending" : "Unavailable";
         return new(state, available ? "Office compute available" : "Office compute unavailable", null, null,
             state == "Pending" ? OfficeComputeCapacityRequest.WaitingReason : null)

@@ -7,10 +7,10 @@ before an explicitly requested destructive reset.
 
 ## Prerequisites
 
-- Windows with the .NET 10 SDK specified by `global.json`.
+- macOS or Windows with Git and the .NET 10 SDK selected by `global.json`. Use the native Arm64 SDK on Apple silicon.
 - Docker Desktop with its Linux container engine running. AppHost provisions PostgreSQL and SearXNG through Docker, so the complete application cannot start when the Docker engine is unavailable.
 - An OpenAI-compatible model endpoint for AI features.
-- Windows Professional, Enterprise, or Education with hardware virtualization for local untrusted-agent execution. The browser onboarding flow guides Hyper-V and RuntimeHost preparation.
+- For agent execution, enroll an Office on this machine or a separate host. A Mac Office needs macOS 14 or later, Apple Virtualization.framework, and a signed package with current certification for that architecture. Windows local Office uses Hyper-V on Professional, Enterprise, or Education.
 
 Docker runs trusted development infrastructure. It is not the isolation boundary for imported or marketplace agents; those agents remain disabled until the certified hardware-isolation provider is ready.
 
@@ -52,7 +52,9 @@ does not apply those migrations or prove runtime acceptance.
 
 ### Option 1: Aspire AppHost (Recommended)
 
-For the most guided Windows experience, double-click `Start-CSweet.cmd` in the repository root. It checks the .NET SDK and Docker engine, attempts to start Docker Desktop when it is installed but stopped, waits for the engine, and then starts AppHost.
+On macOS, run `./Start-CSweet.command` from Terminal in the clone, or double-click it in Finder. It checks the SDK, waits for Docker and selects the local HTTP profile when the development certificate is untrusted.
+
+On Windows, double-click `Start-CSweet.cmd` in the repository root. It checks the .NET SDK and Docker engine, attempts to start Docker Desktop when it is installed but stopped, waits for the engine, and then starts AppHost.
 
 Run `CSweet.AppHost` to start all services together with the Aspire dashboard.
 
@@ -77,7 +79,7 @@ This will:
 The Aspire dashboard URL appears in the console output (`https://localhost:17201` or `http://localhost:15201` with the checked-in AppHost profiles).
 Docker Desktop must be running because PostgreSQL is a required AppHost resource. AgentHost no longer launches untrusted agents as Docker containers. On Windows, untrusted execution uses the separately installed RuntimeHost service and a certified Hyper-V guest.
 
-SearXNG starts through the same AppHost run, including when launched by `Start-CSweet.cmd`.
+Both launchers start SearXNG through AppHost.
 No separate search account or instance configuration is required. Its configuration, cache,
 image pin, Compose packaging, and smoke checks are documented in the
 [Docker infrastructure guide](../deployment/docker.md#searxng-search-infrastructure).
@@ -91,7 +93,7 @@ configuration can still own that port when Visual Studio starts a new debug sess
 Separate build configurations isolate build outputs; running AppHosts still share the
 checked-in development ports.
 
-Identify the listener before stopping anything:
+On macOS, identify the listener with `lsof -nP -iTCP:22201 -sTCP:LISTEN`. On Windows, use PowerShell.
 
 ```powershell
 Get-NetTCPConnection -LocalPort 22201 -State Listen |

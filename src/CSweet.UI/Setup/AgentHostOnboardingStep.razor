@@ -179,7 +179,6 @@
         if (!RemoteOnly) await RestoreActiveLocalSetupAsync();
         if (ManualLocalSetup)
         {
-            _remotePlatform = "linux";
             await EnsureManualLocalEnrollmentAsync();
         }
         StartPolling();
@@ -211,7 +210,6 @@
         {
             if (ManualLocalSetup)
             {
-                _remotePlatform = "linux";
                 await EnsureManualLocalEnrollmentAsync();
             }
             return;
@@ -532,7 +530,7 @@
         }
         catch
         {
-            SetAction(false, "C-Sweet could not prepare the Linux connection code. Try again.");
+            SetAction(false, "C-Sweet could not prepare the Office connection code. Try again.");
         }
         finally
         {
@@ -1390,7 +1388,7 @@
     private static string Title(string value) => value switch { "windows" => "Windows", "linux" => "Linux", "macos" => "macOS", _ => value };
 
     private string LocalPlatform => _status?.LocalOperatingSystem ?? "windows";
-    private bool ManualLocalSetup => _installationTarget == "local" && LocalPlatform == "linux";
+    private bool ManualLocalSetup => _installationTarget == "local" && LocalPlatform is "linux" or "macos";
 
     private static string FormatDuration(TimeSpan duration)
     {
@@ -1443,7 +1441,9 @@
         new("custom", "Custom", "Choose exact limits", Icons.Material.Outlined.Tune)
     ];
 
-    private string? SelectedPackageUrl(OfficePackageLinksResponse packages) => _remotePlatform switch
+    private string TargetPlatform => ManualLocalSetup ? LocalPlatform : _remotePlatform;
+
+    private string? SelectedPackageUrl(OfficePackageLinksResponse packages) => TargetPlatform switch
     {
         "windows" => packages.WindowsPackageOverrideUrl ?? packages.ReleaseManifestUrl,
         "linux" => packages.LinuxPackageOverrideUrl ?? packages.ReleaseManifestUrl,
@@ -1454,11 +1454,11 @@
     private string? RecommendedPresetKey => SelectedCapacity?.Presets
         .FirstOrDefault(preset => preset.MemoryMb >= 16 * 1024)?.Key;
 
-    private string InstallCommand(string controlPlaneUrl) => _remotePlatform switch
+    private string InstallCommand(string controlPlaneUrl) => TargetPlatform switch
     {
         "windows" => $"& \"$env:ProgramFiles\\CSweet\\Office\\Install-CSweetOffice.ps1\" -PayloadRoot \"$env:ProgramFiles\\CSweet\\Office\\payload\" -ControlPlaneUrl '{PowerShellQuote(controlPlaneUrl)}'",
         "linux" => $"sudo /usr/sbin/csweet-configure-office '{UnixQuote(controlPlaneUrl)}'",
-        "macos" => $"sudo /usr/local/sbin/csweet-configure-office '{UnixQuote(controlPlaneUrl)}'",
+        "macos" => MacOfficeCommand.Format(controlPlaneUrl, _status?.Packages?.ControlPlaneCertificateSha256),
         _ => string.Empty
     };
 

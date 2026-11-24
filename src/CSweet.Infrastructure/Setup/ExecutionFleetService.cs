@@ -144,7 +144,7 @@ public sealed partial class ExecutionFleetService(
         var localCapacity = DetectLocalCapacity();
         IReadOnlyList<ExecutionCapacityCheckResponse> localPrerequisites = localCapacity.IsSupported
             ? [Passed("local-capacity", "Local Office capacity",
-                $"This {(OperatingSystem.IsLinux() ? "Linux" : "Windows")} host has safe capacity for C-Sweet Office.")]
+                "This host has safe capacity for C-Sweet Office.")]
             : [Required("local-capacity", "Local Office capacity", localCapacity.UnavailableReason ??
                 "Assisted local setup is unavailable.", "Choose another machine or free resources and try again.")];
         return new ExecutionCapacityOnboardingResponse(
@@ -170,7 +170,8 @@ public sealed partial class ExecutionFleetService(
                 fleetOptions?.Value.WindowsPackageOverrideUrl,
                 fleetOptions?.Value.LinuxPackageOverrideUrl,
                 fleetOptions?.Value.MacOsPackageOverrideUrl,
-                PublicControlPlaneUrl(appConfiguration), DevelopmentLauncherConfigured),
+                PublicControlPlaneUrl(appConfiguration), DevelopmentLauncherConfigured,
+                appConfiguration?["CSweet:ExecutionGateway:PublicCertificateSha256"]),
             null,
             localCapacity,
             null);
@@ -242,9 +243,9 @@ public sealed partial class ExecutionFleetService(
         if (request.UseLocalSource)
             return await LocalFailureAsync("published_update_required",
                 "A published Office package is required for unattended maintenance.", cancellationToken);
-        if (request.UpgradeOfficeId is null && OperatingSystem.IsLinux())
+        if (request.UpgradeOfficeId is null && (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()))
             return await LocalFailureAsync("manual_setup_required",
-                "Linux Office setup uses the signed package and an explicit administrator command.", cancellationToken);
+                "Office setup on this platform uses the signed package and an explicit administrator command.", cancellationToken);
         if (request.UpgradeOfficeId is null && !OperatingSystem.IsWindows())
             return await LocalFailureAsync("assisted_setup_unavailable",
                 "Assisted local Office setup is unavailable on this platform.", cancellationToken);

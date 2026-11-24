@@ -106,8 +106,12 @@ public sealed partial class AgentRuntimeManagerTests
     public async Task Hired_employee_replays_office_availability_and_only_the_assigned_office_claims_the_vm()
         => await VerifyHiredOfficePlacementAsync(new ComputeBrokerTests.Fixture());
 
+    [Fact, Trait("Category", "AgentHarness")]
+    public async Task Mac_office_claims_an_arm64_workspace_after_replayed_availability()
+        => await VerifyHiredOfficePlacementAsync(new ComputeBrokerTests.Fixture(), architecture: "arm64");
+
     internal static async Task VerifyHiredOfficePlacementAsync(ComputeBrokerTests.Fixture storage,
-        Func<ICSweetAgent>? createEmployee = null, Action<AgentTestRuntime>? configurePlatform = null)
+        Func<ICSweetAgent>? createEmployee = null, Action<AgentTestRuntime>? configurePlatform = null, string architecture = "x64")
     {
         await using var fixture = storage;
         await fixture.SeedAsync();
@@ -118,6 +122,7 @@ public sealed partial class AgentRuntimeManagerTests
             .CreateSelfSigned(now.AddDays(-1), now.AddDays(1));
         var pool = new ExecutionPool { Id = Guid.NewGuid(), AllowedBusinessIdsJson = JsonSerializer.Serialize(new[] { fixture.Organization }) };
         var office = new ExecutionNode { Id = Guid.NewGuid(), ExecutionPoolId = pool.Id, ApprovedAt = now,
+            OperatingSystem = architecture == "arm64" ? "macos" : "windows", Architecture = architecture,
             Status = ExecutionNodeStatus.Ready, LastHeartbeatAt = now, CertificateExpiresAt = now.AddDays(1),
             IssuedCertificateBase64 = Convert.ToBase64String(cert.RawData), CertificateThumbprint = cert.Thumbprint };
         var db = fixture.Db;
@@ -161,7 +166,7 @@ public sealed partial class AgentRuntimeManagerTests
             await using var restarted = new CSweetDbContext(fixture.Options);
             var registry = new ComputeRegistry(restarted, clock, new AuditExecutionContextAccessor());
             var broker = new ComputeBroker(restarted, registry, clock, fixture.Ledger);
-            var employee = createEmployee?.Invoke() ?? new ProjectWorkspaceRequester();
+            var employee = createEmployee?.Invoke() ?? new ProjectWorkspaceRequester(architecture);
             var handler = new ComputeCapabilityHandler(broker, Defaults(restarted));
             var capabilities = new HashSet<string> { InfrastructureActions.Read, InfrastructureActions.Provision };
             var session = new AgentSession("session", employee.AgentId, fixture.Installation.ToString("D"),
@@ -188,6 +193,8 @@ public sealed partial class AgentRuntimeManagerTests
             var claim = Assert.Single(signer.Claims);
             var env = await restarted.ComputeEnvironments.SingleAsync();
             Assert.Null(await registry.ResolveAsync(fixture.Organization, template, default));
+            Assert.Equal(architecture == "arm64" ? OfficeComputePlacement.AppleProviderId : OfficeComputePlacement.ProviderId, claim.ProviderId);
+            Assert.Equal(architecture, JsonSerializer.Deserialize<ComputeSpecification>(env.SpecificationJson, ComputeProtocol.Json)!.Architecture);
             Assert.Equal(office.Id, env.ProviderNodeId);
             Assert.Equal(fixture.Workstream, env.WorkstreamId);
             Assert.Equal(env.Id, claim.EnvironmentId);
@@ -197,7 +204,7 @@ public sealed partial class AgentRuntimeManagerTests
         }
     }
 
-    private sealed class ProjectWorkspaceRequester : ICSweetAgent
+    private sealed class ProjectWorkspaceRequester(string architecture) : ICSweetAgent
     {
         public string AgentId => "office-compute-test";
         public string Version => "1.0.0";
@@ -208,7 +215,7 @@ public sealed partial class AgentRuntimeManagerTests
             var project = defaults.WorkstreamId!.Value;
             var key = $"project:{project:N}:developer:{context.InstallationId}:generation:0";
             await context.Platform.Compute.ProvisionAsync(new(project, key, key,
-                new("linux", "x64", defaults.TemplateId!, new(2, 2048, 20480), 0)), token);
+                new("linux", architecture, defaults.TemplateId!, new(2, 2048, 20480), 0)), token);
         }
         public Task<AgentWorkResult> ExecuteCapabilityAsync(AgentCapabilityRequest request, AgentRuntimeContext context, CancellationToken token) =>
             throw new NotSupportedException();

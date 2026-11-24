@@ -131,7 +131,8 @@ public sealed record OfficePackageLinksResponse(
     string? LinuxPackageOverrideUrl,
     string? MacOsPackageOverrideUrl,
     string? ControlPlaneUrl,
-    bool CanLaunchLocalUpgrade = false);
+    bool CanLaunchLocalUpgrade = false,
+    string? ControlPlaneCertificateSha256 = null);
 
 public sealed record SelectExecutionOnboardingModeRequest(string Mode);
 public sealed record ExecutionEnrollmentResponse(
