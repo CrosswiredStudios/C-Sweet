@@ -49,7 +49,7 @@ public static class MauiProgram
         var issuer = typeof(MauiProgram).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false)
             .OfType<System.Reflection.AssemblyMetadataAttribute>().FirstOrDefault(x => x.Key == "CSweetIssuer")?.Value;
         if (!string.IsNullOrWhiteSpace(issuer)) return new() { Issuer = new Uri(issuer) };
-#if DEBUG
+#if CSWEET_LOCAL_ACCOUNT
         // The local Aspire Market. On Android run `adb reverse tcp:5163 tcp:5163` so the phone's localhost reaches it.
         return new() { Issuer = new Uri("http://localhost:5163/"), AllowHttpIssuer = true };
 #else

@@ -25,11 +25,18 @@ internal sealed class MauiBrowserAuthenticator : IBrowserAuthenticator
 /// <summary>Android Keystore / iOS Keychain backed storage. A damaged store is cleared so the person can sign in again.</summary>
 internal sealed class MauiSecureValueStore : ISecureValueStore
 {
+    // Hosted debugging shares the app ID with Debug. Keep its tokens, cached directory and device key separate.
+#if CSWEET_HOSTED_DEBUG
+    private const string KeyPrefix = "hosted-debug.";
+#else
+    private const string KeyPrefix = "";
+#endif
+
     public async Task<string?> GetAsync(string key)
     {
         try
         {
-            return await SecureStorage.Default.GetAsync(key);
+            return await SecureStorage.Default.GetAsync(KeyPrefix + key);
         }
         catch (Exception)
         {
@@ -38,11 +45,11 @@ internal sealed class MauiSecureValueStore : ISecureValueStore
         }
     }
 
-    public Task SetAsync(string key, string value) => SecureStorage.Default.SetAsync(key, value);
+    public Task SetAsync(string key, string value) => SecureStorage.Default.SetAsync(KeyPrefix + key, value);
 
     public Task RemoveAsync(string key)
     {
-        SecureStorage.Default.Remove(key);
+        SecureStorage.Default.Remove(KeyPrefix + key);
         return Task.CompletedTask;
     }
 }
