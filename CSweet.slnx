@@ -1,4 +1,12 @@
 <Solution>
+  <Configurations>
+    <BuildType Name="Debug" />
+    <BuildType Name="HostedDebug" />
+    <BuildType Name="Release" />
+    <ProjectType>
+      <BuildType Solution="HostedDebug|*" Project="Debug" />
+    </ProjectType>
+  </Configurations>
   <Folder Name="/agents/">
     <Project Path="agents/CSweet.PersonalAssistant/src/CSweet.PersonalAssistant/CSweet.PersonalAssistant.csproj" />
     <Project Path="agents/CSweet.PersonalAssistant/tests/CSweet.PersonalAssistant.Tests/CSweet.PersonalAssistant.Tests.csproj" />
@@ -25,7 +33,9 @@
     <Project Path="src/CSweet.Mobile.Transport/CSweet.Mobile.Transport.csproj" />
     <Project Path="src/CSweet.Infrastructure/CSweet.Infrastructure.csproj" />
     <Project Path="src/CSweet.Migrator/CSweet.Migrator.csproj" />
-    <Project Path="src/CSweet.Maui/CSweet.Maui.csproj" />
+    <Project Path="src/CSweet.Maui/CSweet.Maui.csproj">
+      <BuildType Solution="HostedDebug|*" Project="HostedDebug" />
+    </Project>
     <Project Path="src/CSweet.Plugin.SDK/CSweet.Plugin.SDK.csproj" />
     <Project Path="src/CSweet.UI/CSweet.UI.csproj" />
     <Project Path="src/CSweet.ServiceDefaults/CSweet.ServiceDefaults.csproj" />
