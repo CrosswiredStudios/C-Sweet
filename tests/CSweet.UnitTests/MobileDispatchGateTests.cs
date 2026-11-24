@@ -29,18 +29,24 @@ public sealed class MobileDispatchGateTests
         if (expected == 200) Assert.Equal(body, seen); // the handler still reads the whole body
     }
 
-    [Fact]
-    public async Task Ordinary_requests_and_phone_reads_pass_the_gate_untouched()
+    [Theory]
+    [InlineData(false, null, false, 200)]
+    [InlineData(true, MobileAccess.Read, false, 200)]
+    [InlineData(true, MobileAccess.Write, false, 404)]
+    [InlineData(true, null, false, 404)]
+    [InlineData(true, null, true, 200)]
+    public async Task Phone_reads_require_a_reviewed_endpoint(bool phone, MobileAccess? access, bool allowAllReads, int expected)
     {
-        var cookie = new DefaultHttpContext();
-        cookie.Request.Method = "POST";
-        var read = Mobile("GET", null, null, marked: false);
-        foreach (var context in new[] { cookie, read })
-        {
-            var ran = false;
-            await new MobileDispatchGateMiddleware(_ => { ran = true; return Task.CompletedTask; }).InvokeAsync(context);
-            Assert.True(ran);
-        }
+        var context = new DefaultHttpContext();
+        context.Request.Method = "GET";
+        if (phone) context.Features.Set(new MobileDispatchFeature(Guid.NewGuid(), allowAllReads));
+        if (access.HasValue)
+            context.SetEndpoint(new Endpoint(_ => Task.CompletedTask,
+                new EndpointMetadataCollection(new AllowFromMobileAttribute(access.Value, "test")), "read"));
+        var ran = false;
+        await new MobileDispatchGateMiddleware(_ => { ran = true; return Task.CompletedTask; }).InvokeAsync(context);
+        Assert.Equal(expected, context.Response.StatusCode);
+        Assert.Equal(expected == 200, ran);
     }
 
     [Theory]

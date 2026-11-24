@@ -35,12 +35,20 @@ public sealed class MobileDispatchGateMiddleware(RequestDelegate next)
 
     public async Task InvokeAsync(HttpContext context)
     {
-        if (context.Features.Get<MobileDispatchFeature>() is null || HttpMethods.IsGet(context.Request.Method))
+        if (context.Features.Get<MobileDispatchFeature>() is not { } dispatch)
         {
             await next(context);
             return;
         }
         var marker = context.GetEndpoint()?.Metadata.GetMetadata<AllowFromMobileAttribute>();
+        if (HttpMethods.IsGet(context.Request.Method))
+        {
+            if (dispatch.AllowAllReads || marker?.Access == MobileAccess.Read)
+                await next(context);
+            else
+                context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
         if (marker?.Access != MobileAccess.Write)
         {
             context.Response.StatusCode = StatusCodes.Status404NotFound;

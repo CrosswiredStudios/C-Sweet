@@ -29,7 +29,8 @@ public static class CommunicationEndpoints
             var actorId = await ResolveActorAsync(organizationId, http, hub, cancellationToken);
             return actorId is null ? Results.Forbid() : Results.Ok(
                 await decisions.ListPendingForUserAsync(organizationId, actorId.Value, cancellationToken));
-        });
+        })
+            .AllowFromMobile(MobileAccess.Read, "The inbox is restricted to the current active member of the conversation.");
 
         group.MapGet("/discord", async (Guid organizationId, ICommunicationWorkspaceService service, CancellationToken cancellationToken) =>
             await service.GetDiscordAsync(organizationId, cancellationToken) is { } connection ? Results.Ok(connection) : Results.NotFound());
