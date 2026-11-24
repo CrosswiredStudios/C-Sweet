@@ -611,6 +611,7 @@ public static class DependencyInjection
         builder.Services.AddScoped<IExecutiveDecisionService, ExecutiveDecisionService>();
         builder.Services.AddScoped<DecisionExplanationService>();
         builder.Services.AddScoped<DecisionFollowUpService>();
+        builder.Services.AddMemoryCache();
         builder.Services.AddScoped<IChiefLeadershipService, ChiefLeadershipService>();
         builder.Services.AddScoped<IAgentCommunicationOnboardingService, AgentCommunicationOnboardingService>();
         builder.Services.AddScoped<IApplicationRealtimeOutboxDispatcher, ApplicationRealtimeOutboxDispatcher>();

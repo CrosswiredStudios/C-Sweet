@@ -1,6 +1,8 @@
 using CSweet.Application.Setup;
 using CSweet.Contracts.Setup;
 using CSweet.Domain.Core;
+using CSweet.Domain.Setup;
+using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Compute;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Setup;
@@ -13,6 +15,49 @@ namespace CSweet.UnitTests;
 
 public sealed partial class ExecutionFleetServiceTests
 {
+    [Fact]
+    public async Task PrivateCombinedSetupRequiresItsApprovedEnrollmentAndExactCertifiedImages()
+    {
+        var options = new DbContextOptionsBuilder<CSweetDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+        var scope = new ExecutionFleetOptions();
+        var images = new AgentRuntimeManagerOptions { BuilderGuestImageDigest = Digest('a'), RuntimeGuestImageDigest = Digest('a'), RequiredCertificationSuiteVersion = "production-v1" };
+        var clock = new MutableTimeProvider(Now);
+        await using var initial = new CSweetDbContext(options);
+        var registry = CreateFleet(initial, clock);
+        await new SetupService(initial).EnsureSeededAsync();
+        async Task<Guid> Register()
+        {
+            var enrollment = (await registry.CreateEnrollmentAsync()).Enrollment!;
+            var req = Claim(enrollment.EnrollmentToken!);
+            var claim = await registry.ClaimNodeAsync(req with { OperatingSystem = "windows", MachineName = "same-host",
+                Providers = [req.Providers.Single() with { ProviderId = "hyperv-gen2" }] });
+            Assert.True(claim.Succeeded, claim.ErrorCode);
+            Assert.True((await registry.ApproveNodeAsync(claim.OfficeId!.Value)).Succeeded);
+            (await initial.ExecutionNodes.SingleAsync(n => n.Id == claim.OfficeId)).LastHeartbeatAt = Now;
+            await initial.SaveChangesAsync();
+            return enrollment.Id;
+        }
+        var installed = await Register();
+        await Register();
+        scope.CombinedOfficeEnrollmentId = installed;
+        await using var restarted = new CSweetDbContext(options, fleetOptions: Options.Create(scope), runtimeOptions: Options.Create(images));
+        var fleet = CreateFleet(restarted, clock, fleetOptions: scope);
+        var setup = new SetupService(restarted, fleet);
+        Assert.True((await setup.CompleteStepAsync("agent-execution")).Succeeded);
+        Assert.Equal(1, (await fleet.GetOnboardingStatusAsync()).ReadyNodeCount);
+        var enrollmentRow = await restarted.ExecutionNodeEnrollments.SingleAsync(e => e.Id == installed);
+        var provider = await restarted.ExecutionNodeProviders.SingleAsync(p => p.ExecutionNodeId == enrollmentRow.ExecutionNodeId);
+        provider.GuestImageDigest = Digest('c');
+        await restarted.SaveChangesAsync();
+        Assert.False(await fleet.IsReadyAsync());
+        provider.GuestImageDigest = Digest('a');
+        enrollmentRow.Status = ExecutionEnrollmentStatus.Revoked;
+        await restarted.SaveChangesAsync();
+        Assert.False((await fleet.GetOnboardingStatusAsync()).IsReady);
+        Assert.Empty(await restarted.OfficesForPlacement(Now).ToListAsync());
+        Assert.False(scope.PublicLaunchEnabled);
+    }
+
     [Fact]
     public async Task CombinedOfficeInstallApprovesOnlyTheLocalOneUseEnrollment()
     {

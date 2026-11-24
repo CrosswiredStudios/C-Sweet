@@ -7,6 +7,22 @@ builds used. Record results in the last column when a scenario is run.
 
 ### Windows hire and placement
 
+On 2026-11-23, the development-signed 0.17.3 combined installer ran on a clean Windows Server 2025 VM with Office 0.17.2 and zero manual compute overrides. The Windows process audit matched the unelevated installer launch and counted one consent prompt. The installer exited successfully and all nine services were running. With `PublicLaunchEnabled` disabled, Headquarters reported one ready Windows Office under `Private Windows installation`. Its enrollment matched the installer reservation, its Hyper-V agent image matched the certified digest, and Headquarters completed first-run setup. The combined bundle SHA-256 was `948cc1289f90994bf77ead9f9aa4db85c8544cc88f0f754e15f4abbf106d39a1`.
+
+After a cold boot, Hyper-V Data Exchange returned the Windows startup witness before the host opened a management session. All nine services started automatically under their expected identities and Headquarters returned HTTP 200. Windows recorded 36 logon events and 175 process events, with zero interactive sign-ins and zero consent processes. A separate Headquarters read confirmed the same Office enrollment and node were ready after boot. The Windows VM had zero network adapters, so the tagged Game Engineer release could not be imported from GitHub. The employee hire, workspace VM ID and guest file round trip are pending.
+
+On 2026-11-23, the clean Windows Server 2025 VM installed Headquarters `de780b32` and Office `68fe296` (0.17.2) from the development-signed combined installer. Windows event 4688 matched the original unelevated process by PID and DVD device path and recorded one consent process during installation. The installer exited with code 0. All six long-running Headquarters services and the three Office services were running. The combined installer reserved the Linux workspace image `sha256:db90e4beb68deaf957becd5592a8a2b67d3477b3cfa5b1a5eb68192ab3248d19` for the test business.
+
+At 22:07 UTC on the same installation, Headquarters reported one enrolled Windows Office with a fresh heartbeat. The Hyper-V provider was available for builder and runtime workloads, and its image matched both deployment pins. The `launch-gate` check failed because `CSweet:ExecutionFleet:PublicLaunchEnabled` was off. `POST /api/setup/steps/agent-execution/complete` returned HTTP 400 before the test reached reboot or hire. The installer passed its one-prompt check. This run produced no workspace or post-reboot consent count.
+
+The 2026-11-23 fresh-install run on Windows Server 2025 used Headquarters `de780b32`,
+Office `4f8cb4a` (0.17.1) and the development-signed combined bundle. All six
+long-running Headquarters services started, including GitHost and SourceControlProvisionerHost.
+Office setup stalled after registering `CSweet.Office.RuntimeHost` under its virtual
+service account with its service SID enabled. RuntimeHost was stopped and the Office
+Node service was absent. The installer had not exited at the time of inspection.
+This run has no completed installation consent count or post-reboot hire result.
+
 The Game Engineer and Software Developer regression `Hired_developer_prepares_one_authorized_project_workspace_after_restart` passed both replay orderings in each agent. The Headquarters regression `Hired_employee_replays_office_availability_and_only_the_assigned_office_claims_the_vm` exercised the durable hire, wake and signed lease. Its PostgreSQL counterpart also exercised the relational scope and capacity filters.
 
 In `Hired_developer_consumes_the_Headquarters_wake_and_claims_one_Office_workspace`, each real developer agent consumed the Headquarters outbox event through a fresh agent host. Both cases passed. Each agent used the SDK and the production compute capability handler to request its environment, wrote its workspace state once across replay, and produced one operation that only the assigned Office could claim. V1b's post-reboot hire with Office 0.17.0 still needs a physical run. [Acceptance setup and script](07-windows-compute.md)

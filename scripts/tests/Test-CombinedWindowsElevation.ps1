@@ -59,6 +59,23 @@ if ($result.computer -cne $env:COMPUTERNAME -or $result.exitCode -ne 0 -or $fini
 }
 $launches = 0
 $prompts = 0
+$launchPaths = @($file.FullName)
+$drive = [IO.Path]::GetPathRoot($file.FullName)
+if ($drive -match '^[A-Za-z]:\\$') {
+    # Event 4688 can record the device path of an executable launched from a DVD.
+    # Resolve the actual drive mapping before comparing the full path and process ID.
+    if (-not ('CSweet.InstallAudit.NativePaths' -as [type])) {
+        Add-Type -Namespace CSweet.InstallAudit -Name NativePaths -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet=System.Runtime.InteropServices.CharSet.Unicode, SetLastError=true)]
+public static extern uint QueryDosDevice(string device, System.Text.StringBuilder target, int length);
+'@
+    }
+    $device = [Text.StringBuilder]::new(32768)
+    if (-not [CSweet.InstallAudit.NativePaths]::QueryDosDevice($drive.TrimEnd('\'), $device, $device.Capacity)) {
+        throw 'Windows could not resolve the installer drive for the process audit.'
+    }
+    $launchPaths += $device.ToString() + $file.FullName.Substring(2)
+}
 $timeline = [Collections.Generic.List[string]]::new()
 foreach ($event in Get-WinEvent -FilterHashtable @{LogName='Security';Id=4688;StartTime=$started.LocalDateTime;EndTime=$finished.LocalDateTime} -Oldest) {
     $data = @{}
@@ -71,7 +88,7 @@ foreach ($event in Get-WinEvent -FilterHashtable @{LogName='Security';Id=4688;St
             $event.TimeCreated.ToUniversalTime(), $image, $data.NewProcessId,
             [IO.Path]::GetFileName($data.ParentProcessName), $data.ProcessId, $data.TokenElevationType))
     }
-    if ($data.NewProcessName -ieq $result.bundle -and [Convert]::ToInt64($data.NewProcessId,16) -eq $result.processId) {
+    if ($data.NewProcessName -in $launchPaths -and [Convert]::ToInt64($data.NewProcessId,16) -eq $result.processId) {
         if ($data.TokenElevationType -notin '%%1936','%%1938') { throw 'Windows did not record an unelevated installer launch.' }
         $launches++
     }

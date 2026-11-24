@@ -16,7 +16,7 @@
             Context="@Portraits?.FindRole(Question.AgentOrganizationUserId)" Prompt="@Question.Decision.Prompt"
             Embedded="Embedded">
             <PromptContent>
-                <DecisionPrompt Content="@Question.Decision.Prompt" Preview="true" ConversationHref="@DecisionHref" />
+                <DecisionPrompt Content="@Question.Decision.Prompt" Preview="true" ConversationHref="@DecisionHref" OrganizationId="OrganizationId" ConversationId="Question.ConversationId" PendingDecisionId="Question.Decision.Id" />
             </PromptContent>
             <BodyContent>@ResponseForm</BodyContent>
         </AttentionRequestCard>
@@ -25,7 +25,7 @@
     {
         <article class="question-card" aria-label="@($"Question from {Question.AgentName}")">
             <header class="question-meta"><strong>@Question.AgentName</strong><span class="question-date">@Question.Decision.CreatedAt.ToLocalTime().ToString("MMM d, h:mm tt")</span><span class="pending-label">@L["AgentQuestionCard.Pending"]</span></header>
-            <div class="question-prompt"><DecisionPrompt Content="@Question.Decision.Prompt" /></div>
+            <div class="question-prompt"><DecisionPrompt Content="@Question.Decision.Prompt" OrganizationId="OrganizationId" ConversationId="Question.ConversationId" PendingDecisionId="Question.Decision.Id" /></div>
             @ResponseForm
             <MudButton Href="@DecisionHref" Size="Size.Small">@L["AgentQuestionCard.ViewConversation"]</MudButton>
         </article>

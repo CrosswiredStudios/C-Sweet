@@ -69,13 +69,14 @@ conversation audience. The shared SDK reads eligible documents and asks a respon
 missing facts through `AgentCoordinationService`. The specialist’s reply and the final clarification
 remain in Communications. **Open conversation** carries the decision and selected option into the
 regular chat composer. **Return to regular messages** ends that context. The card reloads on open,
-new messages, completion or failure of a question, and reconnect. The existing `/explain` route continues to serve option previews and older clients.
+new messages, completion or failure of a question, and reconnect. The legacy `/explain` route queues
+the same durable turn and returns its location.
 
 The common employee handler ships in `CSweet.Agent.SDK` 5.45.0. Publish that package and
 `CSweet.Agent.Testing` before building consumers. Deploy Headquarters and update employee bundles
 through Installed Agents. The authoring template declares the coordination subscription and capabilities.
 Custom protocol implementations receive the same evidence context and can implement the same handoff.
-Only an explicit answer goes to the response endpoint. Free-form direction
+Decision wording previews use `DecisionExplanationService.GetWordingAsync`. Only an explicit answer goes to the response endpoint. Free-form direction
 is available once when permitted. Confirmed submissions dismiss the card using its stable answer
 key and refresh pending questions. A failed submission keeps the card available for retry.
 

@@ -15,6 +15,7 @@ public sealed class ChatPromptPolicyTests
 
         Assert.Contains("call ask_user", prompt, StringComparison.Ordinal);
         Assert.Contains("Something else", prompt, StringComparison.Ordinal);
+        Assert.Contains(CSweet.Application.Communications.DecisionWriting.Voice, prompt);
     }
 
     [Fact]

@@ -122,12 +122,27 @@ public sealed partial class AgentRuntimeManagerTests
             .CreateSelfSigned(now.AddDays(-1), now.AddDays(1));
         var pool = new ExecutionPool { Id = Guid.NewGuid(), AllowedBusinessIdsJson = JsonSerializer.Serialize(new[] { fixture.Organization }) };
         var office = new ExecutionNode { Id = Guid.NewGuid(), ExecutionPoolId = pool.Id, ApprovedAt = now,
-            OperatingSystem = architecture == "arm64" ? "macos" : "windows", Architecture = architecture,
+            OperatingSystem = architecture == "arm64" ? "macos" : "windows", Architecture = architecture, NodeVersion = "0.17.2",
             Status = ExecutionNodeStatus.Ready, LastHeartbeatAt = now, CertificateExpiresAt = now.AddDays(1),
             IssuedCertificateBase64 = Convert.ToBase64String(cert.RawData), CertificateThumbprint = cert.Thumbprint };
         var db = fixture.Db;
         db.ExecutionPools.Add(pool);
         db.ExecutionNodes.Add(office);
+        var agentImage = "sha256:" + new string('c', 64);
+        var fleet = new ExecutionFleetOptions { PublicLaunchEnabled = office.OperatingSystem == "macos" };
+        if (office.OperatingSystem == "windows")
+        {
+            var enrollment = new ExecutionNodeEnrollment { Id = Guid.NewGuid(), ExecutionPoolId = pool.Id, ExecutionNodeId = office.Id,
+                ApprovedAt = now, Status = ExecutionEnrollmentStatus.Approved, TokenHash = Guid.NewGuid().ToString("N") };
+            db.ExecutionNodeEnrollments.Add(enrollment);
+            db.ExecutionNodeProviders.Add(new() { Id = Guid.NewGuid(), ExecutionNodeId = office.Id, ProviderId = "hyperv-gen2",
+                BrokerProtocolVersion = "1.1", GuestImageDigest = agentImage, CertificationSuiteVersion = "hire-suite",
+                CertificationEvidenceDigest = "sha256:" + new string('e', 64), CertifiedAt = now.AddHours(-1),
+                IsAvailable = true, SupportsBuilderWorkloads = true, SupportsRuntimeWorkloads = true });
+            fleet.CombinedOfficeEnrollmentId = enrollment.Id;
+        }
+        var pinnedImages = Microsoft.Extensions.Options.Options.Create(new AgentRuntimeManagerOptions {
+            RequiredCertificationSuiteVersion = "hire-suite", BuilderGuestImageDigest = agentImage, RuntimeGuestImageDigest = agentImage });
         db.AgentSchedules.Add(new AgentSchedule { Id = Guid.NewGuid(), AgentInstallationId = fixture.Installation,
             ActivationMode = ActivationMode.OnDemand, IsEnabled = true });
         (await db.Workstreams.SingleAsync()).Status = WorkstreamStatus.Active;
@@ -163,7 +178,7 @@ public sealed partial class AgentRuntimeManagerTests
         using var signer = new ComputeDispatchTests.Signer();
         for (var delivery = 0; delivery < 2; delivery++)
         {
-            await using var restarted = new CSweetDbContext(fixture.Options);
+            await using var restarted = new CSweetDbContext(fixture.Options, fleetOptions: Microsoft.Extensions.Options.Options.Create(fleet), runtimeOptions: pinnedImages);
             var registry = new ComputeRegistry(restarted, clock, new AuditExecutionContextAccessor());
             var broker = new ComputeBroker(restarted, registry, clock, fixture.Ledger);
             var employee = createEmployee?.Invoke() ?? new ProjectWorkspaceRequester(architecture);

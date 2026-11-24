@@ -30,30 +30,37 @@
             }
             else if (SelectedOption is { } choice)
             {
+                var copy = _wording.GetValueOrDefault(choice);
+                var description = copy?.Text ?? choice.Description;
+                var impact = copy?.Impact ?? choice.Impact;
                 <section class="option-detail" aria-label="@choice.Label">
                     <div class="detail-heading">
                         <MudIcon Icon="@Icons.Material.Outlined.Lightbulb" Size="Size.Small" aria-hidden="true" />
                         <strong>@choice.Label</strong>
                         @if (choice.Recommended) { <small>@L["AgentQuestionCard.Recommended"]</small> }
                     </div>
-                    @if (!string.IsNullOrWhiteSpace(choice.Description) && choice.Description != choice.Impact)
+                    @if (!string.IsNullOrWhiteSpace(description) && description != impact)
                     {
-                        <p>@choice.Description</p>
+                        <p>@description</p>
                     }
                     <div class="choice-impact" aria-live="polite">
                         <h4>@L["Communications.Decision.WhatThisMeans"]</h4>
-                        @if (!string.IsNullOrWhiteSpace(choice.Impact)) { <p>@choice.Impact</p> }
-                        else if (_impacts.GetValueOrDefault(choice) is { } result)
+                        @if (!string.IsNullOrWhiteSpace(impact)) { <p>@impact</p> }
+                        else if (_wording.ContainsKey(choice) && !_loading.Contains(choice))
                         {
-                            @if (result.ErrorKey is { } error)
-                            {
-                                <p>@L[error]</p>
-                                <MudButton Size="Size.Small" OnClick="@(() => LoadImpactAsync(choice))">@L["Common.Retry"]</MudButton>
-                            }
-                            else { <p>@result.Answer</p> }
+                            <p>@L["Communications.Decision.ExplanationFailed"]</p>
+                            <MudButton Size="Size.Small" OnClick="@(() => LoadWordingAsync(choice))">@L["Common.Retry"]</MudButton>
                         }
                         else { <p>@L["Communications.Decision.Asking"]</p> }
                     </div>
+                    @if (copy is not null && ((!string.IsNullOrWhiteSpace(choice.Description) && choice.Description != description) ||
+                        (!string.IsNullOrWhiteSpace(choice.Impact) && choice.Impact != impact)))
+                    {
+                        <details class="decision-original"><summary>@L["Communications.Decision.OriginalWording"]</summary>
+                            @if (!string.IsNullOrWhiteSpace(choice.Description)) { <p>@choice.Description</p> }
+                            @if (!string.IsNullOrWhiteSpace(choice.Impact) && choice.Impact != choice.Description) { <p>@choice.Impact</p> }
+                        </details>
+                    }
                 </section>
             }
         </div>
@@ -76,7 +83,8 @@
     [Parameter] public RenderFragment? DirectionInput { get; set; }
     [Parameter, EditorRequired] public RenderFragment? ConfirmButton { get; set; }
 
-    private readonly Dictionary<ExecutiveDecisionOptionResponse, DecisionExplanationResult?> _impacts = [];
+    private readonly Dictionary<ExecutiveDecisionOptionResponse, DecisionWordingResponse?> _wording = [];
+    private readonly HashSet<ExecutiveDecisionOptionResponse> _loading = [];
     private readonly CancellationTokenSource _lifetime = new();
     private ExecutiveDecisionOptionResponse? SelectedOption => Decision.Options.FirstOrDefault(o => o.Id == Selected && IsListedOption(o));
     private bool IsListedOption(ExecutiveDecisionOptionResponse option) => !Decision.AllowFreeText || option.Id != "provide-direction";
@@ -84,17 +92,20 @@
 
     protected override Task OnParametersSetAsync()
     {
-        if (SelectedOption is { } choice && string.IsNullOrWhiteSpace(choice.Impact) && !_impacts.ContainsKey(choice))
-            return LoadImpactAsync(choice);
+        if (SelectedOption is { } choice && !_wording.ContainsKey(choice))
+            return LoadWordingAsync(choice);
         return Task.CompletedTask;
     }
 
-    private async Task LoadImpactAsync(ExecutiveDecisionOptionResponse choice)
+    private async Task LoadWordingAsync(ExecutiveDecisionOptionResponse choice)
     {
-        // Store each result against the option that requested it, even if the user switches while it loads.
-        _impacts[choice] = null;
-        _impacts[choice] = await DecisionExplanationResult.RequestAsync(Http, OrganizationId, ConversationId, Decision.Id,
-            new(L["Communications.Decision.ExplainOption"], choice.Id), _lifetime.Token);
+        if (!_loading.Add(choice)) return;
+        _wording[choice] = null;
+        try
+        {
+            _wording[choice] = await DecisionExplanationResult.GetWordingAsync(Http, OrganizationId, ConversationId, Decision.Id, choice.Id, _lifetime.Token);
+        }
+        finally { _loading.Remove(choice); }
     }
 
     public void Dispose() { _lifetime.Cancel(); _lifetime.Dispose(); }

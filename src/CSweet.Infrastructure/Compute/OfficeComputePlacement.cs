@@ -140,7 +140,7 @@ public static class OfficeComputePlacement
         Guid? officeId = null, ComputeResources? requested = null)
     {
         var earliest = now.AddSeconds(-30);
-        var query = from office in db.ExecutionNodes.AsNoTracking()
+        var query = from office in db.OfficesForPlacement(now).AsNoTracking()
                     join node in db.ComputeNodes on office.Id equals node.Id
                     join place in db.ComputeTemplatePlacements on node.Id equals place.NodeId
                     join template in db.ComputeTemplates on place.TemplateRegistrationId equals template.Id

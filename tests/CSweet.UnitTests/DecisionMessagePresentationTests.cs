@@ -55,6 +55,7 @@ public sealed class DecisionMessagePresentationTests
     {
         var services = new ServiceCollection().AddLogging();
         services.AddCSweetLocalization();
+        services.AddSingleton(new HttpClient());
         services.AddSingleton<IJSRuntime, NoJavaScript>();
         await using var provider = services.BuildServiceProvider();
         await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());

@@ -109,6 +109,13 @@ that enrollment when the local Office passes provider qualification. Remote enro
 continues through the usual approval flow. See the [Windows Office compute setup](../implementation/unattended-machine-operations/07-windows-compute.md)
 for the workspace reservation and the allocation available to agent and build VMs.
 
+With `CSweet:ExecutionFleet:PublicLaunchEnabled` off, a private combined install
+can place new work on the Office bound to its one-use enrollment. Setup records
+the enrollment ID in `combined-office-placement.json` and grants read access to
+the API, AgentHost, WorkerHost and ExecutionGateway service accounts. Headquarters
+requires an approved enrollment, current Office identity and heartbeat, the pinned
+Hyper-V images and certification suite, and available resources for the work.
+
 Give owners a trusted HTTPS address for the Headquarters API. Production uses secure
 session and antiforgery cookies for Office approval, repair and upgrade. When using
 pinned guest images, set `CSweet:AgentRuntime:BuilderGuestImageDigest`,
