@@ -31,7 +31,21 @@ function Get-LocalServiceUrl($Profile, [string] $Default) {
     if ($local.Count -eq 1) { return $local[0] }
 }
 
-function Get-HeadquartersDefaults([hashtable] $Profiles, [string] $SourceKey, [string] $BrokerKey) {
+function Get-LocalMcpOrigin($AgentProfile, $PackagedAgentSettings) {
+    $key = 'Kestrel:Endpoints:Mcp:Url'
+    $binding = Get-ProfileValue $AgentProfile $key
+    if (!$binding) { $binding = Get-ProfileValue $PackagedAgentSettings $key }
+    if (!$binding) { return }
+
+    # A wildcard is a listen address. The gateway calls this service on the same machine.
+    $address = $binding -replace '^(https?://)(\*|\+|0\.0\.0\.0|\[::\])(?=[:/]|$)', '$1localhost'
+    $uri = $null
+    if ([uri]::TryCreate($address, [UriKind]::Absolute, [ref]$uri) -and $uri.IsLoopback -and
+        $uri.Scheme -in 'http','https' -and !$uri.UserInfo -and !$uri.Query -and !$uri.Fragment -and
+        $uri.AbsolutePath -eq '/' -and $uri.Port -gt 0) { return $uri.AbsoluteUri }
+}
+
+function Get-HeadquartersDefaults([hashtable] $Profiles, [string] $SourceKey, [string] $BrokerKey, $PackagedAgentSettings) {
     $result = @{}
     $clients = @('CSweet.Api','CSweet.WorkerHost','CSweet.AgentHost')
     $broker = @('CSweet.Api','CSweet.AgentHost')
@@ -69,6 +83,13 @@ function Get-HeadquartersDefaults([hashtable] $Profiles, [string] $SourceKey, [s
     }
     $apiUrl = Get-LocalServiceUrl $Profiles['CSweet.Api'] $null
     if ($apiUrl) { $result['CSweet.AgentHost']["${prefix}:CoreBrokerBaseUrl"] = $apiUrl }
+    $gateway = 'CSweet.ExecutionGateway'
+    $target = 'CSweet:AgentRuntime:AgentHostBroker:BaseUrl'
+    $result[$gateway] = @{}
+    if (!(Get-ProfileValue $Profiles[$gateway] $target) -and !(Get-ProfileValue $Profiles[$gateway] 'AGENTHOST_MCP')) {
+        $origin = Get-LocalMcpOrigin $Profiles['CSweet.AgentHost'] $PackagedAgentSettings
+        if ($origin) { $result[$gateway][$target] = $origin }
+    }
     return $result
 }
 
@@ -85,7 +106,7 @@ function Write-HeadquartersSettings([string] $Path, [hashtable] $Settings, [obje
     } finally { if ([IO.File]::Exists($pending)) { [IO.File]::Delete($pending) } }
 }
 
-function Initialize-HeadquartersServiceSettings([hashtable] $Profiles) {
+function Initialize-HeadquartersServiceSettings([hashtable] $Profiles, $PackagedAgentSettings) {
     $path = Join-Path $root 'local-service-keys.json'
     if (![IO.File]::Exists($path)) {
         $keys = @{}
@@ -105,7 +126,7 @@ function Initialize-HeadquartersServiceSettings([hashtable] $Profiles) {
     foreach ($group in 'SourceControl','AgentBroker') {
         if ([Convert]::FromBase64String($keys.$group).Length -ne 32) { throw 'Restore the installer-managed Headquarters authentication keys.' }
     }
-    $defaults = Get-HeadquartersDefaults $Profiles $keys.SourceControl $keys.AgentBroker
+    $defaults = Get-HeadquartersDefaults $Profiles $keys.SourceControl $keys.AgentBroker $PackagedAgentSettings
     foreach ($name in $defaults.Keys) {
         Write-HeadquartersSettings (Join-Path $root "$name.defaults.json") $defaults[$name] @($sids[$name])
     }

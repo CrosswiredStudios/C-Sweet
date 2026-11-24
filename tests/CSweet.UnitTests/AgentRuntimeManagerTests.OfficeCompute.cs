@@ -103,14 +103,14 @@ public sealed partial class AgentRuntimeManagerTests
     }
 
     [Fact, Trait("Category", "AgentHarness")]
-    public async Task Hired_employee_replays_office_availability_and_only_the_assigned_office_claims_the_vm()
-        => await VerifyHiredOfficePlacementAsync(new ComputeBrokerTests.Fixture());
+    public Task Hired_employee_replays_office_availability_and_only_the_assigned_office_claims_the_vm()
+        => VerifyHiredOfficePlacementAsync(new ComputeBrokerTests.Fixture());
 
     [Fact, Trait("Category", "AgentHarness")]
-    public async Task Mac_office_claims_an_arm64_workspace_after_replayed_availability()
-        => await VerifyHiredOfficePlacementAsync(new ComputeBrokerTests.Fixture(), architecture: "arm64");
+    public Task Mac_office_claims_an_arm64_workspace_after_replayed_availability()
+        => VerifyHiredOfficePlacementAsync(new ComputeBrokerTests.Fixture(), architecture: "arm64");
 
-    internal static async Task VerifyHiredOfficePlacementAsync(ComputeBrokerTests.Fixture storage,
+    internal static async Task<Guid> VerifyHiredOfficePlacementAsync(ComputeBrokerTests.Fixture storage,
         Func<ICSweetAgent>? createEmployee = null, Action<AgentTestRuntime>? configurePlatform = null, string architecture = "x64")
     {
         await using var fixture = storage;
@@ -217,6 +217,7 @@ public sealed partial class AgentRuntimeManagerTests
             Assert.Equal(office.Id, claim.NodeId);
             Assert.Equal(claim.DispatchId, op.DispatchLeaseId);
         }
+        return Assert.Single(signer.Claims).EnvironmentId;
     }
 
     private sealed class ProjectWorkspaceRequester(string architecture) : ICSweetAgent

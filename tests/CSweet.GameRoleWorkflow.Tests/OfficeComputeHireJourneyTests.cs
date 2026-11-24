@@ -20,7 +20,7 @@ public sealed class OfficeComputeHireJourneyTests
         var fixture = new ComputeBrokerTests.Fixture();
         AgentOperatingStateResponse? saved = null;
         var writes = 0;
-        await AgentRuntimeManagerTests.VerifyHiredOfficePlacementAsync(fixture,
+        var claimedEnvironment = await AgentRuntimeManagerTests.VerifyHiredOfficePlacementAsync(fixture,
             () => role == "Game Engineer" ? new GameEngineer() : new SoftwareDeveloper(),
             platform => platform
                 .RegisterCapability<AgentOperatingStateReadRequest, AgentOperatingStateReadResponse>(PlatformCapabilities.AgentOperatingStateRead,
@@ -38,6 +38,6 @@ public sealed class OfficeComputeHireJourneyTests
                 .RegisterCapability<JsonElement, PersonalTodoDirectory>(PersonalTodoCapabilities.Read, (_, _) =>
                     Task.FromResult(new PersonalTodoDirectory([]))));
         Assert.Equal(1, writes);
-        Assert.NotEqual(Guid.Empty, saved!.Payload.GetProperty("environmentId").GetGuid());
+        Assert.Equal(claimedEnvironment, saved!.Payload.GetProperty("environmentId").GetGuid());
     }
 }
