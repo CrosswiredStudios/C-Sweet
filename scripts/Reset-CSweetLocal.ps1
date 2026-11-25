@@ -75,6 +75,38 @@ function Get-CSweetResetTree([string] $Path) {
     }
 }
 
+function Remove-CSweetResetFilesystemTree([IO.FileSystemInfo[]] $Tree) {
+    # The inventory lists parents before children. Delete only those entries, from the leaves up.
+    $root = $Tree[0].FullName
+    $prefix = if ($root.StartsWith('\\')) { '\\?\UNC\' } else { '\\?\' }
+    $offset = if ($root.StartsWith('\\')) { 2 } else { 0 }
+    $extendedRoot = $prefix + $root.Substring($offset)
+    for ($index = $Tree.Count - 1; $index -ge 0; $index--) {
+        $item = $Tree[$index]
+        $fullName = $item.FullName
+        $extendedPath = $prefix + $fullName.Substring($offset)
+        try {
+            for ($path = $extendedPath; $path.Length -ge $extendedRoot.Length; $path = $path.Substring(0, $path.LastIndexOf('\'))) {
+                $currentAttributes = [IO.File]::GetAttributes($path)
+                if ($path -eq $extendedPath) { $attributes = $currentAttributes }
+                if ($currentAttributes -band [IO.FileAttributes]::ReparsePoint) {
+                    throw "A link appeared after inventory at '$path'."
+                }
+            }
+            if ($attributes -band [IO.FileAttributes]::ReadOnly) {
+                [IO.File]::SetAttributes($extendedPath, ($attributes -band (-bnot [IO.FileAttributes]::ReadOnly)))
+            }
+            if ($item -is [IO.DirectoryInfo]) {
+                [IO.Directory]::Delete($extendedPath, $false)
+            } else {
+                [IO.File]::Delete($extendedPath)
+            }
+        } catch {
+            throw "Could not remove '$fullName'. $($_.Exception.Message) The reset may be partially applied. Close C-Sweet and any builds, then run a fresh preview."
+        }
+    }
+}
+
 function Get-CSweetResetBuildTargets([string] $Repository) {
     # Only conventional .NET project outputs and the repository's generated artifacts.
     # Never select arbitrary directories named bin/obj in user workspaces or node_modules.
@@ -528,13 +560,14 @@ function Invoke-CSweetLocalReset {
         if ($target.Repository) {
             Assert-CSweetResetBuildUntracked $target.Repository $target.Path
         }
-        # Revalidate the entire tree just before recursive deletion.
-        Get-CSweetResetTree $target.Path | ForEach-Object {
+        # Complete the checks before deleting any entries in this target.
+        $tree = @(Get-CSweetResetTree $target.Path | ForEach-Object {
             if ($_ -is [IO.FileInfo] -and $_.Extension -match '^\.(a?vhdx?)$' -and (Get-VHD -Path $_.FullName).Attached) {
                 throw "Disk remains attached; data retained: $($_.FullName)"
             }
-        }
-        Remove-Item -LiteralPath $target.Path -Recurse -Force
+            $_
+        })
+        if ($tree.Count) { Remove-CSweetResetFilesystemTree $tree }
         if (Test-Path -LiteralPath $target.Path) { throw "Reset did not completely remove $($target.Path)" }
     }
     foreach ($volume in $computeVolumes) {

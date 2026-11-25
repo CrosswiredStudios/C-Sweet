@@ -69,6 +69,8 @@ the Aspire database, and then deletes selected files. Fresh enrollment is requir
 Removed base images and build outputs must be downloaded/generated/built again.
 If a step fails after changes begin, it stops immediately. Services may remain disabled;
 inspect the failure and rerun the preview before continuing. This is not transactional.
+Reset removes inventoried files and directories from the leaves up using Windows extended-length
+paths. This supports deeply nested package outputs such as the Aspire dashboard.
 
 ## Ownership and refusal rules
 
