@@ -16,6 +16,41 @@ public sealed class AutomaticOfficeUpdateTests
 {
     private static readonly DateTimeOffset Now = new(2026, 10, 21, 20, 0, 0, TimeSpan.Zero);
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PreparationTimeoutIdentifiesWhetherMaintenanceClaimedThisRequest(bool claimed)
+    {
+        await using var f = await Fixture.Create();
+        var job = await f.AddJob();
+        var created = await f.Start();
+        await f.Fleet.LaunchLocalSetupSessionAsync(f.SessionId, f.UserId, new(created.Session!.LaunchUri!));
+        var session = await f.Db.LocalOfficeSetupSessions.SingleAsync();
+        Assert.NotNull(session.AdministratorApprovalRequestedAt);
+        // A dispatch on a previous handoff or a different session is not evidence for this request.
+        f.Db.AuditEvents.Add(new() { EventType = "office.maintenance.dispatched", EntityType = nameof(LocalOfficeSetupSession),
+            EntityId = f.SessionId, OccurredAt = Now.AddMinutes(-1) });
+        f.Db.AuditEvents.Add(new() { EventType = "office.maintenance.dispatched", EntityType = nameof(LocalOfficeSetupSession),
+            EntityId = Guid.NewGuid(), OccurredAt = Now });
+        if (claimed)
+        {
+            f.Office.CertificateSerialNumber = "1234";
+            await f.Db.SaveChangesAsync();
+            Assert.NotNull(await f.Fleet.ClaimOfficeMaintenanceAsync(f.Office.Id, "ABCD", "1234"));
+            var dispatch = Assert.Single(f.Audit.Events, e => e.EventType == "office.maintenance.dispatched");
+            f.Db.AuditEvents.Add(new() { EventType = dispatch.EventType, EntityType = dispatch.EntityType!,
+                EntityId = dispatch.EntityId, OccurredAt = Now });
+        }
+        session.ExpiresAt = Now;
+        await f.Db.SaveChangesAsync();
+        await f.Fleet.ReconcileOfficeUpdatesAsync();
+        var result = (await f.Fleet.GetLocalSetupSessionAsync(f.SessionId, f.UserId)).Session!;
+        Assert.Equal(claimed ? "office_maintenance_start_failed" : "office_maintenance_unavailable", result.ErrorCode);
+        Assert.Contains(claimed ? "Windows Application log" : "service status", result.ErrorMessage);
+        Assert.Equal(ExecutionAssignmentStatus.Running, job.Status);
+        Assert.Equal(ExecutionNodeStatus.Ready, f.Office.Status);
+    }
+
     [Fact]
     public async Task LocalSourceUpdateCannotDrainJobsOrReachMaintenanceAfterHeadquartersUpgrades()
     {
@@ -423,10 +458,11 @@ public sealed class AutomaticOfficeUpdateTests
         public Guid UserId { get; } = Guid.NewGuid();
         public Guid SessionId { get; private set; }
         public RuntimeManager Runtimes { get; } = new();
+        public TestAuditEventWriter Audit { get; } = new();
         private Fixture()
         {
             Db = new(new DbContextOptionsBuilder<CSweetDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
-            Fleet = new(Db, new TestAuditEventWriter(), new FixedClock(), Options.Create(new ExecutionFleetOptions
+            Fleet = new(Db, Audit, new FixedClock(), Options.Create(new ExecutionFleetOptions
             { PublicLaunchEnabled = true, AllowUnpinnedDevelopmentImages = true }), appConfiguration:
                 new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
                 { ["CSweet:ExecutionGateway:PublicUrl"] = "https://office.example.test", ["CSweet:ExecutionGateway:PublicCertificateSha256"] = new string('a', 64) }).Build(),

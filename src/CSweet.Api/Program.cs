@@ -253,6 +253,7 @@ app.MapInstallationLinkEndpoints();
 app.MapLlmProviderProfileEndpoints();
 app.MapGenAiEndpoints();
 app.MapSetupEndpoints();
+app.MapOfficeLinks();
 app.MapOfficeBootstrapEndpoints();
 app.MapExecutionFleetEndpoints();
 CSweet.Api.Compute.ComputeAdministrationEndpoints.MapComputeAdministrationEndpoints(app);

@@ -25,7 +25,9 @@ Cancellation is allowed only before installation authorization. During download 
 
 ## Deployment boundary
 
-Office.Contracts 0.11.0 adds the preparation DTOs and is pinned by both consumers. Office 0.12.0 packages the remote helper. Existing remote Offices below 0.12.0 require the current installer once; the UI and API reject an automatic flow that their installed configurator cannot execute. The configured AppHost development machine uses the server launcher, including its existing Office installation.
+Office.Contracts 0.11.0 introduced the preparation DTOs. Automatic updates now require an installed Office at or above `ExecutionFleetService.SignedUpdateMinimumVersion` (0.16.0). Enrolled Windows Offices use their installed Maintenance service, including on the AppHost development machine. Maintenance verifies the selected release using the publisher identity approved at installation.
+
+If setup expires before preparation starts, `ExpireLocalSetupSessionsAsync` checks for an `office.maintenance.dispatched` audit event for that handoff. A recorded claim points the operator to the Office computer's Windows Application log. An unclaimed handoff points to the maintenance service and its Headquarters connection.
 
 `AutomaticOfficeUpdates` and `OfficeUpdateRecoveryAccounting` migrations persist the state, job recovery, and maintenance retry accounting. Source builds/tests do not replace installed Office payloads. Publish/install the independent Office release through its normal release process; apply Headquarters migrations through the migrator.
 

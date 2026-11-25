@@ -117,7 +117,7 @@
                     else
                     {
                         <MudAlert Severity="Severity.Warning" Dense="true">
-                            The signed @SelectedPlatform.Label package has not been published for this deployment.
+                            No direct installer is configured for @SelectedPlatform.Label. <a href="https://c-sweet.com/download#office" target="_blank" rel="noopener">Check Office downloads</a>.
                         </MudAlert>
                     }
 
@@ -128,14 +128,17 @@
                             <code>@packages.ControlPlaneUrl</code>
                             <MudButton Variant="Variant.Text" OnClick="() => CopyGatewayAsync(packages.ControlPlaneUrl!)">@L["Common.Copy"]</MudButton>
                         </div>
-                        <MudText Typo="Typo.subtitle2">@(_installationTarget == "local" ? L["AgentExecutionSetupStep.ThisMachine"] : L["AgentExecutionSetupStep.RunOnTheOtherMachine"])</MudText>
-                        <div class="execution-copy-field execution-command">
-                            <code>@InstallCommand(packages.ControlPlaneUrl!)</code>
-                            <MudButton Variant="Variant.Text" OnClick="() => CopyCommandAsync(packages.ControlPlaneUrl!)">@L["Common.Copy"]</MudButton>
-                        </div>
-                        <MudText Typo="Typo.caption" Color="Color.Secondary">
-                            @L["AgentExecutionSetupStep.TheTokenIsIntentionallyOmitted"]
-                        </MudText>
+                        <MudText>Open C-Sweet Office on the target computer. Choose <strong>I have a connection code</strong> and paste the gateway address and the code issued here.</MudText>
+                        @if (!string.IsNullOrWhiteSpace(packages.ControlPlaneCertificateSha256))
+                        {
+                            <small>Certificate fingerprint</small><code>@packages.ControlPlaneCertificateSha256</code>
+                        }
+                        <details><summary>Setup command for headless computers</summary>
+                            <div class="execution-copy-field execution-command">
+                                <code>@InstallCommand(packages.ControlPlaneUrl!)</code>
+                                <MudButton Variant="Variant.Text" OnClick="() => CopyCommandAsync(packages.ControlPlaneUrl!)">@L["Common.Copy"]</MudButton>
+                            </div>
+                        </details>
                         <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Description"
                                    OnClick="() => DownloadInstructionsAsync(packages)">@L["AgentExecutionSetupStep.DownloadNonSecretInstructions"]</MudButton>
                     }
@@ -369,13 +372,7 @@
     private RemotePlatform SelectedPlatform => RemotePlatforms.Single(x => x.Key == _remotePlatform);
     private void SelectRemotePlatform(string platform) => _remotePlatform = platform;
     private string PlatformClass(string platform) => platform == _remotePlatform ? "selected" : string.Empty;
-    private string? SelectedPackageUrl(OfficePackageLinksResponse packages) => _remotePlatform switch
-    {
-        "windows" => packages.WindowsPackageOverrideUrl ?? packages.ReleaseManifestUrl,
-        "linux" => packages.LinuxPackageOverrideUrl ?? packages.ReleaseManifestUrl,
-        "macos" => packages.MacOsPackageOverrideUrl ?? packages.ReleaseManifestUrl,
-        _ => packages.ReleaseManifestUrl
-    };
+    private string? SelectedPackageUrl(OfficePackageLinksResponse packages) => packages.InstallerFor(_remotePlatform);
 
     private string InstallCommand(string controlPlaneUrl) => _remotePlatform switch
     {
@@ -422,9 +419,9 @@
     {
         if (string.IsNullOrWhiteSpace(packages.ControlPlaneUrl)) return;
         var text = $"C-Sweet Office - {SelectedPlatform.Label}\n\n" +
-                   $"1. Open the signed release manifest or private mirror: {SelectedPackageUrl(packages)}\n" +
+                   $"1. Find the signed installer: {SelectedPackageUrl(packages) ?? "https://c-sweet.com/download#office"}\n" +
                    $"2. Verify the publisher signature, then install the package with the platform package installer.\n" +
-                   $"3. Run the installed configuration command as administrator/root:\n   {InstallCommand(packages.ControlPlaneUrl)}\n" +
+                   $"3. Open C-Sweet Office, choose I have a connection code, and enter the gateway and code. On a headless computer, run:\n   {InstallCommand(packages.ControlPlaneUrl)}\n" +
                    "4. If prompted for a private TLS certificate, compare its SHA-256 fingerprint with the administrator-provided value and approve it only when they match.\n" +
                    "5. Paste the one-use enrollment token only when the installer prompts for it.\n" +
                    "6. Ask the C-Sweet administrator to verify and approve this machine.\n";

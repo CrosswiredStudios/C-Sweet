@@ -95,9 +95,9 @@
         </section>
     </div>
 
-    @if (_pairing)
+    @if (_pairing || PairingId.HasValue)
     {
-        <AgentHostOnboardingStep RemoteOnly="true" OnBack="EndPairing" OnContinue="EndPairing" />
+        <AgentHostOnboardingStep RemoteOnly="true" TargetEnrollmentId="@PairingId" OnEnrollmentSelected="RememberPairing" OnBack="EndPairing" OnContinue="EndPairing" />
     }
     <footer class="office-actions">
         <MudButton Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Outlined.ArrowForward"
@@ -144,8 +144,11 @@
         finally { _loading = false; if (!_stop.IsCancellationRequested) StateHasChanged(); }
     }
 
+    [SupplyParameterFromQuery(Name = "enrollment")] public Guid? PairingId { get; set; }
+    private void RememberPairing(Guid id) =>
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("enrollment", id), replace: true);
     private void Pair() => _pairing = true;
-    private async Task EndPairing() { _pairing = false; await RefreshAsync(); }
+    private async Task EndPairing() { _pairing = false; Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("enrollment", (Guid?)null), replace: true); await RefreshAsync(); }
     private async Task ContinueAsync()
     {
         _continuing = true;

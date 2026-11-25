@@ -95,6 +95,10 @@ hidden task limits, context preservation and incomplete-generation diagnostics.
 maps Adrian and Daniel's short persisted plans, evidence-based progress checks and
 checkpoint handoffs for unavailable infrastructure.
 
+[Standalone Office onboarding](office-device-onboarding.md) tracks the installer and local Office page,
+private and managed Headquarters linking, phone approval, hosted gateway deployment, and the
+operator README. Each phase names the repositories and the user journey that verifies it.
+
 [Managed connection service](managed-connection-service-plan.md) plans provider-neutral, plugin-driven
 one-click account connections with a central vault and optional customer-owned credentials. The
 [Google registration checklist](../deployment/google-youtube-connection-setup.md) separates operator

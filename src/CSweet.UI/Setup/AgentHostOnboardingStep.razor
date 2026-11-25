@@ -116,14 +116,14 @@
         <footer class="host-onboarding-actions">
             <MudButton Variant="Variant.Text" Disabled="@(_busy || IsCompleting)" OnClick="OnBack">@L["Common.Back"]</MudButton>
             <div>
-                @if (_status?.IsReady != true)
+                @if (!RemoteReady)
                 {
                     <span>@L["AgentHostOnboardingStep.ConnectOneHealthyOfficeTo"]</span>
                 }
                 <MudButton Variant="Variant.Filled"
                            Color="Color.Primary"
                            EndIcon="@Icons.Material.Filled.ArrowForward"
-                           Disabled="@(_busy || IsCompleting || _loading || _status?.IsReady != true)"
+                           Disabled="@(_busy || IsCompleting || _loading || !RemoteReady)"
                            OnClick="OnContinue">@L["Common.Continue"]</MudButton>
             </div>
         </footer>
@@ -139,6 +139,14 @@
 @code {
     [Parameter] public string? ContextLabel { get; set; }
     [Parameter] public bool RemoteOnly { get; set; }
+    [Parameter] public Guid? TargetEnrollmentId { get; set; }
+    [Parameter] public EventCallback<Guid> OnEnrollmentSelected { get; set; }
+    private Guid? _trackedEnrollment;
+    private async Task TrackEnrollmentAsync(Guid id)
+    {
+        _trackedEnrollment = id;
+        if (RemoteOnly && TargetEnrollmentId != id) await OnEnrollmentSelected.InvokeAsync(id);
+    }
     [Parameter] public EventCallback OnBack { get; set; }
     [Parameter] public EventCallback OnContinue { get; set; }
     [Parameter] public bool IsCompleting { get; set; }
@@ -178,7 +186,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        if (RemoteOnly) _installationTarget = "remote";
+        if (RemoteOnly) { _installationTarget = "remote"; _trackedEnrollment = TargetEnrollmentId; }
         await RefreshAsync();
         if (!RemoteOnly) await RestoreActiveLocalSetupAsync();
         if (ManualLocalSetup)
@@ -494,11 +502,19 @@
         if (launch) await RequestAdministratorApprovalAsync();
     }
 
+    private async Task RetryRemoteAsync()
+    {
+        _trackedEnrollment = null;
+        _hostedEnrollmentRequested = false;
+        if (_status?.ActiveEnrollment is { } active) await TrackEnrollmentAsync(active.Id);
+        await EnsureRemoteEnrollmentAsync();
+    }
+
     private async Task EnsureRemoteEnrollmentAsync()
     {
         if (_status is null || _automaticEnrollmentInFlight ||
             _status.ActiveEnrollment is not null ||
-            (RemoteOnly ? _hostedEnrollmentRequested : _status.IsReady || _status.Nodes.Any(node => node.Status is "pendingapproval" or "ready")))
+            (RemoteOnly ? _hostedEnrollmentRequested || _trackedEnrollment.HasValue : _status.IsReady || _status.Nodes.Any(node => node.Status is "pendingapproval" or "ready")))
             return;
 
         _hostedEnrollmentRequested = RemoteOnly;
@@ -508,8 +524,11 @@
         {
             var result = await SetupApi.CreateExecutionEnrollmentAsync();
             Apply(result);
-            if (result.Succeeded)
-                _issuedEnrollment = result.Enrollment;
+            if (result.Succeeded && result.Enrollment is { } enrollment)
+            {
+                _issuedEnrollment = enrollment;
+                await TrackEnrollmentAsync(enrollment.Id);
+            }
         }
         catch
         {
@@ -545,7 +564,7 @@
 
     private async Task ReplaceRemoteEnrollmentAsync()
     {
-        if (_status?.ActiveEnrollment is not { Status: "available" } active) return;
+        if (ActiveRemoteEnrollment is not { Status: "available" } active) return;
         BeginStatusMutation();
         _busy = true;
         _actionMessage = null;
@@ -560,6 +579,7 @@
             if (!replacement.Succeeded || replacement.Enrollment?.EnrollmentToken is not { Length: > 0 })
                 return;
             _issuedEnrollment = replacement.Enrollment;
+            await TrackEnrollmentAsync(replacement.Enrollment.Id);
             SetAction(true, "A new connection code is ready. Copy it and run the Office installer again; the previous code no longer works.");
         }
         catch
@@ -912,7 +932,7 @@
     </section>;
 
     private RenderFragment RemoteExperience() => @<section class="host-workspace" aria-labelledby="remote-host-title">
-        @if (_status?.IsReady == true)
+        @if (RemoteReady)
         {
             <div class="host-ready-state" role="status" aria-live="polite">
                 <span class="host-ready-icon"><MudIcon Icon="@Icons.Material.Filled.Check" /></span>
@@ -956,21 +976,29 @@
                                 }
                                 else
                                 {
-                                    <small class="remote-unavailable">The package has not been published for this deployment.</small>
+                                    <small class="remote-unavailable">No direct installer is configured. <a href="https://c-sweet.com/download#office" target="_blank" rel="noopener">Check Office downloads</a>.</small>
                                 }
                             </li>
                             <li>
                                 <span>2</span>
-                                <div><strong>Run the setup command</strong><small>The installer verifies TLS and asks before trusting a private certificate only for Office.</small></div>
+                                <div><strong>Open C-Sweet Office on the computer</strong><small>Choose “I have a connection code” and paste this gateway address.</small></div>
                                 <div class="host-copy-field">
-                                    <code>@InstallCommand(packages.ControlPlaneUrl!)</code>
-                                    <MudButton Variant="Variant.Text" OnClick="() => CopyCommandAsync(packages.ControlPlaneUrl!)">Copy</MudButton>
+                                    <code>@packages.ControlPlaneUrl</code>
+                                    <MudButton Variant="Variant.Text" OnClick='() => CopyAsync(packages.ControlPlaneUrl!, "Gateway address copied.")'>Copy address</MudButton>
                                 </div>
+                                @if (!string.IsNullOrWhiteSpace(packages.ControlPlaneCertificateSha256))
+                                {
+                                    <small>Certificate fingerprint</small><code>@packages.ControlPlaneCertificateSha256</code>
+                                }
+                                <details><summary>Setup command for headless computers</summary>
+                                    <div class="host-copy-field"><code>@InstallCommand(packages.ControlPlaneUrl!)</code>
+                                    <MudButton Variant="Variant.Text" OnClick="() => CopyCommandAsync(packages.ControlPlaneUrl!)">Copy command</MudButton></div>
+                                </details>
                             </li>
                             <li>
                                 <span>3</span>
                                 <div><strong>Enter the connection code</strong><small>@ConnectionCodeHint</small></div>
-                                @if (PendingNodes.Count > 0 || _status.ActiveEnrollment is { Status: "claimed" })
+                                @if (PendingNodes.Count > 0 || ActiveRemoteEnrollment is { Status: "claimed" })
                                 {
                                     <div class="host-inline-notice success">
                                         <MudIcon Icon="@Icons.Material.Filled.CheckCircle" />
@@ -985,7 +1013,7 @@
                                         <MudButton Variant="Variant.Text" Disabled="@_busy" OnClick="ReplaceRemoteEnrollmentAsync">Generate a different code</MudButton>
                                     </div>
                                 }
-                                else if (_status.ActiveEnrollment is { Status: "available" })
+                                else if (ActiveRemoteEnrollment is { Status: "available" })
                                 {
                                     <div class="host-inline-notice warning">
                                         <MudIcon Icon="@Icons.Material.Outlined.Lock" />
@@ -993,7 +1021,7 @@
                                         <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy" OnClick="ReplaceRemoteEnrollmentAsync">Generate a new code</MudButton>
                                     </div>
                                 }
-                                else if (_status.Nodes.Any(node => node.Status == "ready"))
+                                else if (RemoteNodes.Any(node => node.Status == "ready"))
                                 {
                                     <div class="host-inline-notice checking">
                                         <MudProgressCircular Indeterminate="true" Size="Size.Small" />
@@ -1004,7 +1032,12 @@
                                 {
                                     <div class="host-inline-notice checking">
                                         <MudProgressCircular Indeterminate="true" Size="Size.Small" />
-                                        <span>Creating a secure connection code...</span>
+                                        @if (RemoteOnly && !_automaticEnrollmentInFlight)
+                                        {
+                                            <span>This connection request is no longer active.</span>
+                                            <MudButton OnClick="RetryRemoteAsync" Disabled="@_busy">Start a new request</MudButton>
+                                        }
+                                        else { <span>Creating a secure connection code…</span> }
                                     </div>
                                 }
                             </li>
@@ -1074,6 +1107,8 @@
     private async Task AcceptStatusAsync(ExecutionCapacityOnboardingResponse status)
     {
         _status = status;
+        if (RemoteOnly && _trackedEnrollment is null && status.ActiveEnrollment is { } active)
+            await TrackEnrollmentAsync(active.Id);
         if (!_storageSelectionInitialized)
         {
             _storageVolumeId = status.LocalCapacity?.SelectedVolumeId;
@@ -1173,8 +1208,13 @@
     private void EndStatusMutation() => Interlocked.Increment(ref _statusMutationVersion);
 
     private ExecutionNodeSummaryResponse? LocalNode => _status?.Nodes.FirstOrDefault(node => node.IsLocalMachine && node.Status != "revoked");
-    private IReadOnlyList<ExecutionNodeSummaryResponse> PendingNodes => _status?.Nodes
-        .Where(node => node.Status == "pendingapproval").ToArray() ?? [];
+    private IEnumerable<ExecutionNodeSummaryResponse> RemoteNodes =>
+        (_status?.Nodes ?? []).Where(node => !RemoteOnly || (_trackedEnrollment.HasValue && node.EnrollmentId == _trackedEnrollment));
+    private bool RemoteReady => RemoteOnly ? RemoteNodes.Any(node => node.IsReadyForPlacement) : _status?.IsReady == true;
+    private ExecutionEnrollmentResponse? ActiveRemoteEnrollment =>
+        !RemoteOnly || _status?.ActiveEnrollment?.Id == _trackedEnrollment ? _status?.ActiveEnrollment : null;
+    private IReadOnlyList<ExecutionNodeSummaryResponse> PendingNodes =>
+        RemoteNodes.Where(node => node.Status == "pendingapproval").ToArray();
 
     private bool LocalOfficeIsReady =>
         _localSession?.State == "ready" && _status?.IsReady == true;
@@ -1370,11 +1410,11 @@
 
     private static int FormatGb(int megabytes) => Math.Max(0, megabytes / 1024);
 
-    private int RemoteStage => _status?.IsReady == true ? 5
-        : _status?.Nodes.Any(node => node.Status == "ready") == true ? 4
+    private int RemoteStage => RemoteReady ? 5
+        : RemoteNodes.Any(node => node.Status == "ready") ? 4
         : PendingNodes.Count > 0 ? 3
-        : _status?.ActiveEnrollment?.Status == "claimed" ? 2
-        : _status?.ActiveEnrollment is not null || _issuedEnrollment is not null ? 1
+        : ActiveRemoteEnrollment?.Status == "claimed" ? 2
+        : ActiveRemoteEnrollment is not null || _issuedEnrollment is not null ? 1
         : 0;
 
     private string ConnectionCodeHint => _issuedEnrollment is { } enrollment
@@ -1384,7 +1424,7 @@
     private string RemoteWaitingMessage =>
         _issuedEnrollment?.EnrollmentToken is { Length: > 0 }
             ? $"Run the installer {TargetPrepositionalPhrase} with the code shown here. This page updates automatically when the Office connects."
-            : _status?.ActiveEnrollment is { Status: "available" }
+            : ActiveRemoteEnrollment is { Status: "available" }
                 ? "The active code is hidden after a reload. Generate a new code above to continue setup."
                 : $"Waiting for {TargetNounPhrase}. This page updates automatically when it connects.";
 
@@ -1467,13 +1507,7 @@
 
     private string TargetPlatform => ManualLocalSetup ? LocalPlatform : _remotePlatform;
 
-    private string? SelectedPackageUrl(OfficePackageLinksResponse packages) => TargetPlatform switch
-    {
-        "windows" => packages.WindowsPackageOverrideUrl ?? packages.ReleaseManifestUrl,
-        "linux" => packages.LinuxPackageOverrideUrl ?? packages.ReleaseManifestUrl,
-        "macos" => packages.MacOsPackageOverrideUrl ?? packages.ReleaseManifestUrl,
-        _ => packages.ReleaseManifestUrl
-    };
+    private string? SelectedPackageUrl(OfficePackageLinksResponse packages) => packages.InstallerFor(TargetPlatform);
 
     private string? RecommendedPresetKey => SelectedCapacity?.Presets
         .FirstOrDefault(preset => preset.MemoryMb >= 16 * 1024)?.Key;

@@ -21,6 +21,48 @@ public sealed partial class ExecutionFleetServiceTests
     private static readonly DateTimeOffset Now = new(2026, 8, 10, 20, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public async Task DeviceLinkApprovesOnlyTheSignedClaimAndTracksTheSecondDevice()
+    {
+        await using var db = CreateDb();
+        var clock = new MutableTimeProvider(Now);
+        await new SetupService(db).EnsureSeededAsync();
+        var fleet = CreateFleet(db, clock);
+        await fleet.SelectOnboardingModeAsync(new("remote"));
+        var first = (await fleet.CreateEnrollmentAsync()).Enrollment!;
+        var firstClaim = await fleet.ClaimNodeAsync(Claim(first.EnrollmentToken!));
+        await fleet.ApproveNodeAsync(firstClaim.OfficeId!.Value);
+        (await db.ExecutionNodes.SingleAsync()).LastHeartbeatAt = Now;
+        await db.SaveChangesAsync();
+
+        var second = (await fleet.CreateEnrollmentAsync()).Enrollment!;
+        using var key = RSA.Create(2048);
+        var until = Now.AddMinutes(15).ToUnixTimeSeconds();
+        var claim = Claim(second.EnrollmentToken!) with { MachineName = "second-computer", CertificateThumbprint = "11223344", CertificateSerialNumber = "1122" };
+        var link = new OfficeLinkRequest(claim.MachineName, Convert.ToBase64String(key.ExportSubjectPublicKeyInfo()), until);
+        (await db.ExecutionNodeEnrollments.SingleAsync(e => e.Id == second.Id)).OfficeLinkId = link.Id;
+        await db.SaveChangesAsync();
+
+        Assert.False((await fleet.ClaimNodeAsync(claim)).Succeeded);
+        var signed = claim with { LinkProof = OfficeLinkClaimProof.Sign(claim, until, key) };
+        Assert.False((await fleet.ClaimNodeAsync(signed with { MachineName = "different-computer" })).Succeeded);
+        Assert.False((await fleet.ClaimNodeAsync(signed with { AllocatableCpuCount = 16 })).Succeeded);
+        var result = await fleet.ClaimNodeAsync(signed);
+        Assert.True(result.Succeeded);
+        var status = await fleet.GetOnboardingStatusAsync();
+        Assert.True(status.Nodes.Single(n => n.EnrollmentId == first.Id).IsReadyForPlacement);
+        var retry = await fleet.ClaimNodeAsync(signed);
+        Assert.Equal(result.OfficeId, retry.OfficeId);
+        Assert.Equal(result.EnrollmentReceipt, retry.EnrollmentReceipt);
+        Assert.Equal(2, await db.ExecutionNodes.CountAsync());
+        var added = status.Nodes.Single(n => n.EnrollmentId == second.Id);
+        Assert.Equal(result.OfficeId, added.Id);
+        Assert.Equal("ready", added.Status);
+        Assert.False(added.IsReadyForPlacement); // Needs its own authenticated heartbeat.
+        Assert.Null((status.Packages! with { WindowsPackageOverrideUrl = null }).InstallerFor("windows"));
+        Assert.Equal("https://mirror.example/setup.exe", (status.Packages with { WindowsPackageOverrideUrl = "https://mirror.example/setup.exe" }).InstallerFor("windows"));
+    }
+
+    [Fact]
     public async Task Enrollment_IsOneUse_AndRequiresApprovalBeforeReadiness()
     {
         await using var db = CreateDb();

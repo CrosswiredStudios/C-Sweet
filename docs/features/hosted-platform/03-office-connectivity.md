@@ -4,6 +4,9 @@
 
 **Status: Existing transport foundation; proposed hosted onboarding and operating behavior.**
 
+The [standalone Office onboarding plan](../../implementation/office-device-onboarding.md)
+maps the two installer journeys to repository changes, release order and acceptance tests.
+
 ## The problem and the existing solution
 
 A customer PC usually has a private address behind a router. Headquarters cannot

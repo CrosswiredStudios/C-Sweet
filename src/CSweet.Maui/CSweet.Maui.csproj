@@ -35,6 +35,7 @@
         <ApplicationTitle>C-Sweet</ApplicationTitle>
 
         <!-- App Identifier -->
+        <CodesignEntitlements Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">Platforms/iOS/Entitlements.plist</CodesignEntitlements>
         <ApplicationId>com.companyname.csweet.maui</ApplicationId>
 
         <!-- Versions -->

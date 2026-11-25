@@ -11484,12 +11484,20 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("OfficeLinkId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("ReceiptHash")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
                     b.Property<DateTimeOffset?>("RevokedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SealedEnrollmentToken")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -11504,6 +11512,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ExecutionNodeId");
+
+                    b.HasIndex("OfficeLinkId")
+                        .IsUnique();
 
                     b.HasIndex("ReceiptHash")
                         .IsUnique();
