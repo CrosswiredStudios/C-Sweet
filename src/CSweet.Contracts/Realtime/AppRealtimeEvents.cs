@@ -13,6 +13,7 @@ public static class AppRealtimeEvents
     public const string AuditChanged = "com.csweet.app.audit.changed.v1";
     public const string CurrentActivityChanged = "com.csweet.app.current-activity.changed.v1";
     public const string ProjectIncidentChanged = "com.csweet.app.project-incident.changed.v1";
+    public const string CoordinationFailureChanged = "com.csweet.app.coordination-failure.changed.v1";
     public const string ApprovalChanged = "com.csweet.app.approval.changed.v1";
     public const string HiringRecommendationsChanged = "com.csweet.app.hiring-recommendations.changed.v1";
     public const string NotificationCreated = "com.csweet.app.notification.created.v1";
@@ -59,4 +60,7 @@ public sealed record AppNotificationEvent(
     string? ActionUri,
     DateTimeOffset CreatedAt,
     DateTimeOffset? ReadAt,
-    DateTimeOffset? DismissedAt);
+    DateTimeOffset? DismissedAt)
+{
+    public const string ArtifactReviewReassignment = "ArtifactReviewReassignment";
+}

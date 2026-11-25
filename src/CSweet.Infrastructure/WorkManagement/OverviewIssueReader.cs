@@ -3,10 +3,12 @@ using CSweet.Application.Communications;
 using CSweet.Application.WorkManagement;
 using CSweet.Contracts.Core;
 using CSweet.Contracts.Communications;
+using CSweet.Domain.Communications;
 using CSweet.Domain.Core;
 using CSweet.Domain.Security;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
 using Wire = CSweet.WorkManagement.Contracts;
 
@@ -144,6 +146,28 @@ public sealed class OverviewIssueReader(CSweetDbContext db, IPersonalTodoService
                 "Choose a current option or open the supporting evidence before responding.", q.Decision.Prompt, q.AgentOrganizationUserId);
             g.Questions.Add(q); g.Requires = true;
         }
+        foreach (var session in await ReadFailedCollaborationsAsync(org, actor.OrganizationUserId, ct))
+        {
+            var key = Resolve(groupFor.GetValueOrDefault(("Coordination", session.Id), "coordination:" + session.Id.ToString("N")));
+            var group = Get(key, session.WorkstreamId, people.GetValueOrDefault(session.InitiatorOrganizationUserId, "Agent collaboration"),
+                session.Subject, "", "", "", session.InitiatorOrganizationUserId);
+            group.Requires = true;
+            group.CollaborationFailureSummary ??= AgentWorkFailure.DescribeCollaborationFailure(session.FinalSummary);
+            group.Actions.Add(new(session.Id, "Review collaboration",
+                $"/organizations/{org:D}/communications/{session.ConversationId:D}?perspective={session.InitiatorOrganizationUserId:D}&collaboration={session.Id:D}"));
+        }
+        var reviewReassignments = await db.UserNotifications.AsNoTracking().Where(n => n.OrganizationId == org &&
+            n.RecipientOrganizationUserId == actor.OrganizationUserId && n.DismissedAt == null && n.ActionUri != null &&
+            n.Category == ArtifactReviewJobLifecycle.ReassignmentCategory &&
+            db.CoreOrganizationUsers.Any(u => u.Id == n.RecipientOrganizationUserId && u.OrganizationId == org &&
+                u.IsActive && u.ArchivedAt == null && u.EmployeeType == EmployeeType.Human && u.PermissionLevel >= OrganizationPermissionLevel.Manager))
+            .Select(n => new { n.Id, n.Title, n.Body, n.ActionUri }).ToListAsync(ct);
+        foreach (var notice in reviewReassignments)
+        {
+            var group = Get("document-review:" + notice.Id.ToString("N"), null, "Documents", notice.Title, notice.Body, "", "");
+            group.Requires = true;
+            group.Actions.Add(new(notice.Id, "Open document", notice.ActionUri!));
+        }
         // Also list visible work tracking this blocker before or after its own blocked state.
         foreach (var task in tasks.Values.Where(t => t.ArchivedAt is null))
         {
@@ -154,15 +178,40 @@ public sealed class OverviewIssueReader(CSweetDbContext db, IPersonalTodoService
         return OverviewIssueDirectory.Consolidate(groups.Values.Select(g => g.Build()).ToArray());
     }
 
+    private async Task<List<AgentCoordinationSession>> ReadFailedCollaborationsAsync(Guid org, Guid userId, CancellationToken ct)
+    {
+        var managers = db.CoreOrganizationUsers.AsNoTracking().Where(u => u.OrganizationId == org && u.IsActive &&
+            u.ArchivedAt == null && u.EmployeeType == EmployeeType.Human && u.PermissionLevel >= OrganizationPermissionLevel.Manager);
+        var viewer = await managers.Where(u => u.Id == userId).Select(u => (OrganizationPermissionLevel?)u.PermissionLevel)
+            .SingleOrDefaultAsync(ct);
+        if (viewer is null) return [];
+
+        var managerMemberships = db.ConversationParticipants.Where(p => p.LeftAt == null && managers.Any(u => u.Id == p.OrganizationUserId));
+        // Use the same audience as execution-failure notifications, re-evaluated against current membership.
+        return await db.AgentCoordinationSessions.AsNoTracking().Where(s => s.OrganizationId == org &&
+            s.Status == AgentCoordinationStatus.Failed &&
+            (managerMemberships.Any(p => p.ConversationId == s.SourceConversationId && p.OrganizationUserId == userId) ||
+             viewer == OrganizationPermissionLevel.Owner && !managerMemberships.Any(p => p.ConversationId == s.SourceConversationId)))
+            .ToListAsync(ct);
+    }
+
     private sealed class Builder(string key, Guid? id, Guid? project, string projectName, string title, string summary, string owner, string next, string detail, string status = "Open", Guid? ownerId = null)
     {
         public List<OverviewAffectedWork> AffectedWork { get; } = [];
         public List<BlockedWorkAttentionResponse> Work { get; } = [];
         public List<PendingAgentQuestionResponse> Questions { get; } = [];
         public List<ProjectIncidentAttentionResponse> Incidents { get; } = [];
+        public List<OverviewIssueAction> Actions { get; } = [];
+        public string? CollaborationFailureSummary { get; set; }
         public bool Requires { get; set; }
         public bool Unclassified { get; set; }
-        public OverviewIssueCard Build() => new(key, id, project, projectName, title, summary, owner, next, Requires, Unclassified,
-            Work, Questions, Incidents, string.Join("\n\n", new[] { detail }.Concat(Questions.Select(q => q.Decision.Prompt)).Concat(Work.Select(w => w.Reason)).Distinct()), status) { OwnerOrganizationUserId = ownerId, AffectedWork = AffectedWork.DistinctBy(w => w.ItemId).ToArray() };
+        public OverviewIssueCard Build() => new(key, id, project, projectName, title, CollaborationFailureSummary ?? summary,
+            owner, next, Requires, Unclassified, Work, Questions, Incidents,
+            string.Join("\n\n", new[] { detail }.Concat(Questions.Select(q => q.Decision.Prompt)).Concat(Work.Select(w => w.Reason)).Distinct()), status)
+        {
+            OwnerOrganizationUserId = ownerId,
+            AffectedWork = AffectedWork.DistinctBy(w => w.ItemId).ToArray(),
+            Actions = Actions
+        };
     }
 }

@@ -146,7 +146,7 @@
     private OverviewIssueDirectory CurrentIssues => Issues ?? OverviewAttentionItems.FallbackIssues(BlockedWork, _questions, ProjectIncidents);
     private IReadOnlyList<OverviewIssueCard> WaitingIssues => CurrentIssues.Team;
     private IReadOnlyList<OverviewIssueCard> PendingIssues => CurrentIssues.UserActions.Where(item =>
-        item.IssueId is not null || item.Work.Count > 0 || item.Incidents.Count > 0 ||
+        item.IssueId is not null || item.Work.Count > 0 || item.Incidents.Count > 0 || item.Actions.Count > 0 ||
         item.Questions.Count == 0 || item.Questions.Any(q => !_completedDecisions.Contains(q.Decision.Id))).ToArray();
     private int PendingCount => PendingIssues.Count + PendingApprovals.Count + Recommendations.Count + ComputeResources.Count + SuggestionCount +
         (FailedComputeSetup is not null || WaitingForOfficeCapacity ? 1 : 0);

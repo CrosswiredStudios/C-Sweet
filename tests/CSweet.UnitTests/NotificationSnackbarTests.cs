@@ -13,9 +13,14 @@ namespace CSweet.UnitTests;
 public sealed class NotificationSnackbarTests
 {
     [Theory]
-    [InlineData("ResourceChangeApproval", "Hiring plan", "Review team changes")]
-    [InlineData("PersonalTodoBlocked", "Personal task blocked", "Review blocked work: Receive scoped planning advice")]
-    public void OverviewNotificationsStayQuietWhileOtherWarningsStillAppear(string category, string title, string body)
+    [InlineData("ResourceChangeApproval", "Routine")]
+    [InlineData("PersonalTodoBlocked", "Routine")]
+    [InlineData("ProjectHealth", "Routine")]
+    [InlineData("ProjectHealthStatus", "Routine")]
+    [InlineData("CoordinationFailure", "Important")]
+    [InlineData("ArtifactReviewReassignment", "Important")]
+    [InlineData("AgentTicketRepeatedFailure", "Urgent")]
+    public void OverviewNotificationsAndBackgroundErrorsStayQuiet(string category, string severity)
     {
         using var provider = Services();
         var snackbar = provider.GetRequiredService<ISnackbar>();
@@ -23,20 +28,15 @@ public sealed class NotificationSnackbarTests
         typeof(AppRealtimeCoordinator).GetProperty("Snackbar", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(component, snackbar);
         var notification = new AppNotificationEvent(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null,
-            "Important", category, title, body, "/work",
+            severity, category, "Work update", "Review this work", "/work",
             DateTimeOffset.UtcNow, null, null);
-        Invoke(component, "ShowNotification", notification, Severity.Warning);
-        Invoke(component, "ShowNotification", notification, Severity.Warning);
+        Invoke(component, "ShowNotification", notification);
+        Invoke(component, "ShowNotification", notification);
         Assert.Empty(snackbar.ShownSnackbars);
-        Invoke(component, "ShowNotification", notification with
-        {
-            NotificationId = Guid.NewGuid(), Category = "ArtifactReviewReassignment", ActionUri = null
-        }, Severity.Warning);
-        Assert.Single(snackbar.ShownSnackbars);
     }
 
     [Fact]
-    public void ResolvingWarningRemovesSnackbarAndLateCreationCannotRestoreIt()
+    public void ResolvingRoutineNotificationRemovesSnackbarAndLateCreationCannotRestoreIt()
     {
         using var provider = Services();
         var snackbar = provider.GetRequiredService<ISnackbar>();
@@ -44,51 +44,22 @@ public sealed class NotificationSnackbarTests
         typeof(AppRealtimeCoordinator).GetProperty("Snackbar", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(component, snackbar);
         var notification = new AppNotificationEvent(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null,
-            "Important", "ArtifactReviewReassignment", "Document review needs reassignment",
-            "Assign an active reviewer", null, DateTimeOffset.UtcNow, null, null);
-        Invoke(component, "ShowNotification", notification, Severity.Warning);
+            "Routine", "Mention", "You were mentioned", "Open the conversation", null, DateTimeOffset.UtcNow, null, null);
+        Invoke(component, "ShowNotification", notification);
+        Invoke(component, "ShowNotification", notification);
         Assert.Single(snackbar.ShownSnackbars);
         Invoke(component, "ResolveNotification", notification.NotificationId);
         Assert.Empty(snackbar.ShownSnackbars);
-        Invoke(component, "ShowNotification", notification, Severity.Warning);
+        Invoke(component, "ShowNotification", notification);
         Assert.Empty(snackbar.ShownSnackbars);
 
-        // A genuine independent error is still surfaced.
-        Invoke(component, "ShowNotification", notification with { NotificationId = Guid.NewGuid() }, Severity.Error);
+        Invoke(component, "ShowNotification", notification with { NotificationId = Guid.NewGuid() });
         Assert.Single(snackbar.ShownSnackbars);
     }
 
     private static void Invoke(AppRealtimeCoordinator target, string method, params object[] arguments) =>
         typeof(AppRealtimeCoordinator).GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(target, arguments);
-
-    [Theory]
-    [InlineData("ProjectHealth")]
-    [InlineData("ProjectHealthStatus")]
-    public void AllProjectHealthUpdatesStayQuietAndIndependentWarningsStillAppear(string category)
-    {
-        using var provider = Services();
-        var snackbar = provider.GetRequiredService<ISnackbar>();
-        var component = TestLocalization.Inject(new AppRealtimeCoordinator());
-        typeof(AppRealtimeCoordinator).GetProperty("Snackbar", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(component, snackbar);
-        var notification = new AppNotificationEvent(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null,
-            "Important", category, "Project needs management attention", "Quality is blocked", null,
-            DateTimeOffset.UtcNow, null, null);
-        Invoke(component, "ShowNotification", notification, Severity.Warning);
-        Assert.Empty(snackbar.ShownSnackbars);
-        Invoke(component, "ShowNotification", notification, Severity.Warning);
-        Assert.Empty(snackbar.ShownSnackbars);
-        Invoke(component, "ShowNotification", notification with { NotificationId = Guid.NewGuid(), Severity = "Routine",
-            Title = "Project incident resolved" }, Severity.Info);
-        Assert.Empty(snackbar.ShownSnackbars);
-        Invoke(component, "ShowNotification", notification with { NotificationId = Guid.NewGuid() }, Severity.Warning);
-        Assert.Empty(snackbar.ShownSnackbars);
-        Invoke(component, "ShowNotification", notification with { NotificationId = Guid.NewGuid(), Severity = "Urgent" }, Severity.Error);
-        Assert.Empty(snackbar.ShownSnackbars);
-        Invoke(component, "ShowNotification", notification with { NotificationId = Guid.NewGuid(), Category = "ArtifactReviewReassignment" }, Severity.Warning);
-        Assert.Single(snackbar.ShownSnackbars);
-    }
 
     private static ServiceProvider Services()
     {

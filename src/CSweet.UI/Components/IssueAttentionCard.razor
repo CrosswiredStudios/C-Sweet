@@ -1,7 +1,7 @@
 @using CSweet.Contracts.Core
 @inject IAppLocalizer L
 
-@if (Item.IssueId is null && Item.Work.Count == 0 && Item.AffectedWork.Count == 0 && Item.Incidents.Count == 0 && Item.Questions.Count == 1)
+@if (Item.IssueId is null && Item.Work.Count == 0 && Item.AffectedWork.Count == 0 && Item.Incidents.Count == 0 && Item.Actions.Count == 0 && Item.Questions.Count == 1)
 {
     <AgentQuestionCard OrganizationId="OrganizationId" Question="Item.Questions[0]" Overview="true" Answered="AnsweredAsync" />
 }
@@ -41,20 +41,30 @@ else
                     }
                 }
             }
-            <details class="issue-details">
-                <summary>@L["PendingAgentQuestions.ViewAffectedWork"]</summary>
-                @foreach (var work in AffectedWork) { <p><a href="@work.ActionUri">@work.Title</a></p> }
-                @foreach (var incident in Item.Incidents)
-                {
-                    <p><a href="@incident.ActionUri">@L["ProjectIncidentAttentionCard.ReadReport"] · @incident.ReporterName</a></p>
-                    @if (incident.InvestigateUri is { } uri && uri != incident.ActionUri) { <p><a href="@uri">@incident.InvestigateLabel</a></p> }
-                    <ChatMarkdown Content="@(incident.OwnerReport ?? incident.Facts)" />
-                }
-                @foreach (var question in Item.Questions) { <p><a href="@($"/organizations/{OrganizationId}/communications/{question.ConversationId}?decision={question.Decision.Id}")">@question.Decision.Prompt</a></p> }
-                @if (!string.IsNullOrWhiteSpace(Item.Detail)) { <ChatMarkdown Content="@Item.Detail" /> }
-                @if (!string.IsNullOrWhiteSpace(Item.NextAction)) { <p>@Item.NextAction</p> }
-            </details>
+            @if (Item.Work.Count > 0 || Item.AffectedWork.Count > 0 || Item.Incidents.Count > 0 || Item.Questions.Count > 0 ||
+                !string.IsNullOrWhiteSpace(Item.Detail) || !string.IsNullOrWhiteSpace(Item.NextAction))
+            {
+                <details class="issue-details">
+                    <summary>@L["PendingAgentQuestions.ViewAffectedWork"]</summary>
+                    @foreach (var work in AffectedWork) { <p><a href="@work.ActionUri">@work.Title</a></p> }
+                    @foreach (var incident in Item.Incidents)
+                    {
+                        <p><a href="@incident.ActionUri">@L["ProjectIncidentAttentionCard.ReadReport"] · @incident.ReporterName</a></p>
+                        @if (incident.InvestigateUri is { } uri && uri != incident.ActionUri) { <p><a href="@uri">@incident.InvestigateLabel</a></p> }
+                        <ChatMarkdown Content="@(incident.OwnerReport ?? incident.Facts)" />
+                    }
+                    @foreach (var question in Item.Questions) { <p><a href="@($"/organizations/{OrganizationId}/communications/{question.ConversationId}?decision={question.Decision.Id}")">@question.Decision.Prompt</a></p> }
+                    @if (!string.IsNullOrWhiteSpace(Item.Detail)) { <ChatMarkdown Content="@Item.Detail" /> }
+                    @if (!string.IsNullOrWhiteSpace(Item.NextAction)) { <p>@Item.NextAction</p> }
+                </details>
+            }
         </BodyContent>
+        <ChildContent>
+            @foreach (var action in Item.Actions)
+            {
+                <MudButton Href="@action.ActionUri" Variant="Variant.Outlined" Color="Color.Primary">@action.Label</MudButton>
+            }
+        </ChildContent>
     </AttentionRequestCard>
 }
 

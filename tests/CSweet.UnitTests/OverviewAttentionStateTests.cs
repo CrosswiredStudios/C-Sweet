@@ -54,6 +54,16 @@ public sealed class OverviewAttentionStateTests
     }
 
     [Fact]
+    public void OnlyDocumentReassignmentNotificationsInvalidateTheOverview()
+    {
+        var wake = new AppRealtimeEventEnvelope(Guid.NewGuid(), 1, AppRealtimeEvents.NotificationCreated,
+            Guid.NewGuid(), "attention", DateTimeOffset.UtcNow, JsonSerializer.SerializeToElement(new { category = AppNotificationEvent.ArtifactReviewReassignment }));
+        Assert.True(OverviewAttentionItems.IsInvalidationEvent(wake));
+        Assert.True(OverviewAttentionItems.IsInvalidationEvent(wake with { EventType = AppRealtimeEvents.NotificationUpdated }));
+        Assert.False(OverviewAttentionItems.IsInvalidationEvent(wake with { Data = JsonSerializer.SerializeToElement(new { category = "Mention" }) }));
+    }
+
+    [Fact]
     public async Task BlockedWorkUpdatesTheSharedBadgeAndReconnectRecoversResolution()
     {
         await using var fixture = new Fixture();
@@ -100,6 +110,7 @@ public sealed class OverviewAttentionStateTests
     [InlineData(AppRealtimeEvents.ApprovalChanged)]
     [InlineData(AppRealtimeEvents.HiringRecommendationsChanged)]
     [InlineData(AppRealtimeEvents.ProjectIncidentChanged)]
+    [InlineData(AppRealtimeEvents.CoordinationFailureChanged)]
     [InlineData(AppRealtimeEvents.ComputeChanged)]
     [InlineData(AppRealtimeEvents.SuggestionsChanged)]
     [InlineData(AppRealtimeEvents.ProjectImportChanged)]

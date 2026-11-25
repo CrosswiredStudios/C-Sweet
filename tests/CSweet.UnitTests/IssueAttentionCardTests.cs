@@ -23,12 +23,16 @@ public sealed class IssueAttentionCardTests
         var detail = "Full diagnostic evidence " + new string('x', 12000);
         var item = new OverviewIssueCard("case", Guid.NewGuid(), Guid.NewGuid(), "Brickwave", "Technical review needs reconciliation",
             "The manager is handling the remaining responsibility.", "Gabriel", "Review current evidence", requiresAction, false,
-            [new(Guid.NewGuid(), Guid.NewGuid(), "Victor", "Gabriel", "Review feasibility", "Original failure", 2, true, "/work") { RetryKey = "overview-retry:verified" }], [], [], detail);
+            [new(Guid.NewGuid(), Guid.NewGuid(), "Victor", "Gabriel", "Review feasibility", "Original failure", 2, true, "/work") { RetryKey = "overview-retry:verified" }], [], [], detail)
+        {
+            Actions = requiresAction ? [new(Guid.NewGuid(), "Review collaboration", "/communications/collaboration")] : []
+        };
         var html = await renderer.Dispatcher.InvokeAsync(async () => (await renderer.RenderComponentAsync<IssueAttentionCard>(
             ParameterView.FromDictionary(new Dictionary<string,object?> { ["OrganizationId"] = Guid.NewGuid(), ["Item"] = item }))).ToHtmlString());
         Assert.Contains("<details class=\"issue-details\"", html); Assert.Contains("<summary", html); Assert.Contains(detail, html);
         Assert.DoesNotContain("Full diagnostic evidence", html[..html.IndexOf("<details", StringComparison.Ordinal)]);
         Assert.Equal(requiresAction, html.Contains(">Retry<", StringComparison.Ordinal));
+        Assert.Equal(requiresAction, html.Contains("href=\"/communications/collaboration\"", StringComparison.Ordinal));
         Assert.Equal(!requiresAction, html.Contains("No action needed from you.", StringComparison.Ordinal));
     }
     private sealed class NoJavaScript : IJSRuntime

@@ -10,9 +10,15 @@ public static class OverviewAttentionItems
 {
     // Every consumer of the shared attention projection must invalidate on the
     // same source changes, including standalone executive questions without a board.
-    public static bool IsInvalidationEvent(string eventType) => eventType is
+    public static bool IsInvalidationEvent(AppRealtimeEventEnvelope envelope) =>
+        IsInvalidationEvent(envelope.EventType) ||
+        (envelope.EventType is AppRealtimeEvents.NotificationCreated or AppRealtimeEvents.NotificationUpdated &&
+         envelope.Data.ValueKind == System.Text.Json.JsonValueKind.Object && envelope.Data.TryGetProperty("category", out var category) &&
+         category.ValueKind == System.Text.Json.JsonValueKind.String && category.ValueEquals(AppNotificationEvent.ArtifactReviewReassignment));
+
+    private static bool IsInvalidationEvent(string eventType) => eventType is
         AppRealtimeEvents.SuggestionsChanged or AppRealtimeEvents.ProjectImportChanged or AppRealtimeEvents.ApprovalChanged or
-        AppRealtimeEvents.HiringRecommendationsChanged or AppRealtimeEvents.ProjectIncidentChanged or AppRealtimeEvents.ComputeChanged or
+        AppRealtimeEvents.HiringRecommendationsChanged or AppRealtimeEvents.ProjectIncidentChanged or AppRealtimeEvents.CoordinationFailureChanged or AppRealtimeEvents.ComputeChanged or
         CommunicationEvents.DecisionUpdated or AppRealtimeEvents.WorkBoardChanged or AppRealtimeEvents.ResourceChanged or AppRealtimeEvents.EmployeeDirectoryChanged;
     public static bool IsPending(string status) =>
         string.Equals(status, "Pending", StringComparison.OrdinalIgnoreCase);

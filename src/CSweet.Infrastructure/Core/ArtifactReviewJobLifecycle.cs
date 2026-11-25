@@ -1,3 +1,4 @@
+using CSweet.Contracts.Realtime;
 using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -7,7 +8,7 @@ namespace CSweet.Infrastructure.Core;
 /// <summary>Stages review completion and notification resolution for the caller's atomic save.</summary>
 public static class ArtifactReviewJobLifecycle
 {
-    public const string ReassignmentCategory = "ArtifactReviewReassignment";
+    public const string ReassignmentCategory = AppNotificationEvent.ArtifactReviewReassignment;
 
     public static async Task CompleteRevisionAsync(CSweetDbContext db, Guid organizationId, Guid revisionId,
         DateTimeOffset now, CancellationToken token)

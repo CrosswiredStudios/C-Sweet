@@ -331,7 +331,7 @@
     private void OnRealtimeEvent(AppRealtimeEventEnvelope envelope)
     {
         if (_disposed || envelope.OrganizationId != OrganizationId) return;
-        if (OverviewAttentionItems.IsInvalidationEvent(envelope.EventType) ||
+        if (OverviewAttentionItems.IsInvalidationEvent(envelope) ||
             envelope.EventType is AppRealtimeEvents.EmployeeDirectoryChanged or CompanyReportingCapabilities.ReportChanged ||
             Projects.IsProjectResourceEvent(envelope.EventType))
             QueueRefresh();

@@ -1,3 +1,5 @@
+using System.Text.Json;
+using CSweet.Contracts.Realtime;
 using CSweet.Domain.Communications;
 using CSweet.Domain.Core;
 using CSweet.Domain.WorkManagement;
@@ -17,14 +19,24 @@ public sealed partial class CSweetDbContext
     private async Task CaptureCoordinationWakesAsync(CancellationToken ct = default)
     {
         ChangeTracker.DetectChanges();
-        var finished = ChangeTracker.Entries<AgentCoordinationSession>()
-            .Where(x => x.State == EntityState.Modified && x.Property(s => s.Status).IsModified &&
-                        IsTerminalCoordination(x.Entity.Status) &&
+        var statusChanges = ChangeTracker.Entries<AgentCoordinationSession>()
+            .Where(x => x.State == EntityState.Modified && x.Property(s => s.Status).IsModified).ToArray();
+        var now = ExecutionClock.GetUtcNow();
+        foreach (var organizationId in statusChanges.Where(x => x.Entity.Status == AgentCoordinationStatus.Failed ||
+                    x.Property(s => s.Status).OriginalValue == AgentCoordinationStatus.Failed)
+                     .Select(x => x.Entity.OrganizationId).Distinct())
+        {
+            QueueApplicationRealtimeEvent(organizationId, null, null, AppRealtimeEvents.CoordinationFailureChanged,
+                $"organizations/{organizationId:D}/work/personal-todos/issues",
+                JsonSerializer.Serialize(new { organizationId }, EventJsonOptions), now,
+                ResolveActiveOrganizationRecipients(organizationId));
+        }
+
+        var finished = statusChanges.Where(x => IsTerminalCoordination(x.Entity.Status) &&
                         !IsTerminalCoordination((AgentCoordinationStatus)x.OriginalValues[nameof(AgentCoordinationSession.Status)]!))
             .Select(x => x.Entity).ToList();
         if (finished.Count == 0) return;
 
-        var now = ExecutionClock.GetUtcNow();
         var participants = finished
             .SelectMany(x => new[] { x.InitiatorOrganizationUserId, x.TargetOrganizationUserId })
             .Distinct().ToArray();

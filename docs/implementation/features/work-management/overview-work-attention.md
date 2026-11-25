@@ -10,6 +10,8 @@ The **Waiting** section shows one card for each open blocker the current user ca
 
 `BlockedWorkAttentionReader.RetryAsync` rechecks the current revision and evidence before requeuing. The accepted retry and its evidence key are recorded together. If the same attempt fails again on the same facts, the overview waits for something to change.
 
+`AppRealtimeCoordinator` shows routine snackbars. `OverviewIssueReader` uses the current collaboration state to show execution failures to active managers in the source chat, or the owner when the source chat has no active manager. The failure and linked work share one card and one badge item. **Review collaboration** opens the transcript and its recovery controls. A durable wake refreshes the card on failure and recovery. Document reviewer reassignment appears until its review notification is resolved.
+
 ## Owner pause
 
 `WorkItemMutationEngine.ProjectChiefAssessmentAsync` projects a ready assessment to Backlog while

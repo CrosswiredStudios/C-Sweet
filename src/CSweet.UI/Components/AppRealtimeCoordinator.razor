@@ -86,24 +86,19 @@
                 return;
             }
             if (envelope.EventType != AppRealtimeEvents.NotificationCreated) return;
-            var severity = notification.Severity switch
-            {
-                "Urgent" => Severity.Error,
-                "Important" => Severity.Warning,
-                _ => Severity.Info
-            };
-            _ = InvokeAsync(() => ShowNotification(notification, severity));
+            _ = InvokeAsync(() => ShowNotification(notification));
         }
         catch (JsonException) { }
     }
 
-    private void ShowNotification(AppNotificationEvent notification, Severity severity)
+    private void ShowNotification(AppNotificationEvent notification)
     {
+        if (notification.Severity != "Routine") return;
         if (_resolvedNotifications.Contains(notification.NotificationId) || !_shownNotifications.Add(notification.NotificationId)) return;
         // Overview and the notification inbox already surface these durable requests and updates.
         if (notification.Category is "ResourceChangeApproval" or "ProjectHealth" or "ProjectHealthStatus" or "PersonalTodoBlocked") return;
         var message = $"{notification.Title}: {notification.Body}";
-        Snackbar.Add(message, severity, options =>
+        Snackbar.Add(message, Severity.Info, options =>
         {
             if (string.IsNullOrWhiteSpace(notification.ActionUri)) return;
             options.Action = "Open";

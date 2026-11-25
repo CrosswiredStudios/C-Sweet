@@ -8,7 +8,9 @@ using CSweet.Domain.Communications;
 using CSweet.Infrastructure.Core;
 using Wire = CSweet.WorkManagement.Contracts;
 using CSweet.Contracts.Core;
+using CSweet.Contracts.Realtime;
 using CSweet.Infrastructure.WorkManagement;
+using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
 public sealed class OverviewIssueTests
@@ -102,6 +104,102 @@ public sealed class OverviewIssueTests
         directory = await reader.ReadAsync(f.Org, new(f.Manager.Id, null), false, default);
         Assert.Empty(directory.UserActions); Assert.Equal(card.Key, Assert.Single(directory.Team).Key); // Agent recovery ownership does not depend on retry permission.
         Assert.Equal(AgentCoordinationStatus.Failed, session.Status); Assert.Equal("Pending", decision.Status); // Projection is read-only.
+    }
+
+    [Fact]
+    public async Task CurrentCollaborationFailureMovesLinkedWorkToOneActionableCardAndClearsAfterResume()
+    {
+        await using var f = new WorkIssueLifecycleTests.Fixture(); await f.SeedAsync();
+        f.Manager.EmployeeType = EmployeeType.Human;
+        f.Manager.PermissionLevel = OrganizationPermissionLevel.Manager;
+        var owner = new OrganizationUser { Id = Guid.NewGuid(), OrganizationId = f.Org,
+            EmployeeType = EmployeeType.Human, PermissionLevel = OrganizationPermissionLevel.Owner };
+        var chat = new Conversation { Id = Guid.NewGuid(), OrganizationId = f.Org };
+        var membership = new ConversationParticipant { Id = Guid.NewGuid(), ConversationId = chat.Id, OrganizationUserId = f.Manager.Id };
+        var session = new AgentCoordinationSession { Id = Guid.NewGuid(), OrganizationId = f.Org, ConversationId = chat.Id,
+            SourceConversationId = chat.Id, WorkstreamId = f.Board.WorkstreamId, InitiatorOrganizationUserId = f.Specialist.Id,
+            Subject = "Develop creative direction and GDD" };
+        f.Db.AddRange(owner, chat, membership, session);
+        await f.Db.SaveChangesAsync();
+
+        var task = JsonSerializer.Deserialize<Wire.PersonalTodoItem>("{}")! with { Id = Guid.NewGuid(),
+            Title = "Get the game design document", Status = Wire.PersonalTodoStatuses.Blocked,
+            WorkContext = new(WorkstreamId: f.Board.WorkstreamId, CoordinationSessionId: session.Id) };
+        var todos = DispatchProxy.Create<IPersonalTodoService, WorkIssuePostgresTests.TestProxy>();
+        ((WorkIssuePostgresTests.TestProxy)(object)todos).InvokeMethod = (method, _) => method == "ListAsync"
+            ? Task.FromResult(new Wire.PersonalTodoDirectory([new(Guid.NewGuid(), f.Specialist.Id, "Director", f.Manager.Id, "Manager", 1, [task])]))
+            : throw new NotSupportedException(method);
+        var decisions = DispatchProxy.Create<IExecutiveDecisionService, WorkIssuePostgresTests.TestProxy>();
+        ((WorkIssuePostgresTests.TestProxy)(object)decisions).InvokeMethod = (_, _) => Task.FromResult<IReadOnlyList<PendingAgentQuestionResponse>>([]);
+        var reader = new OverviewIssueReader(f.Db, todos, new(f.Db, todos, TimeProvider.System, new(f.Db, todos,
+            new CSweet.Infrastructure.Security.ScopedActionAuthorizationService(f.Db), f.Service)), decisions,
+            new(f.Db, new(f.Db, TimeProvider.System), TimeProvider.System), f.Service);
+        var manager = new PersonalTodoActor(f.Manager.Id, null);
+        var before = await reader.ReadAsync(f.Org, manager, false, default);
+        var waiting = Assert.Single(before.Team);
+        Assert.Empty(before.UserActions);
+
+        session.Status = AgentCoordinationStatus.Failed;
+        session.FinalSummary = "Collaboration failed because an agent turn could not continue: agent-failure:v1;code=llm.request_failed;retryable=false;capability=platform.llm.chat-stream.v1";
+        await f.Db.SaveChangesAsync();
+        var failed = await reader.ReadAsync(f.Org, manager, false, default);
+        var card = Assert.Single(failed.UserActions);
+        Assert.Empty(failed.Team);
+        Assert.Equal(waiting.Key, card.Key);
+        Assert.Contains("Inference could not run", card.Summary);
+        var failure = Assert.Single(card.Actions);
+        Assert.Equal(session.Id, failure.Id);
+        Assert.Equal($"/organizations/{f.Org:D}/communications/{chat.Id:D}?perspective={f.Specialist.Id:D}&collaboration={session.Id:D}", failure.ActionUri);
+        Assert.Empty((await reader.ReadAsync(f.Org, new(owner.Id, null), false, default)).UserActions);
+        Assert.Empty((await reader.ReadAsync(f.Org, new(f.Specialist.Id, null), false, default)).UserActions);
+        Assert.Equal(1, await f.Db.ApplicationRealtimeOutbox.CountAsync(x => x.EventType == AppRealtimeEvents.CoordinationFailureChanged));
+
+        membership.LeftAt = DateTimeOffset.UtcNow;
+        await f.Db.SaveChangesAsync();
+        Assert.Empty((await reader.ReadAsync(f.Org, manager, false, default)).UserActions);
+        Assert.Equal(card.Key, Assert.Single((await reader.ReadAsync(f.Org, new(owner.Id, null), false, default)).UserActions).Key);
+
+        session.Status = AgentCoordinationStatus.Summarizing;
+        await f.Db.SaveChangesAsync();
+        var resumed = await reader.ReadAsync(f.Org, new(owner.Id, null), false, default);
+        Assert.Empty(resumed.UserActions);
+        Assert.Empty(Assert.Single(resumed.Team).Actions);
+        Assert.Equal(2, await f.Db.ApplicationRealtimeOutbox.CountAsync(x => x.EventType == AppRealtimeEvents.CoordinationFailureChanged));
+    }
+
+    [Fact]
+    public async Task DocumentReviewerReassignmentStaysActionableUntilResolved()
+    {
+        await using var f = new WorkIssueLifecycleTests.Fixture(); await f.SeedAsync();
+        f.Manager.EmployeeType = EmployeeType.Human;
+        f.Manager.PermissionLevel = OrganizationPermissionLevel.Manager;
+        var job = new ArtifactReviewJob { Id = Guid.NewGuid(), OrganizationId = f.Org,
+            ArtifactId = f.Source.DocumentId, RevisionId = f.Source.RevisionId };
+        var actionUri = $"/organizations/{f.Org:D}/documents?artifact={job.ArtifactId:D}";
+        f.Db.AddRange(job, new UserNotification { Id = Guid.NewGuid(), OrganizationId = f.Org,
+            RecipientOrganizationUserId = f.Manager.Id, Severity = NotificationSeverity.Important,
+            Category = ArtifactReviewJobLifecycle.ReassignmentCategory, Title = "Document review needs reassignment",
+            Body = "Assign an active reviewer.", ActionUri = actionUri, ReadAt = DateTimeOffset.UtcNow,
+            DeduplicationKey = $"artifact-review-reassignment:{job.Id:N}:{f.Manager.Id:N}" });
+        await f.Db.SaveChangesAsync();
+        var todos = DispatchProxy.Create<IPersonalTodoService, WorkIssuePostgresTests.TestProxy>();
+        ((WorkIssuePostgresTests.TestProxy)(object)todos).InvokeMethod = (_, _) => Task.FromResult(new Wire.PersonalTodoDirectory([]));
+        var decisions = DispatchProxy.Create<IExecutiveDecisionService, WorkIssuePostgresTests.TestProxy>();
+        ((WorkIssuePostgresTests.TestProxy)(object)decisions).InvokeMethod = (_, _) => Task.FromResult<IReadOnlyList<PendingAgentQuestionResponse>>([]);
+        var reader = new OverviewIssueReader(f.Db, todos, new(f.Db, todos, TimeProvider.System, new(f.Db, todos,
+            new CSweet.Infrastructure.Security.ScopedActionAuthorizationService(f.Db), f.Service)), decisions,
+            new(f.Db, new(f.Db, TimeProvider.System), TimeProvider.System), f.Service);
+        var actor = new PersonalTodoActor(f.Manager.Id, null);
+
+        var card = Assert.Single((await reader.ReadAsync(f.Org, actor, false, default)).UserActions);
+        Assert.Equal("Document review needs reassignment", card.Title);
+        Assert.Equal(actionUri, Assert.Single(card.Actions).ActionUri);
+        Assert.Empty((await reader.ReadAsync(f.Org, new(f.Specialist.Id, null), false, default)).UserActions);
+
+        await ArtifactReviewJobLifecycle.CompleteRevisionAsync(f.Db, f.Org, job.RevisionId, DateTimeOffset.UtcNow, default);
+        await f.Db.SaveChangesAsync();
+
+        Assert.Empty((await reader.ReadAsync(f.Org, actor, false, default)).UserActions);
     }
 
     [Fact]
