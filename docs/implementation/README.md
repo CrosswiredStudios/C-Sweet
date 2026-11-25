@@ -113,6 +113,10 @@ parity for authorized running-Headquarters workflows. Runtime delivery is pendin
 [Managed provider execution](managed-provider-execution.md) maps service-owned read/media relay,
 Core approval and attachment provenance, native account authority and staged adoption boundaries.
 
+[Finance Agent and financial connectors](finance-agent-and-connectors.md) plans the SimpleFIN
+pilot, enterprise provider selection, client-owned connections for MSPs, and the path from
+cash monitoring to reconciliation and bookkeeping.
+
 [Build provider setup](toolchain-build-setup.md) maps business-scoped toolchain installation, the administrator certification screen, exact provider/image selection and real fixture validation.
 
 [Game studio startup recovery](game-studio-startup-recovery.md) maps Producer ownership, metadata validation, revised proposal recovery and platform token-budget configuration boundaries.
