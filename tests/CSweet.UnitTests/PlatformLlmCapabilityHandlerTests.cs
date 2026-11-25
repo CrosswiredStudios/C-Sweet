@@ -436,9 +436,10 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
         Assert.Contains(CSweet.Application.WorkManagement.ForecastDrivenPlanning.Instructions,
             chatClient.ReceivedOptions?.Instructions, StringComparison.Ordinal);
         Assert.Equal(0.2f, chatClient.ReceivedOptions?.Temperature);
-        var responseFormat = Assert.IsType<ChatResponseFormatJson>(chatClient.ReceivedOptions?.ResponseFormat);
-        Assert.Equal("technical_review", responseFormat.SchemaName);
-        Assert.Equal("object", responseFormat.Schema!.Value.GetProperty("type").GetString());
+        Assert.Null(chatClient.ReceivedOptions?.ResponseFormat);
+        Assert.Contains("For the final answer, return only JSON that conforms to this schema:", chatClient.ReceivedOptions?.Instructions);
+        Assert.Contains("\"required\":[\"summary\"]", chatClient.ReceivedOptions?.Instructions);
+        Assert.Equal("lookup", Assert.IsAssignableFrom<AIFunctionDeclaration>(Assert.Single(chatClient.ReceivedOptions!.Tools!)).Name);
         Assert.Equal(128000, chatClient.ReceivedOptions?.MaxOutputTokens);
 
         var globalUsage = await new LlmTokenUsageService(db).GetSummaryAsync();
@@ -584,7 +585,7 @@ public sealed partial class PlatformLlmCapabilityHandlerTests
         return results;
     }
 
-    private static async Task SeedDispatchAuthorityAsync(CSweetDbContext db, AgentSession session)
+    internal static async Task SeedDispatchAuthorityAsync(CSweetDbContext db, AgentSession session)
     {
         var installationId = Guid.Parse(session.InstallationId);
         var installation = await db.AgentInstallations.Include(x => x.Grant).SingleOrDefaultAsync(x => x.Id == installationId);

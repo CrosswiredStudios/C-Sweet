@@ -1,9 +1,14 @@
 extern alias Director;
 extern alias Creative;
+using System.Net;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using CSweet.Agent.SDK;
 using CSweet.Agent.Testing;
+using CSweet.Infrastructure.Persistence;
 using CSweet.WorkManagement.Contracts;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.AI;
 using DirectorAgent = Director::CSweet.Agent.Director.VideoGame.VideoGameDirectorAgent;
 using DirectorState = Director::CSweet.Agent.Director.VideoGame.GameDirectorOperatingState;
 using CreativeAgent = Creative::CSweet.Agent.CreativeDirector.VideoGame.VideoGameCreativeDirectorAgent;
@@ -17,9 +22,10 @@ public sealed class CreativeDesignFinalizationJourneyTests
     private static JsonElement E(object value) => JsonSerializer.SerializeToElement(value, Json);
 
     [Theory]
+    [Trait("Category", "AgentHarness")]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Invalid_Gdd_revision_is_corrected_once_or_finalized_as_an_owned_blocker(bool correctionFails)
+    public async Task Gdd_review_without_schema_mode_reaches_the_creative_director_and_preserves_recovery(bool correctionFails)
     {
         var organization = Guid.NewGuid(); var director = Guid.NewGuid(); var naomi = Guid.NewGuid();
         var project = Guid.NewGuid(); var team = Guid.NewGuid(); var session = Guid.NewGuid();
@@ -34,6 +40,14 @@ public sealed class CreativeDesignFinalizationJourneyTests
         var sections = new[] {"Creative pillars","Player experience","Gameplay","Presentation","Acceptance criteria","Constraints","Open questions"};
         var valid = string.Join("\n",sections.Select(x=>$"## {x}\nConcrete desktop-web Breakout direction, owned validation and pending decisions."));
         var outputs = new Queue<string>(new[] { valid, "", correctionFails ? " " : valid });
+        var manager = new AgentCoordinationParticipant(director,Guid.NewGuid(),"Marcus","Initiator");
+        var creative = new AgentCoordinationParticipant(naomi,Guid.NewGuid(),"Naomi","Target");
+        var providerId = Guid.NewGuid();
+        await using var db = new CSweetDbContext(new DbContextOptionsBuilder<CSweetDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        using var reviewClient = new SchemaModeRejectingChatClient();
+        var reviewEndpoint = await CheckpointModelEndpoint.OpenScriptedAsync(db, manager, organization,
+            providerId, "deepseek-flash", reviewClient);
         ArtifactDocument? gdd = null;
         var models=0; var decisions=0; var revisions=0; var submissions=0; var reads=0;
         AgentTestRuntime Runtime(Guid actor) => new AgentTestRuntime()
@@ -44,11 +58,10 @@ public sealed class CreativeDesignFinalizationJourneyTests
             .RegisterCapability<JsonElement,PersonalTodoDirectory>(PersonalTodoCapabilities.Read,(_,_)=>Task.FromResult(new PersonalTodoDirectory([],director)))
             .RegisterCapability<JsonElement,ArtifactDocument>(PlatformCapabilities.ArtifactRead,(r,_)=> {
                 reads++; return Task.FromResult(r.GetProperty("artifactId").GetGuid()==pitchId ? pitch : gdd!); })
-            .RegisterCapability<JsonElement,JsonElement>(PlatformCapabilities.LlmChatStream,(r,_)=> {
+            .RegisterCapability<JsonElement,JsonElement>(PlatformCapabilities.LlmChatStream,async (r,token)=> {
                 if (actor==director) {
-                    var missing=new {sufficient=false,evidence="",reason="Describe the remaining design and planned acceptance methods."};
-                    return Task.FromResult(E(new {role="assistant",text=JsonSerializer.Serialize(new {summary="GDD needs substantive planning coverage.",
-                        creativeIntent=missing,playerExperience=missing,gameplay=missing,presentation=missing,acceptanceCriteria=missing,constraints=missing,openDecisions=missing,scopeConcerns=Array.Empty<object>()})}));
+                    Assert.Equal("gdd_semantic_coverage", r.GetProperty("responseSchemaName").GetString());
+                    return E(new { role = "assistant", text = await reviewEndpoint.GenerateTextAsync(r, token) });
                 }
                 Assert.Equal(naomi,actor); models++;
                 if (models==3)
@@ -57,7 +70,7 @@ public sealed class CreativeDesignFinalizationJourneyTests
                     Assert.Contains("Director findings",r.GetProperty("messages")[1].GetProperty("text").GetString());
                     Assert.Contains("GDD generation could not finish",r.GetProperty("messages")[3].GetProperty("text").GetString());
                 }
-                return Task.FromResult(E(new {text=outputs.Dequeue(),role="assistant"})); })
+                return E(new {text=outputs.Dequeue(),role="assistant"}); })
             .RegisterCapability<CreateArtifactDocument,ArtifactDocument>(PlatformCapabilities.ArtifactCreate,(r,_)=> {
                 var id=Guid.NewGuid(); gdd = new(Guid.NewGuid(),r.Title,r.DocumentType,"Draft",id,null,null,null,null,
                     [new(id,1,null,r.Content,new string('b',64),"Draft",DateTimeOffset.UtcNow,null,null)]) {WorkstreamId=r.WorkstreamId,TeamId=r.TeamId};
@@ -70,14 +83,12 @@ public sealed class CreativeDesignFinalizationJourneyTests
                 Assert.Equal(director,r.ReviewerOrganizationUserId); submissions++; return Task.FromResult(gdd!); })
             .RegisterCapability<StructuredArtifactDecisionRequest,ArtifactDocument>(PlatformCapabilities.ArtifactDecideV2,(_,_)=> {
                 decisions++; return Task.FromResult(gdd!); });
-        var manager = new AgentCoordinationParticipant(director,Guid.NewGuid(),"Marcus","Initiator");
-        var creative = new AgentCoordinationParticipant(naomi,Guid.NewGuid(),"Naomi","Target");
         var directorRuntime = Runtime(director);
         var directorContext=directorRuntime.CreateContext(organization.ToString(),identity:new(director.ToString(),"Marcus",null,"Video Game Director",null,[],null,Guid.NewGuid().ToString(),"CEO"));
         var creativeContext=Runtime(naomi).CreateContext(organization.ToString(),identity:new(naomi.ToString(),"Naomi",null,"Creative Director",null,[],null,director.ToString(),"Video Game Director"));
         var marcus=new DirectorAgent(); var creativeAgent=new CreativeAgent();
         Assert.True((await marcus.ExecuteCapabilityAsync(new(Guid.NewGuid(),AgentConfigurationCapabilities.Update,
-            E(new UpdateAgentConfigurationRequest(new Dictionary<string,JsonElement> { ["llmProviderId"]=E(Guid.NewGuid()),["llmModel"]=E("review") }))),directorContext,default)).Succeeded);
+            E(new UpdateAgentConfigurationRequest(new Dictionary<string,JsonElement> { ["llmProviderId"]=E(providerId),["llmModel"]=E(reviewEndpoint.Model) }))),directorContext,default)).Succeeded);
         Assert.True((await creativeAgent.ExecuteCapabilityAsync(new(Guid.NewGuid(),AgentConfigurationCapabilities.Update,
             E(new UpdateAgentConfigurationRequest(new Dictionary<string,JsonElement> { ["llmProviderId"]=E(Guid.NewGuid()),["llmModel"]=E("fixture") }))),creativeContext,default)).Succeeded);
         var workContext=new AgentWorkContext(organization,project,team,null,null,null,null,session,null,null);
@@ -91,10 +102,25 @@ public sealed class CreativeDesignFinalizationJourneyTests
             turns.Add(new(Guid.NewGuid(),turns.Count,speaker,result.Disposition,result.Content,DateTimeOffset.UtcNow,
                 a is null ? null : new(a.Type,a.SchemaVersion,a.Key,a.PageOrdinal,a.IsFinalPage,a.Payload,"fixture")));
         }
+        var replies = new List<RespondToAgentCoordinationRequest>();
+        directorRuntime.RegisterCapability<RespondToAgentCoordinationRequest, AgentCoordinationSession>(
+            CommunicationCapabilities.CoordinationRespond, (reply, _) => {
+                replies.Add(reply);
+                var now = DateTimeOffset.UtcNow;
+                return Task.FromResult(new AgentCoordinationSession(session, Guid.Empty, Guid.Empty, Guid.Empty,
+                    Guid.Empty, manager, creative, "GDD", "Develop exact approved pitch", [], reply.Disposition,
+                    reply.ExpectedRevision + 1, reply.ExpectedTurnOrdinal + 1, null, true, reply.Content, now, now, turns));
+            });
+        var host = new AgentTestHost(marcus, directorRuntime, directorContext.Identity, organization.ToString(), manager.AgentInstallationId.ToString());
         var submitted=await creativeAgent.HandleCoordinationTurnAsync(Request(true),creativeContext,default);
         Assert.Equal("Continue",submitted.Disposition); Append(naomi,submitted);
         var originalRevision=gdd!.LatestRevisionId;
-        var feedback=await marcus.HandleCoordinationTurnAsync(Request(false),directorContext,default);
+        var delivered = await host.DeliverCoordinationTurnAsync(Request(false));
+        Assert.True(delivered.Succeeded, delivered.Error);
+        var review = Assert.Single(replies);
+        Assert.Equal(session, review.SessionId);
+        Assert.Equal(2, reviewClient.Calls);
+        var feedback = new AgentCoordinationTurnResult(review.Disposition, review.Content, review.Artifact);
         Assert.Equal("Continue",feedback.Disposition); Append(director,feedback);
         var revised=await creativeAgent.HandleCoordinationTurnAsync(Request(true),creativeContext,default);
         Assert.Equal(3,models);
@@ -112,16 +138,7 @@ public sealed class CreativeDesignFinalizationJourneyTests
             Assert.Contains(revised.Content,final.Content);
             Assert.Equal(1,decisions); Assert.Equal(priorReads,reads); Assert.Equal(originalRevision,gdd.LatestRevisionId);
             // A finalization replay must pass SDK validation and submit the same owned blocker.
-            var replies = new List<RespondToAgentCoordinationRequest>();
-            directorRuntime.RegisterCapability<RespondToAgentCoordinationRequest, AgentCoordinationSession>(
-                CommunicationCapabilities.CoordinationRespond, (reply, _) => {
-                    replies.Add(reply);
-                    var now = DateTimeOffset.UtcNow;
-                    return Task.FromResult(new AgentCoordinationSession(session, Guid.Empty, Guid.Empty, Guid.Empty,
-                        Guid.Empty, manager, creative, finalRequest.Subject, finalRequest.Objective, [], reply.Disposition,
-                        reply.ExpectedRevision + 1, reply.ExpectedTurnOrdinal + 1, null, true, reply.Content, now, now, turns));
-                });
-            var host = new AgentTestHost(marcus, directorRuntime, directorContext.Identity, organization.ToString());
+            replies.Clear();
             Assert.True((await host.DeliverCoordinationTurnAsync(finalRequest)).Succeeded);
             var submittedBlocker = Assert.Single(replies);
             Assert.Equal(session, submittedBlocker.SessionId);
@@ -144,5 +161,37 @@ public sealed class CreativeDesignFinalizationJourneyTests
             Assert.Equal(originalRevision,gdd.Revisions.Last().BaseRevisionId);
             Assert.Equal(gdd.LatestRevisionId,revised.Artifact.Payload.GetProperty("revisionId").GetGuid());
         }
+    }
+
+    private sealed class SchemaModeRejectingChatClient : IChatClient
+    {
+        public int Calls { get; private set; }
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            if (options?.ResponseFormat is not null)
+                throw new HttpRequestException("This response_format type is unavailable now", null, HttpStatusCode.BadRequest);
+            Assert.Contains("For the final answer, return only JSON", options?.Instructions);
+            if (++Calls == 1)
+            {
+                yield return new(ChatRole.Assistant, "The design still needs work.");
+                yield break;
+            }
+
+            Assert.Contains("no JSON object", messages.Last().Text);
+            var missing = new { sufficient = false, evidence = "", reason = "Describe the remaining design and planned acceptance methods." };
+            var review = E(new { summary = "GDD needs substantive planning coverage.", creativeIntent = missing, playerExperience = missing,
+                gameplay = missing, presentation = missing, acceptanceCriteria = missing, constraints = missing, openDecisions = missing,
+                scopeConcerns = Array.Empty<object>() });
+            await Task.CompletedTask;
+            yield return new(ChatRole.Assistant, review.GetRawText());
+        }
+
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public void Dispose() { }
     }
 }

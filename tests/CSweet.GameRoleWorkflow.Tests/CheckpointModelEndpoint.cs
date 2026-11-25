@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using CSweet.AI.Providers;
 using CSweet.Agent.SDK;
 using CSweet.AgentHost.Broker;
 using CSweet.Domain.Setup;
@@ -9,6 +10,7 @@ using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using CSweet.UnitTests;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -63,6 +65,23 @@ internal sealed class CheckpointModelEndpoint(string model, AgentSession session
         var session = new AgentSession("checkpoint", package.AgentId, installation.Id.ToString(), organization.ToString(),
             runtime.Id.ToString(), runtime.TickId.ToString(), new(new HashSet<string>(), new HashSet<string>(), required, installation.Grant.GrantRevision));
         var factory = new OpenAiCompatibleLlmProviderFactory(db, secrets, NullLogger<OpenAiCompatibleLlmProviderFactory>.Instance);
+        return Create(db, model, session, factory);
+    }
+
+    public static async Task<CheckpointModelEndpoint> OpenScriptedAsync(CSweetDbContext db, AgentCoordinationParticipant actor,
+        Guid organization, Guid providerId, string model, IChatClient client)
+    {
+        var session = new AgentSession("checkpoint", "test-agent", actor.AgentInstallationId.ToString(), organization.ToString(),
+            Guid.NewGuid().ToString(), Guid.NewGuid().ToString(),
+            new(new HashSet<string>(), new HashSet<string>(), new HashSet<string> { PlatformCapabilities.LlmChatStream }, 1));
+        db.LlmProviderProfiles.Add(new LlmProviderProfile { Id = providerId, Name = "Scripted checkpoint", ProviderType = LlmProviderType.OpenAiCompatible,
+            BaseUrl = "https://provider.invalid/v1/", DefaultChatModel = model, IsEnabled = true, SupportsStreaming = true });
+        await PlatformLlmCapabilityHandlerTests.SeedDispatchAuthorityAsync(db, session);
+        return Create(db, model, session, new ScriptedProvider(client));
+    }
+
+    private static CheckpointModelEndpoint Create(CSweetDbContext db, string model, AgentSession session, ILlmProviderFactory factory)
+    {
         var assets = new MediaAssetService(db, new FileMediaAssetStore(new ConfigurationBuilder().Build(), Options.Create(new MediaAssetStorageOptions())));
         var handler = new PlatformLlmCapabilityHandler(db, factory, new AgentEmployeeIdentityResolver(db),
             new AgentInstallationConfigurationService(db, new TestAuditEventWriter()), [], assets, NullLogger<PlatformLlmCapabilityHandler>.Instance);
@@ -84,5 +103,12 @@ internal sealed class CheckpointModelEndpoint(string model, AgentSession session
             if (json.TryGetProperty("text", out var delta)) text.Append(delta.GetString());
         }
         return text.ToString();
+    }
+
+    private sealed class ScriptedProvider(IChatClient client) : ILlmProviderFactory
+    {
+        public Task<IChatClient> CreateChatClientAsync(Guid providerProfileId, CancellationToken cancellationToken = default) => Task.FromResult(client);
+
+        public Task<IChatClient> CreateChatClientAsync(Guid providerProfileId, string? model, CancellationToken cancellationToken = default) => Task.FromResult(client);
     }
 }

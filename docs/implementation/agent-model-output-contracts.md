@@ -17,6 +17,8 @@ The model did what it was told. The contract was wrong.
 
 ## Rules
 
+`PlatformLlmCapabilityHandler` includes an agent-supplied response schema in the model instructions. It sends a normal text-generation request across providers. Agent code parses and validates the JSON before accepting or submitting it. Tool parameter schemas still describe tool calls.
+
 1. **Code computes what code can compute.** If a field is fixed by a template, a profile, a
    policy or arithmetic, the model does not return it. Authority, identity, keys, dates, budgets
    and role lists are never model output.

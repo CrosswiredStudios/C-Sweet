@@ -267,7 +267,10 @@ public sealed partial class PlatformLlmCapabilityHandler
             .Select(message => message.Text)
             .Where(text => !string.IsNullOrWhiteSpace(text)));
         messages = messages.Where(message => message.Role != ChatRole.System).ToList();
-        var callerInstructions = string.Join("\n\n", new[] { input.Instructions, messageInstructions }
+        var outputInstructions = input.ResponseSchema is { } schema
+            ? $"For the final answer, return only JSON that conforms to this schema:\n{schema.GetRawText()}"
+            : null;
+        var callerInstructions = string.Join("\n\n", new[] { input.Instructions, messageInstructions, outputInstructions }
             .Where(value => !string.IsNullOrWhiteSpace(value)));
         // The workspace language rides on every request so agent packages never need to know about it.
         var languageInstructions = CSweet.Application.Localization.AgentLanguageInstructions.For(
@@ -285,8 +288,6 @@ public sealed partial class PlatformLlmCapabilityHandler
         var runStopwatch = Stopwatch.StartNew();
         var options = new ChatOptions
         {
-            ResponseFormat = input.ResponseSchema is { } schema
-                ? ChatResponseFormat.ForJsonSchema(schema, input.ResponseSchemaName) : null,
             Temperature = input.Temperature,
             MaxOutputTokens = effectiveMaxOutputTokens,
             Instructions = identity is null
