@@ -1238,6 +1238,9 @@ public sealed partial class CSweetDbContext : IdentityDbContext<ApplicationUser,
 
         modelBuilder.Entity<ExecutionNodeEnrollment>(entity =>
         {
+            entity.Property(e => e.OfficeLinkId).HasMaxLength(64);
+            entity.HasIndex(e => e.OfficeLinkId).IsUnique();
+            entity.Property(e => e.SealedEnrollmentToken).HasMaxLength(400);
             entity.HasKey(x => x.Id);
             entity.Property(x => x.TokenHash).HasMaxLength(64).IsRequired();
             entity.Property(x => x.ReceiptHash).HasMaxLength(64);

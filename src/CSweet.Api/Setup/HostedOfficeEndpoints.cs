@@ -1,4 +1,5 @@
 using CSweet.Api.Auth;
+using CSweet.Office.Contracts.ControlPlane;
 using CSweet.Contracts.Setup;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
@@ -14,7 +15,7 @@ internal static class HostedOfficeEndpoints
         db.OnboardingSteps.AnyAsync(x => x.Key == Review && x.IsComplete, ct);
 
     internal static async Task<IResult> EnrollDeviceAsync(HttpContext http, CSweet.Application.Setup.IExecutionFleetService fleet,
-        HostedWebTenant tenant, CancellationToken ct)
+        HostedWebTenant tenant, CancellationToken ct, OfficeLinkRequest? link = null)
     {
         var services = http.RequestServices;
         using var response = await HostedWebSignIn.GetOfficesAsync(http, tenant, services.GetRequiredService<IMemoryCache>(),
@@ -25,13 +26,16 @@ internal static class HostedOfficeEndpoints
         var db = services.GetRequiredService<CSweetDbContext>();
         // One enrollment reservation per unassigned slot, including concurrent browser sessions.
         await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+        if (link != null && await db.ExecutionNodeEnrollments.AnyAsync(e => e.OfficeLinkId == link.Id, ct))
+            return Results.NoContent();
         var occupied = await db.ExecutionNodes.CountAsync(x => x.Status != ExecutionNodeStatus.Revoked, ct);
         var now = DateTimeOffset.UtcNow;
         var reserved = await db.ExecutionNodeEnrollments.CountAsync(x => x.Status == ExecutionEnrollmentStatus.Available && x.ExpiresAt > now, ct);
         if (occupied + reserved >= plan.Linked) return Results.Conflict(new { message = "All paid device slots are in use." });
-        var enrollment = await fleet.CreateEnrollmentAsync(ct);
+        var enrollment = await OfficeLinkEndpoints.CreateEnrollmentAsync(http, db, fleet, ct);
+        if (link != null) await OfficeLinkEndpoints.SealAsync(db, link, enrollment, ct);
         await tx.CommitAsync(ct);
-        return Results.Ok(enrollment);
+        return link == null ? Results.Ok(enrollment) : Results.NoContent();
     }
 
     internal static void MapHostedOffices(this WebApplication app)

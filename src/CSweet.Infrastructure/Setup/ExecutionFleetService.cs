@@ -120,6 +120,10 @@ public sealed partial class ExecutionFleetService(
                 node.ExecutionPoolId == defaultPools.BuildPoolId && Qualifies(node, now, ExecutionWorkloadKind.Builder) ||
                 node.ExecutionPoolId == defaultPools.RuntimePoolId && Qualifies(node, now, ExecutionWorkloadKind.Runtime)).ToArray()
             : [];
+        var enrollmentIds = await dbContext.ExecutionNodeEnrollments.AsNoTracking()
+            .Where(e => poolIds.Contains(e.ExecutionPoolId) && e.ExecutionNodeId.HasValue)
+            .ToDictionaryAsync(e => e.ExecutionNodeId!.Value, e => (Guid?)e.Id, cancellationToken);
+        var readyIds = ready.Select(node => node.Id).ToHashSet();
         var pending = nodes.Count(node => node.Status == ExecutionNodeStatus.PendingApproval);
         var activeEnrollment = await dbContext.ExecutionNodeEnrollments
             .AsNoTracking()
@@ -171,7 +175,11 @@ public sealed partial class ExecutionFleetService(
                 ? $"{ready.Length} approved Office{(ready.Length == 1 ? " is" : "s are")} ready for agent builds and runtimes."
                 : "Install, connect, and approve at least one certified Office.",
             activeEnrollment is null ? null : Map(activeEnrollment),
-            nodes.Select(Map).ToArray(),
+            nodes.Select(node => Map(node) with
+            {
+                EnrollmentId = enrollmentIds.GetValueOrDefault(node.Id),
+                IsReadyForPlacement = readyIds.Contains(node.Id)
+            }).ToArray(),
             checks,
             localPrerequisites,
             new OfficePackageLinksResponse(
@@ -1187,8 +1195,12 @@ public sealed partial class ExecutionFleetService(
         var tokenHash = Hash(request.EnrollmentToken);
         var enrollment = await dbContext.ExecutionNodeEnrollments
             .SingleOrDefaultAsync(x => x.TokenHash == tokenHash, cancellationToken);
-        if (enrollment is null || enrollment.Status != ExecutionEnrollmentStatus.Available || enrollment.ExpiresAt <= now)
-            return new ClaimOfficeResponse(false, "invalid_enrollment", "The enrollment is invalid, expired, or already used.", null, null);
+        if (enrollment is null || enrollment.ExpiresAt <= now)
+            return new(false, "invalid_enrollment", "The enrollment is invalid, expired, or already used.", null, null);
+        if (enrollment.OfficeLinkId is { } linkId && request.LinkProof?.Verifies(request, linkId, now) != true)
+            return new(false, "office_link_identity", "This claim does not match the approved Office.", null, null);
+        if (enrollment.Status != ExecutionEnrollmentStatus.Available)
+            return await ResumeLinkedClaimAsync(enrollment, request, cancellationToken);
 
         // The signed combined installer names exactly one local enrollment, and hands
         // its one-use secret to Office through an administrator-protected file.
@@ -1197,14 +1209,16 @@ public sealed partial class ExecutionFleetService(
         if (combined && (!OperatingSystem.IsWindows() || !request.MachineName.Equals(Environment.MachineName, StringComparison.OrdinalIgnoreCase) ||
             !request.OperatingSystem.Equals("windows", StringComparison.OrdinalIgnoreCase)))
             return new(false, "combined_machine_mismatch", "This enrollment belongs to the combined Windows installation.", null, null);
-        await using var combinedClaim = combined && dbContext.Database.IsRelational()
+        await using var combinedClaim = (combined || enrollment.OfficeLinkId != null) && dbContext.Database.IsRelational()
             ? await dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
         if (combinedClaim is not null)
         {
             await new CSweet.Infrastructure.Core.ProjectWorkPolicy(dbContext, timeProvider).LockAsync(enrollment.Id, cancellationToken);
             await dbContext.Entry(enrollment).ReloadAsync(cancellationToken);
-            if (enrollment.Status != ExecutionEnrollmentStatus.Available || enrollment.ExpiresAt <= timeProvider.GetUtcNow())
-                return new(false, "invalid_enrollment", "The enrollment is expired or already used.", null, null);
+            if (enrollment.ExpiresAt <= timeProvider.GetUtcNow())
+                return new(false, "invalid_enrollment", "The enrollment expired.", null, null);
+            if (enrollment.Status != ExecutionEnrollmentStatus.Available)
+                return await ResumeLinkedClaimAsync(enrollment, request, cancellationToken);
         }
         var assistedSession = await dbContext.LocalOfficeSetupSessions.SingleOrDefaultAsync(x =>
             x.ExecutionNodeEnrollmentId == enrollment.Id &&
@@ -1233,10 +1247,11 @@ public sealed partial class ExecutionFleetService(
                     "The Office did not apply the CPU, memory, and storage selected during setup.", null, null);
         }
 
-        var receipt = Base64Url(RandomNumberGenerator.GetBytes(32));
+        var nodeId = Guid.NewGuid();
+        var receipt = enrollment.OfficeLinkId == null ? Base64Url(RandomNumberGenerator.GetBytes(32)) : LinkReceipt(nodeId, request);
         var node = new ExecutionNode
         {
-            Id = Guid.NewGuid(),
+            Id = nodeId,
             ExecutionPoolId = enrollment.ExecutionPoolId,
             Name = request.Name.Trim(),
             MachineName = request.MachineName.Trim(),
@@ -1278,6 +1293,15 @@ public sealed partial class ExecutionFleetService(
             nameof(ExecutionNode), node.Id,
             $"Office {node.Name} claimed enrollment {enrollment.Id} and is pending approval.",
             cancellationToken: cancellationToken);
+        if (enrollment.OfficeLinkId != null)
+        {
+            // Keep the normal qualification and certificate-issuance checks. Retain the
+            // claimed identity for manual review if the provider could not qualify.
+            var approval = await ApproveNodeAsync(node.Id, cancellationToken);
+            if (combinedClaim != null) await combinedClaim.CommitAsync(cancellationToken);
+            return new(true, null, approval.Succeeded ? "Office approved. Waiting for its authenticated connection."
+                : "Office linked. Review its qualification in Headquarters.", node.Id, receipt);
+        }
         if (combined)
         {
             var qualification = await ApproveNodeAsync(node.Id, cancellationToken);
@@ -1310,6 +1334,23 @@ public sealed partial class ExecutionFleetService(
                 node.Id, receipt);
         }
         return new ClaimOfficeResponse(true, null, "Office enrolled and awaiting administrator approval.", node.Id, receipt);
+    }
+
+    private static string LinkReceipt(Guid id, ClaimOfficeRequest claim) =>
+        Base64Url(HMACSHA256.HashData(Encoding.UTF8.GetBytes(claim.EnrollmentToken),
+            Encoding.UTF8.GetBytes($"csweet-office-link-receipt-v1\n{id:D}\n{claim.CertificateThumbprint}\n{claim.CertificateSerialNumber}")));
+
+    private async Task<ClaimOfficeResponse> ResumeLinkedClaimAsync(ExecutionNodeEnrollment enrollment, ClaimOfficeRequest claim, CancellationToken ct)
+    {
+        if (enrollment.OfficeLinkId != null && enrollment.ExecutionNodeId is { } id &&
+            enrollment.Status is ExecutionEnrollmentStatus.Approved or ExecutionEnrollmentStatus.Claimed)
+        {
+            var receipt = LinkReceipt(id, claim);
+            if (enrollment.ReceiptHash == Hash(receipt) &&
+                await dbContext.ExecutionNodes.AnyAsync(n => n.Id == id && n.RevokedAt == null, ct))
+                return new(true, null, "Resumed the original Office enrollment.", id, receipt);
+        }
+        return new(false, "invalid_enrollment", "The enrollment is invalid, expired, or already used.", null, null);
     }
 
     public async Task<ExecutionCapacityActionResponse> ApproveNodeAsync(
@@ -2010,8 +2051,13 @@ public sealed partial class ExecutionFleetService(
                 session.RecoveryAction is "repair" or "upgrade" && session.AdministratorApprovalRequestedAt is not null &&
                 session.PreparationStartedAt is null)
             {
-                session.ErrorCode = "office_maintenance_unavailable";
-                session.ErrorMessage = "The Office maintenance service did not begin the operation before the handoff expired. Check its service status and its connection to Headquarters, then retry.";
+                var claimed = await dbContext.AuditEvents.AnyAsync(x => x.EventType == "office.maintenance.dispatched" &&
+                    x.EntityType == nameof(LocalOfficeSetupSession) && x.EntityId == session.Id &&
+                    x.OccurredAt >= session.AdministratorApprovalRequestedAt, cancellationToken);
+                session.ErrorCode = claimed ? "office_maintenance_start_failed" : "office_maintenance_unavailable";
+                session.ErrorMessage = claimed
+                    ? "Office Maintenance picked up the request, but Windows setup did not confirm startup before it expired. Check the Windows Application log on this Office for configurator errors."
+                    : "The Office maintenance service did not pick up the request before it expired. Check its service status and its connection to Headquarters, then retry.";
             }
             session.Status = LocalOfficeSetupSessionStatus.Expired;
             session.UpdatedAt = now;

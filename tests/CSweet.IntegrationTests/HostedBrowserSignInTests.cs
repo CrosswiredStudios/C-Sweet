@@ -19,6 +19,40 @@ namespace CSweet.IntegrationTests;
 public sealed partial class AuthenticationEndpointTests
 {
     [Fact]
+    public async Task Private_office_link_returns_to_local_login_and_delivers_only_a_sealed_grant()
+    {
+        await using var baseline = CreateFactory(out _);
+        await using var app = baseline.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("CSweet:ExecutionGateway:PublicUrl", "https://gateway.private.test:7443");
+            builder.ConfigureServices(services => services.ConfigureDbContext<CSweetDbContext>(options =>
+                options.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))));
+        });
+        using var device = app.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://private.test/"), AllowAutoRedirect = false });
+        using var key = RSA.Create(2048);
+        var request = new CSweet.Office.Contracts.ControlPlane.OfficeLinkRequest("Office PC",
+            Convert.ToBase64String(key.ExportSubjectPublicKeyInfo()), DateTimeOffset.UtcNow.AddMinutes(10).ToUnixTimeSeconds());
+        var path = "/api/setup/office-links/confirm?" + request.Query;
+        var login = await device.GetAsync(path);
+        Assert.StartsWith("/login?returnUrl=", login.Headers.Location!.OriginalString);
+        Assert.Equal(path, QueryHelpers.ParseQuery(login.Headers.Location.OriginalString.Split('?')[1])["returnUrl"].ToString());
+        var poll = "/api/setup/office-links/" + request.Id;
+        Assert.Equal(HttpStatusCode.NotFound, (await device.GetAsync(poll)).StatusCode);
+        using var browser = CreateHttpsClient(app);
+        Assert.Equal(HttpStatusCode.Created, (await browser.PostAsJsonAsync("/api/auth/register", ValidRegistration())).StatusCode);
+        var html = await browser.GetStringAsync(path);
+        Assert.Contains(request.MatchingCode, html);
+        var csrf = Regex.Match(html, "name=\"__RequestVerificationToken\" value=\"([^\"]+)\"").Groups[1].Value;
+        var fields = new Dictionary<string, string> { ["machine"] = request.Machine, ["key"] = request.Key, ["until"] = request.Until.ToString() };
+        Assert.Equal(HttpStatusCode.BadRequest, (await browser.PostAsync(path, new FormUrlEncodedContent(fields))).StatusCode);
+        fields["__RequestVerificationToken"] = csrf;
+        Assert.Contains("Return to your Office", await (await browser.PostAsync(path, new FormUrlEncodedContent(fields))).Content.ReadAsStringAsync());
+        var grant = await device.GetFromJsonAsync<CSweet.Office.Contracts.ControlPlane.OfficeLinkGrant>(poll);
+        Assert.Equal("https://gateway.private.test:7443/", grant!.Gateway);
+        Assert.InRange(key.Decrypt(Convert.FromBase64String(grant.SealedToken), RSAEncryptionPadding.OaepSHA256).Length, 32, 256);
+    }
+
+    [Fact]
     public async Task Hosted_owner_names_a_workspace_without_a_password_and_returns_to_the_same_dashboard_account()
     {
         var order = Guid.NewGuid();
@@ -33,11 +67,14 @@ public sealed partial class AuthenticationEndpointTests
         {
             builder.UseSetting("Installation:ReservedOwnerSubject", "buyer");
             builder.UseSetting("Installation:Issuer", authority);
+            builder.UseSetting("CSweet:ExecutionGateway:PublicUrl", "https://office.fixture.test/");
             builder.UseSetting("Installation:DeploymentId", order.ToString());
             builder.UseSetting("Installation:Hostname", host);
             builder.UseSetting("Installation:StateDirectory", folder.FullName);
             builder.ConfigureServices(services =>
             {
+                services.ConfigureDbContext<CSweetDbContext>(options => options.ConfigureWarnings(warnings =>
+                    warnings.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning)));
                 services.AddHttpClient("CSweetHostedWeb").ConfigurePrimaryHttpMessageHandler(() => issuer);
                 services.Configure<OpenIdConnectOptions>("CSweetHostedWeb", o =>
                 {
@@ -51,9 +88,9 @@ public sealed partial class AuthenticationEndpointTests
         try
         {
             using var browser = app.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://" + host), AllowAutoRedirect = false });
-            async Task<HttpResponseMessage> Login(string subject, bool switchAccount = false)
+            async Task<HttpResponseMessage> Login(string subject, bool switchAccount = false, string? start = null)
             {
-                var challenge = await browser.GetAsync(switchAccount ? "/api/auth/account/start?switchAccount=true" : "/api/auth/account/start");
+                var challenge = await browser.GetAsync(start ?? (switchAccount ? "/api/auth/account/start?switchAccount=true" : "/api/auth/account/start"));
                 Assert.Equal(HttpStatusCode.Redirect, challenge.StatusCode);
                 var args = QueryHelpers.ParseQuery(challenge.Headers.Location!.Query);
                 Assert.Equal(browser.BaseAddress + "api/auth/account/callback", args["redirect_uri"].ToString());
@@ -86,7 +123,32 @@ public sealed partial class AuthenticationEndpointTests
             Assert.True((await browser.GetFromJsonAsync<AuthStatusResponse>("/api/auth/session"))!.HostedOfficesReviewed);
             Assert.Equal(HttpStatusCode.NoContent, (await browser.PostAsync("/api/auth/logout", null)).StatusCode);
             Assert.False((await browser.GetFromJsonAsync<AuthStatusResponse>("/api/auth/session"))!.IsAuthenticated);
-            Assert.Equal("/", (await Login("buyer")).Headers.Location?.OriginalString);
+            using var desktop = RSA.Create(2048);
+            var request = new CSweet.Office.Contracts.ControlPlane.OfficeLinkRequest("Second Office",
+                Convert.ToBase64String(desktop.ExportSubjectPublicKeyInfo()), DateTimeOffset.UtcNow.AddMinutes(10).ToUnixTimeSeconds());
+            var confirmation = "/api/setup/office-links/confirm?" + request.Query;
+            var redirect = await browser.GetAsync(confirmation);
+            Assert.StartsWith("/api/auth/account/start?officeReturn=", redirect.Headers.Location!.OriginalString);
+            var resumed = await Login("buyer", start: redirect.Headers.Location.OriginalString);
+            Assert.Equal(confirmation, resumed.Headers.Location?.OriginalString);
+            browser.DefaultRequestHeaders.Remove("X-CSWEET-CSRF");
+            var approvalForm = await browser.GetStringAsync(confirmation);
+            Assert.Contains(request.MatchingCode, approvalForm);
+            var csrf = Regex.Match(approvalForm, "name=\"__RequestVerificationToken\" value=\"([^\"]+)\"").Groups[1].Value;
+            Assert.NotEmpty(csrf);
+            async Task<HttpResponseMessage> Confirm(CSweet.Office.Contracts.ControlPlane.OfficeLinkRequest link) =>
+                await browser.PostAsync("/api/setup/office-links/confirm", new FormUrlEncodedContent(new Dictionary<string, string>
+                    { ["__RequestVerificationToken"] = csrf, ["machine"] = link.Machine, ["key"] = link.Key, ["until"] = link.Until.ToString() }));
+            using var approval = await Confirm(request);
+            var html = await approval.Content.ReadAsStringAsync();
+            Assert.True(approval.IsSuccessStatusCode, html);
+            Assert.Contains("Return to your Office", html);
+            Assert.Equal(HttpStatusCode.OK, (await Confirm(request)).StatusCode);
+            using var device = app.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = browser.BaseAddress! });
+            var grant = await device.GetFromJsonAsync<CSweet.Office.Contracts.ControlPlane.OfficeLinkGrant>("/api/setup/office-links/" + request.Id);
+            Assert.Equal("https://office.fixture.test/", grant!.Gateway);
+            Assert.InRange(desktop.Decrypt(Convert.FromBase64String(grant.SealedToken), RSAEncryptionPadding.OaepSHA256).Length, 32, 256);
+            Assert.Equal(HttpStatusCode.Conflict, (await Confirm(request with { Machine = "Third Office" })).StatusCode);
             await using var scope = app.Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<CSweetDbContext>();
             var admin = Assert.Single(await db.Users.ToArrayAsync());
@@ -119,7 +181,7 @@ public sealed partial class AuthenticationEndpointTests
             if (request.RequestUri.AbsolutePath.EndsWith("/client")) return new(HttpStatusCode.NoContent);
             Assert.Equal("Bearer fixture-token", request.Headers.Authorization?.ToString());
             if (request.RequestUri.AbsolutePath.EndsWith("/link")) return Json(new { installationId = _installation, displayName = "Test Headquarters" });
-            if (request.RequestUri.AbsolutePath.EndsWith("/offices")) return Json(new { linked = 0, standard = 0, team = 0, canManage = true });
+            if (request.RequestUri.AbsolutePath.EndsWith("/offices")) return Json(new { linked = 1, standard = 0, team = 0, canManage = true });
             throw new InvalidOperationException(request.RequestUri.AbsolutePath);
         }
 

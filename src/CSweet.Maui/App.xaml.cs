@@ -9,6 +9,8 @@ public partial class App : Application
 
 	protected override Window CreateWindow(IActivationState? activationState)
 	{
-		return new Window(new MainPage()) { Title = "C-Sweet" };
+		var window = new Window(new MainPage()) { Title = "C-Sweet" };
+		window.Activated += (_, _) => OfficeLinkActivation.Resume();
+		return window;
 	}
 }

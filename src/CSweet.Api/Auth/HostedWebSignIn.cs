@@ -137,12 +137,16 @@ internal static class HostedWebSignIn
     {
         if (app.Services.GetService<HostedWebTenant>() is null) return;
         var group = app.MapGroup("/api/auth/account").AllowAnonymous();
-        group.MapGet("/start", async (HostedWebTenant tenant, IHttpClientFactory clients, CancellationToken ct) =>
+        group.MapGet("/start", async (HttpContext http, HostedWebTenant tenant, IHttpClientFactory clients, CancellationToken ct) =>
         {
             using var client = clients.CreateClient(Scheme);
             using var prepared = await client.PostAsync(tenant.Market("client"), null, ct);
             if (!prepared.IsSuccessStatusCode) return Results.Problem("C-Sweet could not prepare sign-in for this Headquarters.", statusCode:503);
-            return Results.Challenge(new AuthenticationProperties { RedirectUri = "/api/auth/account/finish" }, [Scheme]);
+            var properties = new AuthenticationProperties { RedirectUri = "/api/auth/account/finish" };
+            var resume = http.Request.Query["officeReturn"].ToString();
+            if (resume.Length <= 1500 && resume.StartsWith("/api/setup/office-links/confirm?", StringComparison.Ordinal) &&
+                !resume.Any(char.IsControl)) properties.Items["officeReturn"] = resume;
+            return Results.Challenge(properties, [Scheme]);
         });
         group.MapGet("/finish", FinishAsync);
         group.MapPost("/name", FinishAsync).DisableAntiforgery();
@@ -209,7 +213,7 @@ internal static class HostedWebSignIn
         await http.SignOutAsync(External);
         await signIn.SignInWithClaimsAsync(account, new AuthenticationProperties { AllowRefresh = false, ExpiresUtc = DateTimeOffset.UtcNow.Add(SessionLifetime) },
             [new Claim(Session, session), new Claim("csweet_account_subject", subject)]);
-        return Results.LocalRedirect("/");
+        return Results.LocalRedirect(ticket.Properties.Items.TryGetValue("officeReturn", out var resume) && resume != null ? resume : "/");
     }
 
     private static async Task<InstallationRegistration?> BindAsync(HttpClient client, HostedWebTenant tenant, InstallationKey key, string name, CancellationToken ct)

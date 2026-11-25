@@ -145,7 +145,16 @@ public sealed record OfficePackageLinksResponse(
     string? MacOsPackageOverrideUrl,
     string? ControlPlaneUrl,
     bool CanLaunchLocalUpgrade = false,
-    string? ControlPlaneCertificateSha256 = null);
+    string? ControlPlaneCertificateSha256 = null)
+{
+    public string? InstallerFor(string platform) => platform switch
+    {
+        "windows" => WindowsPackageOverrideUrl,
+        "linux" => LinuxPackageOverrideUrl,
+        "macos" => MacOsPackageOverrideUrl,
+        _ => null
+    };
+}
 
 public sealed record SelectExecutionOnboardingModeRequest(string Mode);
 public sealed record ExecutionEnrollmentResponse(
@@ -178,7 +187,9 @@ public sealed record ExecutionNodeSummaryResponse(
     bool IsLocalMachine = false,
     string? WorkPauseReason = null,
     OfficeWorkspaceBudget? InstalledWorkspaceBudget = null,
-    OfficeWorkspaceBudget? WorkspaceBudget = null);
+    OfficeWorkspaceBudget? WorkspaceBudget = null,
+    Guid? EnrollmentId = null,
+    bool IsReadyForPlacement = false);
 
 public sealed record ExecutionNodeProviderResponse(
     string ProviderId,

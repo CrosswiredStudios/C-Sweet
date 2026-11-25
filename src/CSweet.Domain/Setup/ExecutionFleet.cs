@@ -145,6 +145,8 @@ public sealed class ExecutionNodeProvider
 
 public sealed class ExecutionNodeEnrollment
 {
+    public string? OfficeLinkId { get; set; }
+    public string? SealedEnrollmentToken { get; set; }
     public Guid Id { get; set; }
     public Guid ExecutionPoolId { get; set; }
     public Guid? ExecutionNodeId { get; set; }

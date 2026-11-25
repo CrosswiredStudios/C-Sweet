@@ -69,7 +69,11 @@ public sealed class OfficeSchemaRepairTests
         Assert.DoesNotContain("Windows reserved", razor, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("C-Sweet Office allocation", razor, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Download installer", razor, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Open C-Sweet Office", razor, StringComparison.OrdinalIgnoreCase);
+        var localStart = razor.IndexOf("private RenderFragment LocalExperience()", StringComparison.Ordinal);
+        var remoteStart = razor.IndexOf("private RenderFragment RemoteExperience()", StringComparison.Ordinal);
+        Assert.DoesNotContain("Open C-Sweet Office", razor[localStart..remoteStart], StringComparison.Ordinal);
+        Assert.Contains("Open C-Sweet Office", razor[remoteStart..], StringComparison.Ordinal);
+        Assert.Contains("I have a connection code", razor[remoteStart..], StringComparison.Ordinal);
         Assert.Contains("Try Windows setup again", razor, StringComparison.Ordinal);
         Assert.Contains("Why administrator approval is needed", razor, StringComparison.Ordinal);
         Assert.Contains("Continue to Windows approval", razor, StringComparison.Ordinal);
