@@ -314,7 +314,7 @@ public sealed class McpToolCatalog(
         Write(PersonalTodoActions.Reorder, "reorder_personal_todo",
             "Reorder ready personal work on a granted personal board."),
         Write(PersonalTodoActions.Requeue, "requeue_personal_todo",
-            "Return a blocked personal work item to the ready queue."),
+            "Return a blocked personal work item to the ready queue. Use reconcileOnly to wake the owner to read changed inputs before retrying a linked collaboration."),
         Write(PersonalTodoActions.Activate, "activate_personal_todo",
             "Promote one backlog personal work item into the ready queue."),
         Write(PersonalTodoActions.Update, "update_personal_todo",
@@ -914,7 +914,7 @@ public sealed class McpToolCatalog(
             {"type":"object","required":["itemId","expectedRevision","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"beforeItemId":{"type":["string","null"],"format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
             """),
         PersonalTodoActions.Requeue => Schema("""
-            {"type":"object","required":["itemId","expectedRevision","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}
+            {"type":"object","required":["itemId","expectedRevision","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160},"reconcileOnly":{"type":"boolean"}},"additionalProperties":false}
             """),
         PersonalTodoActions.Activate => Schema("""
             {"type":"object","required":["itemId","expectedRevision","idempotencyKey"],"properties":{"itemId":{"type":"string","format":"uuid"},"expectedRevision":{"type":"integer","minimum":1},"idempotencyKey":{"type":"string","minLength":1,"maxLength":160}},"additionalProperties":false}

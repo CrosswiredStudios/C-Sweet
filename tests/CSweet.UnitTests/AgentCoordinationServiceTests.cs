@@ -241,8 +241,10 @@ public sealed class AgentCoordinationServiceTests
         Assert.Equal(source == "Board" ? session.SourceBoardId : null, payload.BoardSource?.BoardId);
     }
 
-    [Fact]
-    public async Task ManagerTicketRequeueResumesSpecialistAndPreservesVisibleDiagnosis()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ManagerTicketRequeueCanWakeTheOwnerWithoutReplayingTheStaleSpecialistRequest(bool reconcileOnly)
     {
         await using var fixture = await Fixture.CreateAsync();
         var session = await SeedBlockedBoardAsync(fixture);
@@ -254,9 +256,18 @@ public sealed class AgentCoordinationServiceTests
         });
         Assert.Equal(0, resolutions);
         var item = await SeedCommitmentAsync(fixture, engine, session);
-        await engine.RequeueAsync(fixture.OrganizationId, new(fixture.ManagerId, null), new(item.Id, item.Revision, "human-retry"));
+        var originalRevision = session.Revision;
+        await engine.RequeueAsync(fixture.OrganizationId, new(fixture.ManagerId, null),
+            new(item.Id, item.Revision, "human-retry") { ReconcileOnly = reconcileOnly });
         Assert.Equal(WorkTaskStatus.Ready, item.Status);
         Assert.Null(item.BlockReason);
+        if (reconcileOnly)
+        {
+            Assert.Equal(AgentCoordinationStatus.Blocked, session.Status);
+            Assert.Equal(originalRevision, session.Revision);
+            Assert.Empty(await fixture.Db.AgentWorkItems.Where(x => x.Status == AgentWorkStatus.Pending).ToListAsync());
+            return;
+        }
         Assert.Equal(AgentCoordinationStatus.Active, session.Status);
         Assert.True(resolutions > 0);
         Assert.Equal(fixture.TargetId, session.CurrentOrganizationUserId);

@@ -20,8 +20,12 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 
+SDK = 'CSweet.Agent.SDK'
+TESTING = 'CSweet.Agent.Testing'
+SDK_REPOSITORY = 'CrosswiredStudios/CSweet.Agent.Sdk'
 SOURCES = {
-    'CSweet.Agent.SDK': 'CrosswiredStudios/CSweet.Agent.Sdk',
+    SDK: SDK_REPOSITORY,
+    TESTING: SDK_REPOSITORY,
     'CSweet.WorkManagement.Contracts': 'CrosswiredStudios/CSweet.WorkManagement.Contracts',
 }
 VERSION = re.compile(r'\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?')
@@ -63,9 +67,22 @@ def agent_dependencies(root):
             if {'bin', 'obj'}.intersection(project.relative_to(root).parts):
                 continue
             result.update(dependencies(ET.parse(project).getroot()))
-    if not any(package == 'CSweet.Agent.SDK' for package, _ in result):
+    if not any(package == SDK for package, _ in result):
         raise ValueError('No literal CSweet.Agent.SDK PackageReference found in src/ or tests/.')
     return sorted(result)
+
+
+def source_dependencies(xml, package, version, commit):
+    if xml.findtext('.//Version') != version or xml.findtext('.//PackageId') != package:
+        raise ValueError(f'{package} source at {commit} does not declare version {version}')
+    required = dependencies(xml)
+    if package == TESTING:
+        references = {node.get('Include', '').replace('\\', '/')
+                      for node in xml.iter('ProjectReference')}
+        if f'../{SDK}/{SDK}.csproj' not in references:
+            raise ValueError(f'{TESTING} source at {commit} does not reference the sibling SDK project')
+        required = sorted({*required, (SDK, version)})
+    return required
 
 
 def download(url):
@@ -122,6 +139,7 @@ class Resolver:
         self.feed.mkdir(parents=True, exist_ok=True)
         self.resolved = {}
         self.resolving = set()
+        self.checkouts = {}
         self.base = None
         self.env = os.environ.copy()
         # Source-build subprocesses never inherit the repository read token.
@@ -131,20 +149,26 @@ class Resolver:
                         NUGET_PACKAGES=str(state / 'packages'))
 
     def source_pin(self, package, version):
-        pin = self.pins.get('packages', {}).get(package, {}).get(version, {})
+        pin_package = SDK if package == TESTING else package
+        pin = self.pins.get('packages', {}).get(pin_package, {}).get(version, {})
         commit = pin.get('commit', '')
         if not re.fullmatch(r'[0-9a-f]{40}', commit):
-            raise ValueError(f'{package} {version} is unpublished and has no reviewed full commit '
-                             'in build/ci-dependencies.json. Update the pin with the dependency bump.')
+            raise ValueError(f'{package} {version} has no reviewed full commit in '
+                             f'build/ci-dependencies.json under {pin_package}. '
+                             'Update the pin with the dependency bump.')
         return commit
 
     def checkout(self, package, version):
         commit = self.source_pin(package, version)
+        repository = SOURCES[package]
+        key = repository, commit
+        if key in self.checkouts:
+            return self.checkouts[key], commit
         source_root = self.state / 'source'
         source_root.mkdir(parents=True, exist_ok=True)
         destination = Path(tempfile.mkdtemp(prefix=f'{package}-{version}-', dir=source_root))
         self.execute(['git', 'init', '--quiet', destination], env=self.env)
-        url = f'https://github.com/{SOURCES[package]}.git'
+        url = f'https://github.com/{repository}.git'
         git_env = self.env.copy()
         token = os.environ.get('CSWEET_DEPENDENCY_TOKEN', '')
         if token:
@@ -160,7 +184,25 @@ class Resolver:
         actual = self.execute(['git', '-C', destination, 'rev-parse', 'HEAD'], env=self.env)
         if actual != commit:
             raise ValueError(f'{package} checkout does not match pinned commit {commit}')
+        self.checkouts[key] = destination
         return destination, commit
+
+    def verify_pins(self, read_project=None):
+        pending = agent_dependencies(self.root)
+        seen = set()
+        while pending:
+            package, version = pending.pop()
+            if (package, version) in seen:
+                continue
+            seen.add((package, version))
+            commit = self.source_pin(package, version)
+            if read_project is None:
+                source, _ = self.checkout(package, version)
+                xml = ET.parse(source / 'src' / package / f'{package}.csproj').getroot()
+            else:
+                xml = read_project(package, commit)
+            pending.extend(source_dependencies(xml, package, version, commit))
+        print(f'Verified reviewed source pins for {len(seen)} C-Sweet package version(s).', flush=True)
 
     def resolve(self, package, version):
         key = package, exact_version(version)
@@ -190,12 +232,13 @@ class Resolver:
             source, commit = self.checkout(package, version)
             project = source / 'src' / package / f'{package}.csproj'
             xml = ET.parse(project).getroot()
-            if xml.findtext('.//Version') != version or xml.findtext('.//PackageId') != package:
-                raise ValueError(f'{package} source at {commit} does not declare version {version}')
-            required = dependencies(xml)
-            # Contracts must be in the feed before packing the SDK that depends on them.
+            required = source_dependencies(xml, package, version, commit)
+            # Prepare contracts before the SDK, and the SDK before the testing package.
             for dependency in required:
                 self.resolve(*dependency)
+            if package == TESTING:
+                sdk = source / 'src' / SDK / f'{SDK}.csproj'
+                source_dependencies(ET.parse(sdk).getroot(), SDK, version, commit)
             self.execute(['dotnet', 'pack', project, '-c', 'Release', '-o', self.feed,
                           *LOCAL_FLAGS, f'-p:RestoreAdditionalProjectSources={self.feed}',
                           '-p:ManagePackageVersionsCentrally=false',
@@ -244,13 +287,22 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path.cwd())
     parser.add_argument('--state', type=Path)
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument('--verify-pins', action='store_true',
+                       help='verify every required source pin without contacting NuGet or building')
+    modes.add_argument('--require-pins', action='store_true',
+                       help='verify every source pin before preparing packages')
     args = parser.parse_args()
     root = args.root.resolve()
     pins = json.loads((root / 'build/ci-dependencies.json').read_text(encoding='utf-8-sig'))
     if pins.get('schemaVersion') != 1:
         raise ValueError('Unsupported build/ci-dependencies.json schemaVersion')
     state = args.state or Path(os.environ.get('RUNNER_TEMP', root / '.artifacts')) / 'csweet-ci-dependencies'
-    Resolver(root, state.resolve(), pins).prepare()
+    resolver = Resolver(root, state.resolve(), pins)
+    if args.verify_pins or args.require_pins:
+        resolver.verify_pins()
+    if not args.verify_pins:
+        resolver.prepare()
 
 
 if __name__ == '__main__':

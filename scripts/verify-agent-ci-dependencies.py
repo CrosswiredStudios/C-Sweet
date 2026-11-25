@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -38,24 +39,14 @@ def audit(repo):
     pins = json.loads((repo / 'build/ci-dependencies.json').read_text())
     if pins.get('schemaVersion') != 1:
         errors.append('Unsupported pin schema version')
-    pending = prepare.agent_dependencies(repo)
-    seen = set()
-    while pending:
-        package, version = pending.pop()
-        if (package, version) in seen:
-            continue
-        seen.add((package, version))
-        commit = pins.get('packages', {}).get(package, {}).get(version, {}).get('commit', '')
-        if not prepare.re.fullmatch('[0-9a-f]{40}', commit):
-            errors.append(f'Missing full commit for {package} {version}')
-            continue
+    def read_project(package, commit):
         source = ROOT.parent / prepare.SOURCES[package].split('/')[-1]
         project = f'src/{package}/{package}.csproj'
-        xml = ET.fromstring(subprocess.check_output(['git', '-C', str(source), 'show',
-                                                     f'{commit}:{project}'], text=True))
-        if xml.findtext('.//Version') != version or xml.findtext('.//PackageId') != package:
-            errors.append(f'{package} {version} source pin has mismatched metadata')
-        pending.extend(prepare.dependencies(xml))
+        return ET.fromstring(subprocess.check_output(
+            ['git', '-C', str(source), 'show', f'{commit}:{project}'], text=True))
+
+    with tempfile.TemporaryDirectory() as state:
+        prepare.Resolver(repo, Path(state), pins).verify_pins(read_project)
     manifest = json.loads((repo / 'csweet-plugin.json').read_text())
     version = manifest['version']
     if ET.parse(repo / manifest['runtime']['projectPath']).findtext('.//Version') != version:
@@ -65,6 +56,11 @@ def audit(repo):
                         if repo.name == 'CSweet.Agent.SoftwareDeveloper.OpenHands' else f'# {version}')
     if heading != expected_heading:
         errors.append('Missing or mismatched release notes')
+    pin_workflow = (repo / '.github/workflows/dependency-pins.yml').read_text()
+    if 'pull_request:' not in pin_workflow or 'merge_group:' not in pin_workflow:
+        errors.append('Dependency pin workflow must cover pull requests and merge queues')
+    if 'run: python3 -B scripts/prepare-ci-dependencies.py --verify-pins' not in pin_workflow:
+        errors.append('Dependency pin workflow does not verify source projects')
     count = 0
     for workflow in (repo / '.github/workflows').glob('*.y*ml'):
         text = workflow.read_text()
@@ -73,11 +69,12 @@ def audit(repo):
         count += 1
         if has_extension and text.count('run: python3 scripts/verify-bundled-extension.py --self-test') != 1:
             errors.append(f'{workflow.name} does not run exact extension provenance and checkout regression checks')
-        if text.count('run: python3 scripts/prepare-ci-dependencies.py') != 1:
-            errors.append(f'{workflow.name} must prepare dependencies exactly once')
+        prepare_step = 'run: python3 scripts/prepare-ci-dependencies.py --require-pins'
+        if text.count(prepare_step) != 1:
+            errors.append(f'{workflow.name} must validate pins and prepare dependencies exactly once')
         if text.count('run: python3 scripts/test-ci-dependencies.py') != 1:
             errors.append(f'{workflow.name} does not run the fallback regression suite')
-        if text.find('run: python3 scripts/prepare-ci-dependencies.py') > text.find('dotnet test'):
+        if text.find(prepare_step) > text.find('dotnet test'):
             errors.append(f'{workflow.name} prepares dependencies after testing')
         if 'path: .artifacts/ci-dependencies/resolved.json' not in text:
             errors.append(f'{workflow.name} does not retain dependency provenance')
@@ -93,7 +90,15 @@ def main():
     repos = args.repositories or discover()
     if not repos:
         raise ValueError('No standalone agent workflows found')
-    count = sum(audit(repo.resolve()) for repo in repos)
+    count = 0
+    errors = []
+    for repo in repos:
+        try:
+            count += audit(repo.resolve())
+        except (OSError, ValueError, KeyError, subprocess.CalledProcessError, ET.ParseError) as error:
+            errors.append(f'{repo.name}: {error}')
+    if errors:
+        raise ValueError('\n'.join(errors))
     print(f'CI dependency fallback audit passed: {len(repos)} agents, {count} build workflows.')
 
 

@@ -369,6 +369,10 @@ SDK 4.1.1 makes reports readable for a nontechnical owner. `ManagerIncidentCoord
 
 ## Owner input and routine recovery
 
+`ProjectHealthService.ReadResolutionAsync` binds a stopped board collaboration to one blocked personal commitment from the same project, board and initiating installation. It uses an exact session link or the original request's fingerprint. The shared SDK `ManagerIncidentCoordinator` reads the authorized current work and sends the authenticated answer through tracked delegation with a stable decision-and-work key. The manager's own follow-up has a separate commitment. Authoritative work evidence closes the incident.
+
+The Producer discovers corrections against its exact accepted brief and planning board on decision events and reconnect. It uses `RequeuePersonalTodoItemRequest.ReconcileOnly` to wake the existing commitment once for the applicable decision revisions. The owner reads the new direction before a specialist receives another request. The normal planning callback passes it to the assigned specialist through board coordination, with ordinary planning and approval checks still in effect.
+
 `ProjectHealthService.IncidentRequiresOwnerInputAsync` requires a current report with
 `IncidentOwnerReport.RequiresOwnerInput == true`, a concrete `OwnerInputReason`, and a
 correlated current failure. Routing an incident to a human and supplying resolution options

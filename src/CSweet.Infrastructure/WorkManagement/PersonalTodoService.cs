@@ -712,7 +712,8 @@ public sealed partial class WorkItemMutationEngine(CSweetDbContext db, TimeProvi
             item.Status == WorkTaskStatus.Blocked &&
             item.BlockReason?.StartsWith(AgentTicketFeedback.RepeatedIssuePrefix, StringComparison.Ordinal) == true)
             return await MapItemAsync(item, cancellationToken);
-        await ResumeBlockedCommitmentCoordinationAsync(item, request.IdempotencyKey, cancellationToken);
+        if (!request.ReconcileOnly)
+            await ResumeBlockedCommitmentCoordinationAsync(item, request.IdempotencyKey, cancellationToken);
         var board = await db.WorkBoards.Include(x => x.Columns).SingleAsync(x => x.Id == item.BoardId, cancellationToken);
         item.Status = WorkTaskStatus.Ready;
         item.BoardColumnId = board.Columns.Single(x => x.Category == WorkBoardColumnCategory.ToDo).Id;

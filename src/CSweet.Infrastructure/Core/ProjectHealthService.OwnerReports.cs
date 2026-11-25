@@ -285,7 +285,10 @@ public sealed partial class ProjectHealthService
             throw new InvalidOperationException("The selected fix needs review against changed project evidence.");
         var outcome = ExecutiveDecisionService.IncidentIntendedOutcome(decision);
         var turn = await db.ChatTurns.AsNoTracking().SingleAsync(x => x.Id == decision.NextChatTurnId && x.TargetAgentOrganizationUserId == actor, token);
-        return new(Map(incident), decision.Id, binding.ReportRevision, outcome, decision.SelectedOptionId, decision.FreeTextAnswer, handled)
+        var snapshot = Map(incident);
+        if (!handled && snapshot.AffectedWorkItemId is null)
+            snapshot = snapshot with { AffectedWorkItemId = await ResolveCorrectionCommitmentAsync(incident, token) };
+        return new(snapshot, decision.Id, binding.ReportRevision, outcome, decision.SelectedOptionId, decision.FreeTextAnswer, handled)
             { TurnId = turn.Id, ConversationId = decision.ConversationId, SourceMessageId = turn.UserMessageId,
                 RecordedOutcome = ExecutiveDecisionService.RecordedIncidentOutcome(decision) ?? (terminal
                     ? incident.Status == "Resolved" ? "This blocker has cleared according to the current work records. No further recovery action is needed."

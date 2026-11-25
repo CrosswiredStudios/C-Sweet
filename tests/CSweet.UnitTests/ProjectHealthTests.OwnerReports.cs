@@ -2,7 +2,9 @@ using System.Text.Json;
 using CSweet.Agent.SDK;
 using CSweet.Contracts.Communications;
 using CSweet.Domain.Core;
+using CSweet.Domain.Communications;
 using CSweet.Domain.Setup;
+using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Core;
 using CSweet.Infrastructure.Communications;
 using Microsoft.EntityFrameworkCore;
@@ -123,7 +125,8 @@ public sealed partial class ProjectHealthTests
         Assert.Empty(f.Db.ProjectIncidentReceipts); Assert.Equal(facts, incident.Facts); Assert.Null(incident.OwnerReportJson);
     }
 
-    private static async Task<(ProjectIncident Incident, WorkTask Ticket)> PrepareOwnerReport(Fixture f, bool deliver = true)
+    private static async Task<(ProjectIncident Incident, WorkTask Ticket)> PrepareOwnerReport(Fixture f, bool deliver = true,
+        Func<ProjectIncident, Task>? bindSource = null)
     {
         var ticket = await f.FailTicket(); ticket.Title = "Reconcile scope, technical backlog and delivery staffing";
         ticket.BlockReason = "Incorporate recorded authority direction in an updated accepted brief before committing scope.";
@@ -137,6 +140,7 @@ public sealed partial class ProjectHealthTests
                 EventSubscriptionsJson = JsonSerializer.Serialize(new[] { ProjectHealthEvents.OwnerReportRequested }) } };
         f.Db.Add(f.Chief.AgentInstallation);
         await f.Db.SaveChangesAsync();
+        if (bindSource is not null) await bindSource(incident);
         var state = await f.Service.CurrentIncidentStateAsync(incident, default);
         var report = new IncidentOwnerReport("Prism Break: scope reconciliation is blocked",
             "The scope reconciliation task remains blocked. Recorded authority direction must be incorporated into the accepted brief. Remaining logistics facts must be collected while unaffected work continues.",
@@ -148,6 +152,50 @@ public sealed partial class ProjectHealthTests
             "Recorded scope reconciliation blocker", "Remaining logistics facts", report.NextStep) { OwnerReport = report }, default);
         if (deliver) await f.Service.DeliverAsync(default);
         return (incident, ticket);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Approved_board_collaboration_correction_binds_only_one_exact_owning_commitment(bool ambiguous)
+    {
+        await using var f = await Fixture.Create();
+        var sessionId = Guid.NewGuid();
+        var personal = new WorkBoard { Id = Guid.NewGuid(), OrganizationId = f.Org, Kind = WorkBoardKind.Personal,
+            OwnerOrganizationUserId = f.Producer.Id, Key = "producer" };
+        var commitment = Commitment(f.Project.Id);
+        var (incident, _) = await PrepareOwnerReport(f, bindSource: async incident =>
+        {
+            incident.AffectedWorkItemId = null;
+            incident.Fingerprint = $"coordination:{sessionId:N}";
+            f.Db.AddRange(personal, commitment, Commitment(Guid.NewGuid()));
+            if (ambiguous) f.Db.Add(Commitment(f.Project.Id));
+            f.Db.Add(new CSweet.Domain.Communications.AgentCoordinationSession { Id = sessionId, OrganizationId = f.Org, WorkstreamId = f.Project.Id,
+                SourceKind = "Board", SourceBoardId = f.Board.Id, InitiatorOrganizationUserId = f.Producer.Id,
+                InitiatorInstallationId = f.Producer.AgentInstallationId!.Value, TargetOrganizationUserId = f.Director.Id,
+                Status = AgentCoordinationStatus.Blocked, Subject = "Review scope", ConversationId = Guid.NewGuid(),
+                Turns = [new() { Id = Guid.NewGuid(), Ordinal = 0, SpeakerOrganizationUserId = f.Producer.Id,
+                    ArtifactKey = "approved-source", Disposition = "Continue", Content = "Review the accepted plan." }] });
+            await f.Db.SaveChangesAsync();
+        });
+        var attention = Assert.Single(await f.Service.ReadAttentionAsync(f.Org, f.Ceo.Id, default));
+        var decision = attention.ResolutionDecision!;
+        var service = new ExecutiveDecisionService(f.Db, new ChatTurnService(f.Db));
+        const string approvedDirection = "Use code-made visuals for the bricks and paddle. Keep the existing quality bar.";
+        var answer = await service.AnswerAsync(f.Org, attention.ReportConversationId!.Value, decision.Id, f.Ceo.Id,
+            new(null, approvedDirection, "approve-source-correction"));
+        Assert.True(answer.Succeeded, answer.Message);
+        var resolution = await f.Service.ReadResolutionAsync(f.Org, f.Chief.Id, new(decision.Id, answer.Turn!.Id), default);
+        Assert.Equal(approvedDirection, resolution.IntendedOutcome);
+        Assert.Equal(ambiguous ? null : commitment.Id, resolution.Incident.AffectedWorkItemId);
+        Assert.Null(incident.AffectedWorkItemId);
+        Assert.Equal("Open", incident.Status);
+
+        WorkTask Commitment(Guid project) => new() { Id = Guid.NewGuid(), OrganizationId = f.Org, BoardId = personal.Id,
+            AssignedEmployeeId = f.Producer.Id, AssignedAgentInstallationId = f.Producer.AgentInstallationId,
+            Title = "Apply approved scope", Status = WorkTaskStatus.Blocked, BlockReason = "Accepted direction required",
+            PersonalWorkContextJson = JsonSerializer.Serialize(new { workstreamId = project, boardId = f.Board.Id,
+                sourceFingerprint = "approved-source" }) };
     }
 
     [Fact]

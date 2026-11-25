@@ -16,6 +16,7 @@ spec = importlib.util.spec_from_file_location('prepare', Path(__file__).with_nam
 prepare = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(prepare)
 SDK, CONTRACTS = 'CSweet.Agent.SDK', 'CSweet.WorkManagement.Contracts'
+TESTING = 'CSweet.Agent.Testing'
 SDK_COMMIT, CONTRACTS_COMMIT = 'a' * 40, 'b' * 40
 INDEX = json.dumps({'resources': [{'@type': 'PackageBaseAddress/3.0.0',
                                  '@id': 'https://fixture.invalid/packages/'}]}).encode()
@@ -70,11 +71,12 @@ class ResolutionTests(unittest.TestCase):
         if args[:2] == ['dotnet', 'pack']:
             project = Path(args[2])
             name = project.stem
-            version = '5.28.0' if name == SDK else '5.7.0'
+            version = '5.7.0' if name == CONTRACTS else '5.28.0'
             output = Path(args[args.index('-o') + 1]) / f'{name}.{version}.nupkg'
-            output.write_bytes(package(name, version, [(CONTRACTS, '5.7.0')] if name == SDK else []))
+            deps = {SDK: [(CONTRACTS, '5.7.0')], TESTING: [(SDK, '5.28.0')]}
+            output.write_bytes(package(name, version, deps.get(name, [])))
         if args[-2:] == ['rev-parse', 'HEAD']:
-            return SDK_COMMIT if SDK in args[2] else CONTRACTS_COMMIT
+            return CONTRACTS_COMMIT if CONTRACTS in args[2] else SDK_COMMIT
         return ''
 
     def resolver(self):
@@ -83,16 +85,55 @@ class ResolutionTests(unittest.TestCase):
 
         def fixture_checkout(name, version):
             source, commit = checkout(name, version)
-            folder = source / 'src' / name
-            folder.mkdir(parents=True)
-            refs = f'<ItemGroup><PackageReference Include="{CONTRACTS}" Version="5.7.0" /></ItemGroup>' if name == SDK else ''
-            (folder / f'{name}.csproj').write_text(
-                f'<Project><PropertyGroup><PackageId>{name}</PackageId><Version>{version}</Version>'
-                f'</PropertyGroup>{refs}</Project>')
+            projects = {CONTRACTS: ''} if name == CONTRACTS else {
+                SDK: f'<PackageReference Include="{CONTRACTS}" Version="5.7.0" />',
+                TESTING: f'<ProjectReference Include="../{SDK}/{SDK}.csproj" />',
+            }
+            for project, refs in projects.items():
+                folder = source / 'src' / project
+                if folder.exists():
+                    continue
+                folder.mkdir(parents=True)
+                (folder / f'{project}.csproj').write_text(
+                    f'<Project><PropertyGroup><PackageId>{project}</PackageId><Version>{version}</Version>'
+                    f'</PropertyGroup><ItemGroup>{refs}</ItemGroup></Project>')
             return source, commit
 
         resolver.checkout = fixture_checkout
         return resolver
+
+    def add_testing_reference(self):
+        self.project.write_text(self.project.read_text().replace('</ItemGroup>',
+                                f'<PackageReference Include="{TESTING}" Version="5.28.0" /></ItemGroup>'))
+
+    def test_unpublished_testing_uses_the_same_sdk_checkout_and_pin(self):
+        self.add_testing_reference()
+        self.available = {SDK: None, TESTING: None, CONTRACTS: None}
+        resolver = self.resolver()
+        resolver.verify_pins()
+        resolver.prepare()
+        packs = [args for args, _ in self.commands if args[:2] == ['dotnet', 'pack']]
+        self.assertEqual([CONTRACTS, SDK, TESTING], [Path(args[2]).stem for args in packs])
+        self.assertEqual(Path(packs[1][2]).parents[2], Path(packs[2][2]).parents[2])
+        self.assertEqual(SDK_COMMIT, resolver.resolved[TESTING, '5.28.0']['commit'])
+        self.assertEqual(2, sum('fetch' in args for args, _ in self.commands))
+
+    def test_testing_fallback_can_use_a_published_sdk_package(self):
+        self.add_testing_reference()
+        self.available[TESTING] = None
+        resolver = self.resolver()
+        resolver.prepare()
+        self.assertEqual('nuget.org', resolver.resolved[SDK, '5.28.0']['origin'])
+        self.assertEqual(SDK_COMMIT, resolver.resolved[TESTING, '5.28.0']['commit'])
+
+    def test_pin_audit_checks_transitive_contracts_before_querying_nuget(self):
+        self.add_testing_reference()
+        self.pins['packages'][CONTRACTS].clear()
+        resolver = self.resolver()
+        resolver.fetch = lambda url: self.fail(f'Pin audit should not query {url}')
+        with self.assertRaisesRegex(ValueError, r'CSweet.WorkManagement.Contracts 5.7.0 has no reviewed'):
+            resolver.verify_pins()
+        self.assertFalse(any(args[:2] == ['dotnet', 'pack'] for args, _ in self.commands))
 
     def test_published_packages_never_checkout_or_pack(self):
         resolver = self.resolver()
@@ -199,7 +240,7 @@ class ResolutionTests(unittest.TestCase):
 @unittest.skipUnless(os.environ.get('CSWEET_RUN_DEPENDENCY_INTEGRATION') == '1',
                      'Set CSWEET_RUN_DEPENDENCY_INTEGRATION=1 to run real dotnet/git fixture')
 class IntegrationTests(unittest.TestCase):
-    def test_clean_package_consumer_builds_with_both_dependencies_unpublished(self):
+    def test_clean_package_consumer_builds_with_sdk_testing_and_contracts_unpublished(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             state = root / 'state'
@@ -221,6 +262,16 @@ class IntegrationTests(unittest.TestCase):
                     f'</PropertyGroup>{reference}</Project>')
                 (project / 'Value.cs').write_text('namespace Fixture; public class Contracts { public const int Value = 42; }' if name == CONTRACTS
                                                 else 'namespace Fixture; public class Sdk { public static int Value => Contracts.Value; }')
+                if name == SDK:
+                    testing = repo / 'src' / TESTING
+                    testing.mkdir(parents=True)
+                    (testing / f'{TESTING}.csproj').write_text(
+                        f'<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework>'
+                        f'<PackageId>{TESTING}</PackageId><Version>{version}</Version><NuGetAudit>false</NuGetAudit>'
+                        f'</PropertyGroup><ItemGroup><ProjectReference Include="../{SDK}/{SDK}.csproj" />'
+                        '</ItemGroup></Project>')
+                    (testing / 'Testing.cs').write_text(
+                        'namespace Fixture; public class Testing { public static int Value => Sdk.Value; }')
                 prepare.run(['git', 'init', '--quiet', repo])
                 prepare.run(['git', '-C', repo, 'add', '.'])
                 prepare.run(['git', '-C', repo, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
@@ -238,8 +289,9 @@ class IntegrationTests(unittest.TestCase):
             (project / 'Agent.csproj').write_text(
                 '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework>'
                 '<OutputType>Exe</OutputType><NuGetAudit>false</NuGetAudit></PropertyGroup><ItemGroup>'
-                f'<PackageReference Include="{SDK}" Version="5.28.0" /></ItemGroup></Project>')
-            (project / 'Program.cs').write_text('System.Console.WriteLine(Fixture.Sdk.Value);')
+                f'<PackageReference Include="{SDK}" Version="5.28.0" />'
+                f'<PackageReference Include="{TESTING}" Version="5.28.0" /></ItemGroup></Project>')
+            (project / 'Program.cs').write_text('System.Console.WriteLine(Fixture.Testing.Value);')
 
             def execute(args, cwd=None, env=None):
                 args = list(args)
@@ -251,6 +303,7 @@ class IntegrationTests(unittest.TestCase):
             resolver = prepare.Resolver(consumer, state, pins,
                                         fetch=lambda url: INDEX if url.endswith('/index.json') else None,
                                         execute=execute)
+            resolver.verify_pins()
             values = resolver.prepare()
             env = os.environ.copy()
             env.update(values)
@@ -259,6 +312,7 @@ class IntegrationTests(unittest.TestCase):
                          f'-p:RestoreSources={root / "empty-feed"}'], env=env)
             output = prepare.run(['dotnet', project / 'bin/Release/net10.0/Agent.dll'], env=env)
             self.assertEqual('42', output)
+            self.assertEqual(3, len(resolver.resolved))
             self.assertTrue(all(row['origin'] == 'source' for row in resolver.resolved.values()))
 
 

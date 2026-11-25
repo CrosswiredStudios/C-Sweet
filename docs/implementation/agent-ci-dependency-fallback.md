@@ -3,13 +3,13 @@
 `scripts/prepare-ci-dependencies.py` is copied unchanged into each standalone agent
 repository. Its `Resolver` prepares a job-local NuGet feed before any agent restore,
 test, pack or publish. `scripts/test-ci-dependencies.py` is the matching offline
-regression suite. No SDK or contracts source/project references are added to agents.
+regression suite. Agent projects keep their package references.
 
-`agent_dependencies` reads literal `CSweet.Agent.SDK` and
+`agent_dependencies` reads literal `CSweet.Agent.SDK`, `CSweet.Agent.Testing`, and
 `CSweet.WorkManagement.Contracts` references in `src/` and `tests/`. `Resolver.resolve`
 downloads the exact package from NuGet's advertised package-content endpoint and
-validates its nuspec identity/version. It recursively reads the SDK's contracts
-dependency, including when the SDK is published but its contracts dependency is not.
+validates its nuspec identity and version. It resolves the dependency chain from
+Testing to the SDK to Contracts, including when an upstream dependency is still unpublished.
 Duplicate direct and transitive requirements are resolved once per package/version.
 
 Only a package-content HTTP 404 activates fallback. Authentication failures,
@@ -34,18 +34,19 @@ Every agent has `build/ci-dependencies.json`:
 }
 ```
 
-`SOURCES` owns the repository identities: `CrosswiredStudios/CSweet.Agent.Sdk` and
-`CrosswiredStudios/CSweet.WorkManagement.Contracts`. `Resolver.checkout` fetches only
-the full reviewed commit, verifies HEAD, and checks the source project's `PackageId`
-and `Version`. It never checks out a floating branch or substitutes a version.
+`SOURCES` identifies the GitHub repositories for the SDK, Testing, and Contracts.
+`Resolver.checkout` fetches the full reviewed commit, verifies HEAD, and reuses the
+checkout for packages built from that commit. `source_dependencies` checks each
+source project's `PackageId` and `Version`. Testing uses the SDK's version-to-commit
+pin and builds against the sibling SDK project from that checkout.
 
-When bumping an agent's SDK or contracts reference, update the matching commit pin
-in the same change. Inspect the SDK project at that commit and pin its contracts
-dependency too. A missing pin fails with an actionable message if the package is
-unpublished. Multiple versions can be recorded when the dependency graph needs them.
+When bumping an agent's SDK, Testing, or Contracts reference, update the matching
+commit pin in the same change. Inspect the SDK project at that commit and pin its
+Contracts dependency too. Multiple versions can be recorded when the dependency
+graph needs them.
 An already published package remains the preferred source even with a source pin.
 
-`Resolver.resolve` packs missing contracts before packing a missing SDK. Both use
+`Resolver.resolve` packs missing packages in dependency order. It uses
 package references with `UseLocalCSweetAgentSdk=false` and
 `UseLocalCSweetWorkManagementContracts=false`; source versions are never overridden.
 The packed nuspec must match the expected package version and source dependencies.
@@ -53,8 +54,16 @@ These packages stay in the job's temporary feed and are never pushed to NuGet.
 
 ## Workflow integration and evidence
 
+The **Dependency pins** check runs on every pull request and merge queue entry.
+`Resolver.verify_pins` walks the full dependency graph from the pinned projects
+without contacting NuGet. It catches missing or mismatched pins even when the
+packages are already published. Configure **Dependency pins** as a required status
+check on the repository's default branch after its first successful GitHub run.
+
 Every .NET agent build job runs the regression suite and dependency preparation
-after `actions/setup-dotnet`, before its first agent build. Preparation writes
+after `actions/setup-dotnet`, before its first agent build. Preparation uses
+`--require-pins` to enforce the same audit before restore and reuses the verified
+checkouts for any source builds. It writes
 `RestoreAdditionalProjectSources`, an isolated `NUGET_PACKAGES` location, and both
 package-only switches to `GITHUB_ENV`. Additional sources work even in extension CI
 jobs that explicitly set `RestoreSources` to NuGet.org. Existing test, self-test,
@@ -82,12 +91,13 @@ $env:CSWEET_RUN_DEPENDENCY_INTEGRATION = '1'
 python scripts/test-ci-dependencies.py
 ```
 
-The integration fixture commits two temporary local Git repositories, treats both
-packages as unpublished, packs contracts followed by the SDK, and builds/runs a clean
-package consumer with an explicit primary restore source. It requires Git and .NET 10
+The integration fixture commits two temporary local Git repositories, treats all
+three packages as unpublished, packs Contracts, the SDK, and Testing, and builds and
+runs a clean package consumer with an explicit primary restore source. It requires Git and .NET 10
 but makes no GitHub or NuGet requests. CI enables this fixture in every build job.
 
-For an actual dependency preparation run, use `python scripts/prepare-ci-dependencies.py`.
+For an actual dependency preparation run, use `python scripts/prepare-ci-dependencies.py --require-pins`.
+To verify pins without building, use `--verify-pins`.
 Outside Actions, `--root` selects an agent and `--state` selects temporary build storage;
 use the returned feed with `RestoreAdditionalProjectSources` and the two package-only
 switches when invoking .NET locally. The script only exports environment settings
