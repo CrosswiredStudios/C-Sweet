@@ -75,6 +75,38 @@ function Get-CSweetResetTree([string] $Path) {
     }
 }
 
+function Remove-CSweetResetFilesystemTree([IO.FileSystemInfo[]] $Tree) {
+    # The inventory lists parents before children. Delete only those entries, from the leaves up.
+    $root = $Tree[0].FullName
+    $prefix = if ($root.StartsWith('\\')) { '\\?\UNC\' } else { '\\?\' }
+    $offset = if ($root.StartsWith('\\')) { 2 } else { 0 }
+    $extendedRoot = $prefix + $root.Substring($offset)
+    for ($index = $Tree.Count - 1; $index -ge 0; $index--) {
+        $item = $Tree[$index]
+        $fullName = $item.FullName
+        $extendedPath = $prefix + $fullName.Substring($offset)
+        try {
+            for ($path = $extendedPath; $path.Length -ge $extendedRoot.Length; $path = $path.Substring(0, $path.LastIndexOf('\'))) {
+                $currentAttributes = [IO.File]::GetAttributes($path)
+                if ($path -eq $extendedPath) { $attributes = $currentAttributes }
+                if ($currentAttributes -band [IO.FileAttributes]::ReparsePoint) {
+                    throw "A link appeared after inventory at '$path'."
+                }
+            }
+            if ($attributes -band [IO.FileAttributes]::ReadOnly) {
+                [IO.File]::SetAttributes($extendedPath, ($attributes -band (-bnot [IO.FileAttributes]::ReadOnly)))
+            }
+            if ($item -is [IO.DirectoryInfo]) {
+                [IO.Directory]::Delete($extendedPath, $false)
+            } else {
+                [IO.File]::Delete($extendedPath)
+            }
+        } catch {
+            throw "Could not remove '$fullName'. $($_.Exception.Message) The reset may be partially applied. Close C-Sweet and any builds, then run a fresh preview."
+        }
+    }
+}
+
 function Get-CSweetResetBuildTargets([string] $Repository) {
     # Only conventional .NET project outputs and the repository's generated artifacts.
     # Never select arbitrary directories named bin/obj in user workspaces or node_modules.
@@ -288,7 +320,7 @@ function Invoke-CSweetLocalReset {
     $localRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CSweet'
     $targets = [Collections.Generic.List[object]]::new()
     $blockers = [Collections.Generic.List[string]]::new()
-    $services = @(); $vms = @(); $containers = @(); $retirementTasks = @(); $volumePresent = $false
+    $services = @(); $vms = @(); $containers = @(); $retirementTasks = @(); $volumePresent = $null
     function Add-Target([string] $Path, [string] $Boundary, [string] $Kind, [string] $Repo = '') {
         if (Test-Path -LiteralPath $Path) {
             $targets.Add([pscustomobject]@{ Path = [IO.Path]::GetFullPath($Path); Boundary = $Boundary; Kind = $Kind; Repository = $Repo; GiB = $null })
@@ -438,8 +470,10 @@ function Invoke-CSweetLocalReset {
             if ($LASTEXITCODE -ne 0 -or $context.Count -ne 1 -or $context[0].Endpoints.docker.Host -notlike 'npipe://*') {
                 throw 'Database reset requires a local Windows named-pipe Docker context.'
             }
-            $volumes = @(& docker volume ls --format '{{.Name}}')
-            if ($LASTEXITCODE -ne 0) { throw 'Docker volume inventory failed.' }
+            $volumeInventoryError = 'Could not list volumes on the local Docker engine. Start Docker Desktop if it is stopped, then check that "docker volume ls" works in this PowerShell window before running the reset again.'
+            try { $volumes = @(& docker volume ls --format '{{.Name}}') }
+            catch { throw $volumeInventoryError }
+            if ($LASTEXITCODE -ne 0) { throw $volumeInventoryError }
             $volumePresent = 'csweet-aspire-postgres' -in $volumes
             if ($volumePresent) {
                 $containers = @(& docker ps -a --filter 'volume=csweet-aspire-postgres' --format '{{.ID}}')
@@ -451,7 +485,10 @@ function Invoke-CSweetLocalReset {
                     }
                 }
             }
-        } catch { $blockers.Add('Database inventory failed: ' + $_.Exception.Message) }
+        } catch {
+            $volumePresent = $null
+            $blockers.Add('Database inventory failed: ' + $_.Exception.Message)
+        }
     }
     Write-Host "Local reset for ALL C-Sweet businesses. User root: $localRoot"
     $targets | Select-Object Kind, GiB, Path | Format-Table -AutoSize -Wrap | Out-Host
@@ -459,7 +496,13 @@ function Invoke-CSweetLocalReset {
     $retirementTasks | Format-Table -AutoSize -Wrap | Out-Host
     $vms | Format-Table -AutoSize -Wrap | Out-Host
     foreach ($target in $preserved) { Write-Host "PRESERVED (contains tracked files): $($target.Path)" }
-    if ($ResetDatabase) { Write-Host "Aspire database volume present: $volumePresent; Postgres containers: $($containers -join ', ')" }
+    if ($ResetDatabase) {
+        if ($null -eq $volumePresent) {
+            Write-Host 'Aspire database inventory: unknown'
+        } else {
+            Write-Host "Aspire database volume present: $volumePresent; Postgres containers: $($containers -join ', ')"
+        }
+    }
     [double]$measuredGiB = 0
     foreach ($target in $targets) { if ($null -ne $target.GiB) { $measuredGiB += $target.GiB } }
     Write-Host ('Measured files: {0:N2} GiB (logical sizes; unknown folders and Docker are excluded).' -f $measuredGiB)
@@ -517,13 +560,14 @@ function Invoke-CSweetLocalReset {
         if ($target.Repository) {
             Assert-CSweetResetBuildUntracked $target.Repository $target.Path
         }
-        # Revalidate the entire tree just before recursive deletion.
-        Get-CSweetResetTree $target.Path | ForEach-Object {
+        # Complete the checks before deleting any entries in this target.
+        $tree = @(Get-CSweetResetTree $target.Path | ForEach-Object {
             if ($_ -is [IO.FileInfo] -and $_.Extension -match '^\.(a?vhdx?)$' -and (Get-VHD -Path $_.FullName).Attached) {
                 throw "Disk remains attached; data retained: $($_.FullName)"
             }
-        }
-        Remove-Item -LiteralPath $target.Path -Recurse -Force
+            $_
+        })
+        if ($tree.Count) { Remove-CSweetResetFilesystemTree $tree }
         if (Test-Path -LiteralPath $target.Path) { throw "Reset did not completely remove $($target.Path)" }
     }
     foreach ($volume in $computeVolumes) {

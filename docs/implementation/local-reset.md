@@ -69,6 +69,8 @@ the Aspire database, and then deletes selected files. Fresh enrollment is requir
 Removed base images and build outputs must be downloaded/generated/built again.
 If a step fails after changes begin, it stops immediately. Services may remain disabled;
 inspect the failure and rerun the preview before continuing. This is not transactional.
+Reset removes inventoried files and directories from the leaves up using Windows extended-length
+paths. This supports deeply nested package outputs such as the Aspire dashboard.
 
 ## Ownership and refusal rules
 
@@ -140,6 +142,9 @@ corresponding directory has been removed.
 The Docker selection is limited to the named Aspire PostgreSQL volume. The SearXNG
 cache can be shared with Compose. It stays in place, as do Docker/WSL model volumes,
 Docker Desktop's disk file, and custom bind-mounted database or cache directories.
+With `-ResetDatabase` or `-All`, a failed Docker inventory reports **unknown** and blocks
+`-Apply`. If the script cannot list local Docker volumes, start Docker Desktop if needed
+and check that `docker volume ls` works in the same terminal before previewing again.
 
 Docker Compose uses different volumes (`docker-compose.yml`), and deleting files inside
 Docker may not immediately shrink Docker Desktop's host VHDX. Do not use a global Docker

@@ -48,6 +48,39 @@ Describe 'Local reset filesystem boundaries' {
             Assert-ResetThrows { Get-CSweetResetTree $root }
         } finally { [IO.Directory]::Delete($link) }
     }
+    It 'removes inventoried build outputs with a read-only file beyond MAX_PATH' {
+        $root = Join-Path $TestDrive 'long-build-output'
+        $parent = Join-Path $root ('packages-' + ('a' * 120))
+        $prefix = '\\?\'
+        $file = Join-Path $parent ('FluentDesignTheme-' + ('b' * 120) + '.razor.js')
+        $keep = Join-Path $TestDrive 'keep.txt'
+        $file.Length | Should BeGreaterThan 260
+        [void][IO.Directory]::CreateDirectory($prefix + $parent)
+        [IO.File]::WriteAllText($prefix + $file, 'package')
+        [IO.File]::SetAttributes($prefix + $file, [IO.FileAttributes]::ReadOnly)
+        [IO.File]::WriteAllText($keep, 'outside')
+        Assert-CSweetResetPath $root $TestDrive
+        Remove-CSweetResetFilesystemTree @(Get-CSweetResetTree $root)
+        [IO.Directory]::Exists($root) | Should Be $false
+        [IO.File]::ReadAllText($keep) | Should Be 'outside'
+    }
+    It 'preserves an external file if an inventoried parent becomes a junction' {
+        $root = Join-Path $TestDrive 'changed-output'
+        $parent = Join-Path $root 'packages'
+        $outside = Join-Path $TestDrive 'external-packages'
+        New-Item -ItemType Directory -Path $parent, $outside | Out-Null
+        Set-Content -LiteralPath (Join-Path $parent 'keep.txt') -Value 'fixture'
+        $externalFile = Join-Path $outside 'keep.txt'
+        Set-Content -LiteralPath $externalFile -Value 'user data'
+        $tree = @(Get-CSweetResetTree $root)
+        [IO.File]::Delete((Join-Path $parent 'keep.txt'))
+        [IO.Directory]::Delete($parent, $false)
+        New-Item -ItemType Junction -Path $parent -Target $outside | Out-Null
+        try {
+            Assert-ResetThrows { Remove-CSweetResetFilesystemTree $tree }
+            (Get-Content -LiteralPath $externalFile) | Should Be 'user data'
+        } finally { [IO.Directory]::Delete($parent) }
+    }
     It 'selects project outputs without selecting arbitrary bin directories' {
         $repo = Join-Path $TestDrive 'repo'
         New-Item -ItemType Directory -Path "$repo\src\Example\bin", "$repo\src\Example\obj", "$repo\src\UserWork\bin", "$repo\artifacts" -Force | Out-Null
@@ -263,6 +296,7 @@ Describe 'Local reset execution gates' {
         Mock Set-Service { throw 'Mutation reached' }
         Mock Stop-Service { throw 'Mutation reached' }
         Mock Remove-Item { throw 'Mutation reached' }
+        Mock Remove-CSweetResetFilesystemTree { throw 'Filesystem mutation reached' }
         Mock Write-Host {}
     }
     It 'does not mutate in the default preview' {
@@ -316,6 +350,24 @@ Describe 'Local reset execution gates' {
         Assert-MockCalled Remove-Item -Times 0 -Exactly
         Assert-MockCalled Set-Service -Times 0 -Exactly
     }
+    It 'reports an unknown database inventory when the local Docker engine cannot list volumes' {
+        Mock docker {
+            if ($Arguments[0] -eq 'context') {
+                $global:LASTEXITCODE = 0
+                '{"Endpoints":{"docker":{"Host":"npipe://./pipe/docker_engine"}}}'
+            } else {
+                $global:LASTEXITCODE = 1
+            }
+        }
+        Mock Write-Host { $Object }
+        $warnings = @()
+        $report = @(Invoke-CSweetLocalReset -ResetDatabase -RepositoryRoot 'C:\fixture' -WarningVariable +warnings -WarningAction SilentlyContinue)
+        ($report -contains 'Aspire database inventory: unknown') | Should Be $true
+        ($warnings -join ' ') | Should Match 'docker volume ls'
+        Assert-ResetThrows { Invoke-CSweetLocalReset -ResetDatabase -Apply -RepositoryRoot 'C:\fixture' -WarningAction SilentlyContinue }
+        Assert-MockCalled Set-Service -Times 0 -Exactly
+        Assert-MockCalled Remove-Item -Times 0 -Exactly
+    }
 }
 
 Describe 'Compute reset execution' {
@@ -329,6 +381,7 @@ Describe 'Compute reset execution' {
         Mock Set-Service { throw 'Mutation reached' }
         Mock Stop-Service { throw 'Mutation reached' }
         Mock Remove-Item { throw 'Mutation reached' }
+        Mock Remove-CSweetResetFilesystemTree { throw 'Filesystem mutation reached' }
         Mock Write-Host {}
     }
     It 'blocks all mutations when a registered Compute volume is unavailable' {
@@ -356,11 +409,11 @@ Describe 'Compute reset execution' {
             Mock Get-CSweetResetComputeVolumes { [pscustomobject]@{VolumeId='fixture'; Root=$root; Registration='fixture-registration'} }
             Mock Resolve-ComputeStorageRoot { $root }
             Mock Remove-Item {
-                if ($LiteralPath -eq 'fixture-registration') {
-                    [IO.Directory]::Exists($root) | Should Be $false
-                    return
-                }
-                $actual = [IO.Path]::GetFullPath($LiteralPath)
+                $LiteralPath | Should Be 'fixture-registration'
+                [IO.Directory]::Exists($root) | Should Be $false
+            }
+            Mock Remove-CSweetResetFilesystemTree {
+                $actual = [IO.Path]::GetFullPath($Tree[0].FullName)
                 if ($actual -notin @($root,$images) -or !(Test-CSweetResetWithin $actual $TestDrive)) { throw "Unexpected target: $actual" }
                 [IO.Directory]::Delete($actual, $true)
             }
