@@ -316,6 +316,24 @@ Describe 'Local reset execution gates' {
         Assert-MockCalled Remove-Item -Times 0 -Exactly
         Assert-MockCalled Set-Service -Times 0 -Exactly
     }
+    It 'reports an unknown database inventory when the local Docker engine cannot list volumes' {
+        Mock docker {
+            if ($Arguments[0] -eq 'context') {
+                $global:LASTEXITCODE = 0
+                '{"Endpoints":{"docker":{"Host":"npipe://./pipe/docker_engine"}}}'
+            } else {
+                $global:LASTEXITCODE = 1
+            }
+        }
+        Mock Write-Host { $Object }
+        $warnings = @()
+        $report = @(Invoke-CSweetLocalReset -ResetDatabase -RepositoryRoot 'C:\fixture' -WarningVariable +warnings -WarningAction SilentlyContinue)
+        ($report -contains 'Aspire database inventory: unknown') | Should Be $true
+        ($warnings -join ' ') | Should Match 'docker volume ls'
+        Assert-ResetThrows { Invoke-CSweetLocalReset -ResetDatabase -Apply -RepositoryRoot 'C:\fixture' -WarningAction SilentlyContinue }
+        Assert-MockCalled Set-Service -Times 0 -Exactly
+        Assert-MockCalled Remove-Item -Times 0 -Exactly
+    }
 }
 
 Describe 'Compute reset execution' {

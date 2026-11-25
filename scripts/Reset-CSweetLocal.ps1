@@ -288,7 +288,7 @@ function Invoke-CSweetLocalReset {
     $localRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CSweet'
     $targets = [Collections.Generic.List[object]]::new()
     $blockers = [Collections.Generic.List[string]]::new()
-    $services = @(); $vms = @(); $containers = @(); $retirementTasks = @(); $volumePresent = $false
+    $services = @(); $vms = @(); $containers = @(); $retirementTasks = @(); $volumePresent = $null
     function Add-Target([string] $Path, [string] $Boundary, [string] $Kind, [string] $Repo = '') {
         if (Test-Path -LiteralPath $Path) {
             $targets.Add([pscustomobject]@{ Path = [IO.Path]::GetFullPath($Path); Boundary = $Boundary; Kind = $Kind; Repository = $Repo; GiB = $null })
@@ -438,8 +438,10 @@ function Invoke-CSweetLocalReset {
             if ($LASTEXITCODE -ne 0 -or $context.Count -ne 1 -or $context[0].Endpoints.docker.Host -notlike 'npipe://*') {
                 throw 'Database reset requires a local Windows named-pipe Docker context.'
             }
-            $volumes = @(& docker volume ls --format '{{.Name}}')
-            if ($LASTEXITCODE -ne 0) { throw 'Docker volume inventory failed.' }
+            $volumeInventoryError = 'Could not list volumes on the local Docker engine. Start Docker Desktop if it is stopped, then check that "docker volume ls" works in this PowerShell window before running the reset again.'
+            try { $volumes = @(& docker volume ls --format '{{.Name}}') }
+            catch { throw $volumeInventoryError }
+            if ($LASTEXITCODE -ne 0) { throw $volumeInventoryError }
             $volumePresent = 'csweet-aspire-postgres' -in $volumes
             if ($volumePresent) {
                 $containers = @(& docker ps -a --filter 'volume=csweet-aspire-postgres' --format '{{.ID}}')
@@ -451,7 +453,10 @@ function Invoke-CSweetLocalReset {
                     }
                 }
             }
-        } catch { $blockers.Add('Database inventory failed: ' + $_.Exception.Message) }
+        } catch {
+            $volumePresent = $null
+            $blockers.Add('Database inventory failed: ' + $_.Exception.Message)
+        }
     }
     Write-Host "Local reset for ALL C-Sweet businesses. User root: $localRoot"
     $targets | Select-Object Kind, GiB, Path | Format-Table -AutoSize -Wrap | Out-Host
@@ -459,7 +464,13 @@ function Invoke-CSweetLocalReset {
     $retirementTasks | Format-Table -AutoSize -Wrap | Out-Host
     $vms | Format-Table -AutoSize -Wrap | Out-Host
     foreach ($target in $preserved) { Write-Host "PRESERVED (contains tracked files): $($target.Path)" }
-    if ($ResetDatabase) { Write-Host "Aspire database volume present: $volumePresent; Postgres containers: $($containers -join ', ')" }
+    if ($ResetDatabase) {
+        if ($null -eq $volumePresent) {
+            Write-Host 'Aspire database inventory: unknown'
+        } else {
+            Write-Host "Aspire database volume present: $volumePresent; Postgres containers: $($containers -join ', ')"
+        }
+    }
     [double]$measuredGiB = 0
     foreach ($target in $targets) { if ($null -ne $target.GiB) { $measuredGiB += $target.GiB } }
     Write-Host ('Measured files: {0:N2} GiB (logical sizes; unknown folders and Docker are excluded).' -f $measuredGiB)

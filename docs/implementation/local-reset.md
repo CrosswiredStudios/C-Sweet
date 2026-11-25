@@ -140,6 +140,9 @@ corresponding directory has been removed.
 The Docker selection is limited to the named Aspire PostgreSQL volume. The SearXNG
 cache can be shared with Compose. It stays in place, as do Docker/WSL model volumes,
 Docker Desktop's disk file, and custom bind-mounted database or cache directories.
+With `-ResetDatabase` or `-All`, a failed Docker inventory reports **unknown** and blocks
+`-Apply`. If the script cannot list local Docker volumes, start Docker Desktop if needed
+and check that `docker volume ls` works in the same terminal before previewing again.
 
 Docker Compose uses different volumes (`docker-compose.yml`), and deleting files inside
 Docker may not immediately shrink Docker Desktop's host VHDX. Do not use a global Docker
