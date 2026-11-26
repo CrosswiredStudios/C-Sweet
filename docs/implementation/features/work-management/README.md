@@ -440,16 +440,16 @@ workflow, claim and recovery.
   personal cards that carry a context and matches the board id after parsing.
 - Only an active human with `OrganizationPermissionLevel.Manager` or higher receives them. Personal boards are
   private to the reporting chain, so team members and agents get an empty list.
-- `LinkedCommitmentsStrip.razor` renders them above the board content in `WorkBoardWorkspace.razor`, ordered
-  Blocked, Waiting, In progress, To do, Done, with the block or wait reason and a link to the conversation in the
-  owner's perspective. Strings are `LinkedCommitments.*` in `Localization/Resources/WorkBoards`, translated for
-  every supported culture through `tools/localization/stage.py`.
+- `WorkBoardWorkspace` shows the Leadership work tab when the board response includes linked commitments.
+  `LeadershipWorkBoard` uses the same `WorkBoardKanbanColumn` and `WorkBoardKanbanCard` components as the sprint
+  and All work views. Commitments appear under To do, In progress, Waiting, Blocked, or Done. The card opens the
+  full title and any wait or block reason, and the conversation link keeps the owner's perspective.
 - A card that owns a collaboration carries `CoordinationRevision`, `CanRetry` (session Blocked or Failed) and
-  `CanStop` (session Active or Summarizing). The strip shows **Retry** and **Stop** and posts to the existing
+  `CanStop` (session Active or Summarizing). The card shows **Retry** and **Stop** and posts to the existing
   `…/communications/hub/chats/{conversation}/coordination-sessions/{session}/retry` and `/stop` endpoints, which
   enforce the human-manager rule themselves. No new endpoint or authority. After a retry the session is active
   again and `RecoverBlockedCoordinationCommitmentsAsync` returns the blocked card to Ready; after a stop the
-  card's owner reports the cancellation on its next review. The strip then asks the workspace to refresh.
+  card's owner reports the cancellation on its next review. `LeadershipWorkBoard` then asks the workspace to refresh.
   `LinkedCommitmentOffersRetryAndStopFromItsCollaborationState` covers the flags.
 - `WorkBoardServiceTests.BoardReadShowsPersonalCommitmentsBoundToItForHumanManagers` covers binding, the
   other-board, archived, cancelled and non-personal exclusions, and that a commitment never appears as a ticket.

@@ -1,0 +1,64 @@
+@using Present = CSweet.UI.Components.WorkBoards.WorkBoardWorkspacePresentation
+@using Wire = CSweet.WorkManagement.Contracts
+
+<article class="work-ticket @(Compact ? "is-compact" : "")" @ondragover:preventDefault="@OnDrop.HasDelegate" @ondrop:stopPropagation="@OnDrop.HasDelegate" @ondrop="OnDrop">
+    <button type="button" class="ticket-open" @onclick="OnOpen" aria-label="@OpenLabel">
+        @if (Heading is not null)
+        {
+            <span class="ticket-top">@Heading</span>
+        }
+        <span class="ticket-title" title="@Title"><StructuredMentionText Text="@Present.CardText(Title, 120)" Mentions="TitleMentions" Field="@Wire.WorkItemMentionFields.Title" /></span>
+        @Details
+        @if (Attention is not null)
+        {
+            <span class="ticket-attention" title="@Attention"><MudIcon Icon="@Icons.Material.Outlined.ErrorOutline" Size="Size.Small" /><span>@Present.CardText(Attention, 120)</span></span>
+        }
+        <span class="ticket-footer">
+            <span class="ticket-owner">
+                <span class="owner-avatar" aria-hidden="true"><PersonAvatarContent EmployeeId="OwnerId" IsAgent="OwnerIsAgent" Initials="@Initials" /></span>
+                <span class="ticket-owner-name" title="@DisplayOwnerName">@Present.CardText(DisplayOwnerName, 48)</span>
+            </span>
+            @if (Priority is not null)
+            {
+                <span class="ticket-priority">@Priority</span>
+            }
+        </span>
+    </button>
+    <div class="ticket-evidence-footer">
+        @FooterContent
+        <span class="ticket-column-status" title="@StatusTitle">@Status</span>
+    </div>
+    @Actions
+    @if (OnDragStart.HasDelegate)
+    {
+        <button type="button" class="ticket-drag" draggable="true" @ondragstart="OnDragStart" @ondragend="OnDragEnd" aria-label="@DragLabel"><MudIcon Icon="@Icons.Material.Outlined.DragIndicator" Size="Size.Small" /></button>
+    }
+</article>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public IReadOnlyList<Wire.WorkItemMentionSpan> TitleMentions { get; set; } = [];
+    [Parameter] public string? Attention { get; set; }
+    [Parameter] public Guid? OwnerId { get; set; }
+    [Parameter] public string? OwnerName { get; set; }
+    [Parameter] public bool OwnerIsAgent { get; set; }
+    [Parameter] public string? Priority { get; set; }
+    [Parameter] public string? Status { get; set; }
+    [Parameter] public string? StatusTitle { get; set; }
+    [Parameter] public bool Compact { get; set; }
+    [Parameter] public string? OpenLabel { get; set; }
+    [Parameter] public string? DragLabel { get; set; }
+    [Parameter] public EventCallback OnOpen { get; set; }
+    [Parameter] public EventCallback OnDrop { get; set; }
+    [Parameter] public EventCallback OnDragStart { get; set; }
+    [Parameter] public EventCallback OnDragEnd { get; set; }
+    [Parameter] public RenderFragment? Heading { get; set; }
+    [Parameter] public RenderFragment? Details { get; set; }
+    [Parameter] public RenderFragment? FooterContent { get; set; }
+    [Parameter] public RenderFragment? Actions { get; set; }
+
+    private string DisplayOwnerName => OwnerName ?? "Unassigned";
+    private string Initials => string.IsNullOrWhiteSpace(OwnerName)
+        ? "—"
+        : string.Concat(OwnerName.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(x => x[0])).ToUpperInvariant();
+}

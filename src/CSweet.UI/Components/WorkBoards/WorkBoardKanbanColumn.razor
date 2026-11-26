@@ -1,0 +1,31 @@
+<section class="workflow-column @(Compact ? "is-compact" : "") @(DropTarget ? "is-drop-target" : "")" data-column="@ColumnKey"
+         @ondragover:preventDefault="@OnDrop.HasDelegate" @ondragenter="OnDragEnter" @ondrop="OnDrop">
+    <header class="workflow-column-header">
+        <div><span class="column-dot @Category"></span><h3>@Name</h3><span class="count">@Count</span></div>
+        @if (WipLimit.HasValue)
+        {
+            <small class="@(Occupancy >= WipLimit ? "attention-text" : "")" title="Board-wide occupancy · @WipPolicy">@Occupancy / @WipLimit WIP</small>
+        }
+    </header>
+    @ChildContent
+    @if (Count == 0)
+    {
+        <div class="column-empty">@(Filtered ? "No matching work" : "No work here")</div>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public string Name { get; set; } = "";
+    [Parameter, EditorRequired] public string Category { get; set; } = "";
+    [Parameter] public string? ColumnKey { get; set; }
+    [Parameter] public int Count { get; set; }
+    [Parameter] public bool Filtered { get; set; }
+    [Parameter] public bool Compact { get; set; }
+    [Parameter] public bool DropTarget { get; set; }
+    [Parameter] public int Occupancy { get; set; }
+    [Parameter] public int? WipLimit { get; set; }
+    [Parameter] public string? WipPolicy { get; set; }
+    [Parameter] public EventCallback OnDragEnter { get; set; }
+    [Parameter] public EventCallback OnDrop { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

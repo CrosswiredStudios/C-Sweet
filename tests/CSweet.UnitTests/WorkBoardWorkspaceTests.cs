@@ -28,6 +28,101 @@ public sealed class WorkBoardWorkspaceTests
     private static readonly Guid BoardId = Guid.NewGuid(), ColumnId = Guid.NewGuid();
 
     [Fact]
+    public async Task LeadershipTabUsesSharedCardsAndKeepsCommitmentsOutOfDeliveryViews()
+    {
+        var sprint = Sprint("Active");
+        var owner = Guid.NewGuid();
+        var conversation = Guid.NewGuid();
+        var longTitle = "Resolve project planning " + new string('x', 250);
+        WorkBoardLinkedCommitmentResponse Commitment(string title, string status) => new(
+            Guid.NewGuid(), owner, "Team Lead", title, status, null, null, null, null, null, DateTimeOffset.UtcNow);
+        var board = Detail([Item("Delivery ticket", sprint.Id)], [WorkSprintActions.Read, WorkItemActions.Create, WorkItemActions.Move]) with
+        {
+            LinkedCommitments =
+            [
+                Commitment("Estimate scope", "Ready"),
+                Commitment("Reconcile staffing", "Running") with
+                {
+                    CanStop = true, CoordinationRevision = 2, CoordinationSessionId = Guid.NewGuid(), ConversationId = conversation
+                },
+                Commitment("Confirm availability", "Ready") with { NextReviewAt = DateTimeOffset.UtcNow },
+                Commitment(longTitle, "Failed") with
+                {
+                    BlockReason = "Awaiting evidence", CanRetry = true, CoordinationRevision = 3, CoordinationSessionId = Guid.NewGuid(), ConversationId = conversation
+                },
+                Commitment("Review completed", "Completed")
+            ]
+        };
+        var services = new ServiceCollection().AddLogging();
+        services.AddMudServices();
+        services.AddCSweetLocalization();
+        services.AddSingleton<IJSRuntime, NoJavaScript>();
+        services.AddSingleton(new HttpClient { BaseAddress = new Uri("http://localhost/") });
+        var activator = new WorkspaceActivator();
+        services.AddSingleton<IComponentActivator>(activator);
+        await using var provider = services.BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
+        await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var rendered = await renderer.RenderComponentAsync<WorkBoardWorkspace>(Parameters());
+            var html = rendered.ToHtmlString();
+            Assert.Contains("Leadership work</button>", html);
+            Assert.Contains("Delivery ticket", html);
+            Assert.DoesNotContain("Reconcile staffing", html);
+
+            await SelectView(WorkBoardView.All);
+            Assert.DoesNotContain("Reconcile staffing", rendered.ToHtmlString());
+
+            await SelectView(WorkBoardView.Leadership);
+            html = rendered.ToHtmlString();
+            Assert.Matches("aria-current=\"page\"[^>]*>Leadership work</button>", html);
+            Assert.DoesNotContain("Delivery ticket", html);
+            Assert.DoesNotContain("New work item", html);
+            Assert.DoesNotContain("ticket-drag", html);
+            Assert.Contains("2 need attention", html);
+            Assert.Contains("Estimate scope", Column("ToDo"));
+            Assert.Contains("Reconcile staffing", Column("InProgress"));
+            Assert.Contains("Confirm availability", Column("Waiting"));
+            Assert.Contains("Awaiting evidence", Column("Blocked"));
+            Assert.Contains("Review completed", Column("Done"));
+            Assert.Contains("class=\"ticket-open\"", Column("Blocked"));
+            Assert.Contains(WorkBoardWorkspacePresentation.CardText(longTitle, 120), WebUtility.HtmlDecode(Column("Blocked")));
+            Assert.DoesNotContain($">{longTitle}<", Column("Blocked"));
+            Assert.Contains(">Retry</button>", Column("Blocked"));
+            Assert.Contains(">Stop</button>", Column("InProgress"));
+            Assert.Contains($"/communications/{conversation:D}?perspective={owner:D}", Column("InProgress"));
+            if (Environment.GetEnvironmentVariable("CSWEET_DETAIL_PREVIEWS") is string path)
+                await File.WriteAllTextAsync(Path.Combine(path, "leadership-board-component.html"), html);
+
+            board = board with { LinkedCommitments = [] };
+            await activator.Workspace!.SetParametersAsync(Parameters());
+            html = rendered.ToHtmlString();
+            Assert.DoesNotContain("Leadership work", html);
+            Assert.Contains("Delivery ticket", html);
+
+            string Column(string status)
+            {
+                var start = html.IndexOf($"data-column=\"{status}\"", StringComparison.Ordinal);
+                Assert.True(start >= 0, $"Missing column {status}");
+                return html[start..html.IndexOf("</section>", start, StringComparison.Ordinal)];
+            }
+        });
+
+        ParameterView Parameters() => ParameterView.FromDictionary(new Dictionary<string, object?>
+        {
+            [nameof(WorkBoardWorkspace.Detail)] = board,
+            [nameof(WorkBoardWorkspace.Sprints)] = new[] { sprint }
+        });
+
+        async Task SelectView(WorkBoardView view)
+        {
+            await (Task)typeof(WorkBoardWorkspace).GetMethod("SelectViewAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(activator.Workspace, [view])!;
+            await activator.Workspace!.SetParametersAsync(Parameters());
+        }
+    }
+
+    [Fact]
     public async Task ReadyCardsShowTheTransitiveBlockedPrerequisiteAndRefreshAfterCompletion()
     {
         var sprint = Sprint("Active");

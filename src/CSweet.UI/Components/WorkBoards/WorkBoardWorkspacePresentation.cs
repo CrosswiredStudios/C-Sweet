@@ -40,6 +40,7 @@ public static class WorkBoardWorkspacePresentation
         {
             WorkBoardView.Sprint => sprintId.HasValue && item.SprintId == sprintId && item.ExecutionMode == Wire.WorkItemExecutionModes.Executable,
             WorkBoardView.Backlog => item.SprintId is null && item.Status is not ("Completed" or "Cancelled"),
+            WorkBoardView.Leadership => false,
             _ => true
         }).OrderBy(x => x.Rank).ToList();
 
@@ -83,6 +84,6 @@ public static class WorkBoardWorkspacePresentation
         ? 0 : Math.Clamp(100d * sprint.CompletedItemCount / sprint.ItemCount, 0, 100);
 }
 
-public enum WorkBoardView { Sprint, Backlog, All, Sprints }
+public enum WorkBoardView { Sprint, Backlog, All, Sprints, Leadership }
 
 public sealed record WorkBoardDropRequest(WorkBoardItemResponse Item, WorkBoardColumnResponse Column, Guid? BeforeItemId);

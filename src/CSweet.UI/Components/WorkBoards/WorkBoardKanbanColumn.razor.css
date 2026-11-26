@@ -1,0 +1,19 @@
+/* Columns share the available width (about nine fit a 1080p screen) and scroll only when they cannot. */
+.workflow-column { flex: 1 1 180px; min-width: 180px; max-width: 280px; padding: 6px; min-height: 360px; border: 1px solid transparent; border-radius: 8px; background: var(--board-soft); }
+.workflow-column.is-compact { flex-basis: 160px; min-width: 160px; max-width: 220px; }
+.workflow-column.is-drop-target { border-color: var(--mud-palette-primary); }
+.workflow-column-header { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; justify-content: space-between; padding: 2px 2px 8px; }
+.workflow-column-header > div { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.workflow-column-header h3 { margin: 0; font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
+.workflow-column-header small { font-size: 11px; color: var(--board-muted); }
+.column-dot { height: 7px; width: 7px; border-radius: 50%; background: var(--board-muted); flex-shrink: 0; }
+.column-dot.inprogress { background: var(--mud-palette-info); }
+.column-dot.done { background: var(--board-green); }
+.column-dot.blocked { background: var(--mud-palette-warning); }
+.column-dot.waiting { background: var(--mud-palette-text-secondary); }
+.count { font-size: 11px; background: var(--board-soft); padding: 1px 5px; border-radius: 4px; font-weight: 400; }
+.workflow-column-header .attention-text { color: var(--mud-palette-error); }
+.column-empty { text-align: center; color: var(--board-muted); padding: 30px 10px; font-size: 12px; }
+@media (max-width: 600px) {
+    .workflow-column { flex-basis: 240px; min-width: 240px; max-width: 280px; }
+}
