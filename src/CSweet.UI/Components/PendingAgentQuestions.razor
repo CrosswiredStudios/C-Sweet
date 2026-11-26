@@ -74,12 +74,6 @@
                         <MudButton Href="@($"/organizations/{OrganizationId:D}/compute")" Variant="Variant.Outlined" Color="Color.Primary">Open Compute</MudButton>
                     </AttentionRequestCard>
                 }
-                else if (WaitingForOfficeCapacity)
-                {
-                    <MudAlert Severity="Severity.Info">An employee is waiting for an Office with compute capacity.
-                        <MudLink Href="@($"/organizations/{OrganizationId:D}/compute")">View compute</MudLink>
-                    </MudAlert>
-                }
                 @foreach (var approval in PendingApprovals.Take(_showAll ? PendingApprovals.Count : 5))
                 {
                     <AttentionNotificationCard @key="approval.Id" OrganizationId="OrganizationId" Notification="approval" DocumentOpened="DocumentOpened" ApprovalDecided="OnApprovalDecidedAsync" RefreshRequested="RefreshRequested" />
@@ -134,7 +128,6 @@
     [Parameter] public bool ComputeLoaded { get; set; } = true;
     [Parameter] public string? ComputeError { get; set; }
     [Parameter] public bool ComputeHasMore { get; set; }
-    [Parameter] public bool WaitingForOfficeCapacity { get; set; }
     [Parameter] public ComputeSetupStatus? FailedComputeSetup { get; set; }
     [Parameter] public IReadOnlyList<BlockedWorkAttentionResponse> BlockedWork { get; set; } = [];
     [Parameter] public bool BlockedWorkLoaded { get; set; } = true;
@@ -149,7 +142,7 @@
         item.IssueId is not null || item.Work.Count > 0 || item.Incidents.Count > 0 || item.Actions.Count > 0 ||
         item.Questions.Count == 0 || item.Questions.Any(q => !_completedDecisions.Contains(q.Decision.Id))).ToArray();
     private int PendingCount => PendingIssues.Count + PendingApprovals.Count + Recommendations.Count + ComputeResources.Count + SuggestionCount +
-        (FailedComputeSetup is not null || WaitingForOfficeCapacity ? 1 : 0);
+        (FailedComputeSetup is not null ? 1 : 0);
     private bool _showAll;
     private readonly HashSet<Guid> _completedDecisions = [];
     private readonly HashSet<Guid> _completedApprovals = [];

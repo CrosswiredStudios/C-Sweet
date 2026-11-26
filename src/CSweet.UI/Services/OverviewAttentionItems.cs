@@ -19,7 +19,8 @@ public static class OverviewAttentionItems
     private static bool IsInvalidationEvent(string eventType) => eventType is
         AppRealtimeEvents.SuggestionsChanged or AppRealtimeEvents.ProjectImportChanged or AppRealtimeEvents.ApprovalChanged or
         AppRealtimeEvents.HiringRecommendationsChanged or AppRealtimeEvents.ProjectIncidentChanged or AppRealtimeEvents.CoordinationFailureChanged or AppRealtimeEvents.ComputeChanged or
-        CommunicationEvents.DecisionUpdated or AppRealtimeEvents.WorkBoardChanged or AppRealtimeEvents.ResourceChanged or AppRealtimeEvents.EmployeeDirectoryChanged;
+        CommunicationEvents.DecisionUpdated or AppRealtimeEvents.WorkBoardChanged or AppRealtimeEvents.WorkDeliveryChanged or
+        AppRealtimeEvents.ResourceChanged or AppRealtimeEvents.EmployeeDirectoryChanged;
     public static bool IsPending(string status) =>
         string.Equals(status, "Pending", StringComparison.OrdinalIgnoreCase);
 
@@ -88,16 +89,14 @@ public static class OverviewAttentionItems
                 .OrderBy(x => x.UpdatedAt).ToList()
             : [];
 
-    public static bool WaitingForOfficeCapacity(ComputeDashboard? dashboard) =>
-        dashboard is { CanManageNetwork: true, Setup: { State: "Pending", OfficeCapacity.WaitingEmployees: > 0 } };
-
-    public static ComputeSetupStatus? FailedComputePreparation(ComputeDashboard? dashboard) =>
-        dashboard is { CanManageNetwork: true, Setup.State: "Failed" } ? dashboard.Setup : null;
+    public static ComputeSetupStatus? FailedComputePreparation(ComputeDashboard? dashboard, OverviewIssueDirectory? issues = null) =>
+        dashboard is { CanManageNetwork: true, Setup.State: "Failed" } &&
+        issues?.Items.Any(item => item.IsComputeBlocker && item.Status == "Open") != true ? dashboard.Setup : null;
 
     public static int Count(ApprovalDashboardResponse? approvals, HiringBacklogResponse? hiring,
         IReadOnlyList<PendingAgentQuestionResponse>? questions, ComputeDashboard? compute,
         IReadOnlyList<BlockedWorkAttentionResponse>? blockedWork = null, OverviewIssueDirectory? issues = null) =>
         (approvals?.Items.Count(IsActionable) ?? 0) + (hiring?.Recommendations.Count(IsActionable) ?? 0) + ComputeRequests(compute).Count +
-        (WaitingForOfficeCapacity(compute) || FailedComputePreparation(compute) is not null ? 1 : 0) +
+        (FailedComputePreparation(compute, issues) is not null ? 1 : 0) +
         (issues ?? FallbackIssues(blockedWork, questions, approvals?.ProjectIncidents)).UserActions.Count;
 }

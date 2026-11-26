@@ -283,33 +283,26 @@ public sealed class CompanyDashboardRenderingTests
     }
 
     [Theory]
-    [InlineData("Unavailable", "WaitingForOffice", 0, true, 0)]
-    [InlineData("Pending", "WaitingForOffice", null, true, 0)]
-    [InlineData("Pending", "WaitingForOffice", 2, true, 1)]
-    [InlineData("Pending", ComputeSetupStatus.AwaitingOfficeRegistration, 0, true, 0)]
-    [InlineData("Pending", ComputeSetupStatus.AwaitingOfficeRegistration, 1, true, 1)]
-    [InlineData("Ready", "Ready", 1, true, 0)]
-    [InlineData("Pending", "WaitingForOffice", 1, false, 0)]
-    public async Task OfficeCapacityBannerAndCountsRequireAWaitingEmployee(
-        string state, string health, int? waitingEmployees, bool canManage, int expectedCount)
+    [InlineData("Unavailable", "WaitingForOffice", 0)]
+    [InlineData("Pending", "WaitingForOffice", 2)]
+    [InlineData("Pending", ComputeSetupStatus.AwaitingOfficeRegistration, 0)]
+    [InlineData("Ready", "Ready", 1)]
+    public async Task OfficeCapacitySummaryDoesNotCreateAnAnonymousOverviewItem(string state, string health, int waitingEmployees)
     {
         var now = DateTimeOffset.UtcNow;
         var setup = new ComputeSetupStatus(state, "Office compute capacity", null, null, null)
         {
             Health = health,
-            OfficeCapacity = waitingEmployees is int count
-                ? new(state == "Ready", count, count > 0 ? "Victor Lin" : null, count > 0 ? now : null)
-                : null
+            OfficeCapacity = new(state == "Ready", waitingEmployees, waitingEmployees > 0 ? "Victor Lin" : null,
+                waitingEmployees > 0 ? now : null)
         };
-        var compute = new ComputeDashboard(now, setup, [], false, canManage);
+        var compute = new ComputeDashboard(now, setup, [], false, true);
 
         var html = await Render(false, compute: compute);
 
-        Assert.Equal(expectedCount, OverviewAttentionItems.Count(null, null, null, compute));
-        Assert.Contains($"{expectedCount} pending", html);
-        const string banner = "An employee is waiting for an Office with compute capacity.";
-        if (expectedCount > 0) Assert.Contains(banner, html);
-        else Assert.DoesNotContain(banner, html);
+        Assert.Equal(0, OverviewAttentionItems.Count(null, null, null, compute));
+        Assert.Contains("0 pending", html);
+        Assert.DoesNotContain("An employee is waiting for an Office with compute capacity.", html);
     }
 
     [Fact]

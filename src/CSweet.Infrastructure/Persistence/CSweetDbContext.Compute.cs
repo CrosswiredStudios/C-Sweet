@@ -7,6 +7,7 @@ using CSweet.Domain.Security;
 using CSweet.Domain.Setup;
 using CSweet.Contracts.Compute;
 using CSweet.Contracts.Realtime;
+using CSweet.Infrastructure.Compute;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.Persistence;
@@ -38,6 +39,33 @@ public sealed partial class CSweetDbContext
         foreach (var request in ChangeTracker.Entries<OfficeComputeCapacityRequest>()
                      .Where(entry => entry.State is EntityState.Added or EntityState.Deleted))
             changedOrganizations.Add(request.Entity.OrganizationId);
+        foreach (var entry in ChangeTracker.Entries<ComputeTemplateRegistration>().Where(x =>
+            x.State is EntityState.Added or EntityState.Deleted ||
+            x.State == EntityState.Modified && (x.Property(t => t.Enabled).IsModified || x.Property(t => t.TemplateJson).IsModified)))
+            changedOrganizations.Add(entry.Entity.OrganizationId);
+        foreach (var entry in ChangeTracker.Entries<ComputeTemplatePlacement>().Where(x =>
+            x.State is EntityState.Added or EntityState.Deleted ||
+            x.State == EntityState.Modified && x.Property(p => p.Enabled).IsModified))
+            changedOrganizations.Add(entry.Entity.OrganizationId);
+        foreach (var entry in ChangeTracker.Entries<ComputeNodeRegistration>().Where(x =>
+            x.State is EntityState.Added or EntityState.Deleted ||
+            x.State == EntityState.Modified && x.Property(n => n.Enabled).IsModified))
+            changedOrganizations.Add(entry.Entity.OrganizationId);
+        foreach (var entry in ChangeTracker.Entries<ExecutionNode>().Where(x => x.State == EntityState.Modified).ToArray())
+        {
+            if (entry.Entity.ComputeTemplateId is null && entry.Property(n => n.ComputeTemplateId).OriginalValue is null) continue;
+            var beforeHeartbeat = entry.Property(n => n.LastHeartbeatAt).OriginalValue;
+            var recoveredHeartbeat = entry.Entity.LastHeartbeatAt is { } heartbeat &&
+                (beforeHeartbeat is null || heartbeat - beforeHeartbeat.Value > OfficeComputePlacement.MaximumHeartbeatAge);
+            if (!new[] { nameof(ExecutionNode.ComputeTemplateId), nameof(ExecutionNode.ComputeCapacityJson),
+                nameof(ExecutionNode.WorkspaceBudgetJson), nameof(ExecutionNode.Status), nameof(ExecutionNode.WorkPauseReason),
+                nameof(ExecutionNode.DrainingAt), nameof(ExecutionNode.RevokedAt), nameof(ExecutionNode.CertificateExpiresAt) }
+                .Any(property => !Equals(entry.OriginalValues[property], entry.CurrentValues[property])) && !recoveredHeartbeat) continue;
+            var node = ComputeNodes.Local.FirstOrDefault(n => n.Id == entry.Entity.Id) ??
+                ComputeNodes.AsNoTracking().SingleOrDefault(n => n.Id == entry.Entity.Id);
+            if (node is not null && OfficeComputePlacement.IsOfficeProvider(node.ProviderId))
+                changedOrganizations.Add(node.OrganizationId);
+        }
         foreach (var entry in ChangeTracker.Entries<ComputeOperation>().Where(x => x.State == EntityState.Added ||
             x.State == EntityState.Modified && (x.Property(operation => operation.Status).IsModified ||
                 x.Property(operation => operation.CompletedAt).IsModified)))

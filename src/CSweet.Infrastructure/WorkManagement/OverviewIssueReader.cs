@@ -7,6 +7,7 @@ using CSweet.Domain.Communications;
 using CSweet.Domain.Core;
 using CSweet.Domain.Security;
 using CSweet.Infrastructure.Core;
+using CSweet.Infrastructure.Compute;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Setup;
 using Microsoft.EntityFrameworkCore;
@@ -15,8 +16,9 @@ using Wire = CSweet.WorkManagement.Contracts;
 namespace CSweet.Infrastructure.WorkManagement;
 
 /// <summary>One current authorized presentation for each causal issue. Retry permission is not a human assignment.</summary>
-public sealed class OverviewIssueReader(CSweetDbContext db, IPersonalTodoService todos, BlockedWorkAttentionReader blocked,
-    IExecutiveDecisionService decisions, ProjectHealthService health, WorkIssueService issues)
+public sealed partial class OverviewIssueReader(CSweetDbContext db, IPersonalTodoService todos, BlockedWorkAttentionReader blocked,
+    IExecutiveDecisionService decisions, ProjectHealthService health, WorkIssueService issues,
+    ComputePreparationMode? preparation = null, TimeProvider? clock = null)
 {
     public async Task<OverviewIssueDirectory> ReadAsync(Guid org, PersonalTodoActor actor, bool history, CancellationToken ct)
     {
@@ -175,7 +177,8 @@ public sealed class OverviewIssueReader(CSweetDbContext db, IPersonalTodoService
                 group.AffectedWork.Add(new(task.Id, task.Title,
                     $"/organizations/{org}/employees/{task.OwnerOrganizationUserId}?tab=personal-board&item={task.Id}"));
         }
-        return OverviewIssueDirectory.Consolidate(groups.Values.Select(g => g.Build()).ToArray());
+        var computeBlockers = await ReadComputeBlockersAsync(org, actor.OrganizationUserId, projects, ct);
+        return OverviewIssueDirectory.Consolidate(groups.Values.Select(g => g.Build()).Concat(computeBlockers).ToArray());
     }
 
     private async Task<List<AgentCoordinationSession>> ReadFailedCollaborationsAsync(Guid org, Guid userId, CancellationToken ct)

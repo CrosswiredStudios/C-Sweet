@@ -3,6 +3,11 @@ using CSweet.Agent.SDK;
 using CSweet.AgentHost.Broker;
 using CSweet.Api.Compute;
 using CSweet.Contracts.Compute;
+using CSweet.Contracts.Core;
+using CSweet.Infrastructure.Communications;
+using CSweet.Infrastructure.Compute;
+using CSweet.Infrastructure.Core;
+using CSweet.Infrastructure.Security;
 using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.WorkManagement;
@@ -13,8 +18,20 @@ namespace CSweet.UnitTests;
 
 public static class DeliveryWorkflowBridge
 {
-    internal static Task<ComputeDashboard?> ReadComputeAsync(CSweetDbContext db, Guid business, Guid user)
-        => ComputeDashboardEndpoints.ReadAsync(db, business, user, Path.GetTempPath(), Path.GetTempPath(), default, legacyLocalSetupEnabled: true);
+    internal static Task<ComputeDashboard?> ReadComputeAsync(CSweetDbContext db, Guid business, Guid user, bool legacy)
+        => ComputeDashboardEndpoints.ReadAsync(db, business, user, Path.GetTempPath(), Path.GetTempPath(), default, legacyLocalSetupEnabled: legacy);
+
+    internal static Task<OverviewIssueDirectory> ReadOverviewAsync(CSweetDbContext db, Guid business, Guid actor, bool legacy)
+    {
+        var clock = TimeProvider.System;
+        var todos = new PersonalTodoService(db, clock);
+        var authorization = new ScopedActionAuthorizationService(db);
+        var issues = new WorkIssueService(db, authorization, clock);
+        var blocked = new BlockedWorkAttentionReader(db, todos, clock, new(db, todos, authorization, issues));
+        var reader = new OverviewIssueReader(db, todos, blocked, new ExecutiveDecisionService(db, new ChatTurnService(db)),
+            new(db, new(db, clock), clock), issues, new(legacy), clock);
+        return reader.ReadAsync(business, new(actor, null), false, default);
+    }
 
     internal static async Task AcceptQaWaitAsync(CSweetDbContext db, WorkExecutionAssignment assignment, WorkExecutionOutcomeV1 outcome)
     {
@@ -24,7 +41,8 @@ public static class DeliveryWorkflowBridge
         {
             var sprint = new WorkSprintExecution { Id = assignment.TaskSprintExecutionId, OrganizationId = assignment.OrganizationId,
                 BoardId = assignment.BoardId, SprintId = assignment.TaskSprintId, PolicyRevisionId = assignment.TaskPolicyRevisionId };
-            var item = new WorkItemExecution { Id = assignment.ExecutionId, SprintExecution = sprint, WorkItemId = assignment.TaskItemId };
+            var item = new WorkItemExecution { Id = assignment.ExecutionId, SprintExecution = sprint, WorkItemId = assignment.TaskItemId,
+                CurrentStageKey = assignment.StageKey };
             stage = new WorkStageExecution { Id = assignment.StageExecutionId, ItemExecution = item, StageKey = assignment.StageKey,
                 AgentInstallationId = assignment.AgentInstallationId };
             db.Add(stage);

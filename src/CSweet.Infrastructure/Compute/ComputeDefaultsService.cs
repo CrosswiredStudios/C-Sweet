@@ -112,13 +112,7 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
         }
         else
         {
-            var held = await db.ComputeEnvironments.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
-                    x.InstallationId == installationId && x.WorkstreamId == projectId && x.TeardownConfirmedAt == null &&
-                    OfficeComputePlacement.OfficeProviders.Contains(x.ProviderId))
-                .OrderBy(x => x.CreatedAt).Select(x => new { x.ProviderNodeId, x.SpecificationJson }).FirstOrDefaultAsync(token);
-            var heldTemplate = held is null ? null : JsonSerializer.Deserialize<ComputeSpecification>(held.SpecificationJson, ComputeProtocol.Json)?.TemplateId;
-            template = (await OfficeComputePlacement.FindAsync(db, organizationId, clock.GetUtcNow(), token,
-                heldTemplate, held?.ProviderNodeId))?.Template;
+            template = await OfficeComputePlacement.FindProjectTemplateAsync(db, organizationId, installationId, projectId, clock.GetUtcNow(), token);
             if (template is null)
             {
                 if (requestWorkspace)

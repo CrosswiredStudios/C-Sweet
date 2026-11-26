@@ -20,18 +20,19 @@ namespace CSweet.UnitTests;
 
 public sealed class OverviewAttentionStateTests
 {
-    [Theory]
-    [InlineData(0, false)]
-    [InlineData(1, true)]
-    public void ReservedOfficeCountsAsWaitingOnlyWhenAnEmployeeNeedsIt(int employees, bool expected)
+    [Fact]
+    public void OfficeCapacityContributesThroughNamedIssueCards()
     {
         var setup = new ComputeSetupStatus("Pending", "Waiting for Office compute registration", null, null, null)
         {
             Health = ComputeSetupStatus.AwaitingOfficeRegistration,
-            OfficeCapacity = new(false, employees, null, null)
+            OfficeCapacity = new(false, 1, "Rohan Desai", null)
         };
         var dashboard = new ComputeDashboard(DateTimeOffset.UtcNow, setup, [], false, CanManageNetwork: true);
-        Assert.Equal(expected, OverviewAttentionItems.WaitingForOfficeCapacity(dashboard));
+        var issue = new OverviewIssueCard("compute:qa", null, null, "Prism Breaker", "Waiting for an Office workspace",
+            "", "Rohan Desai", "", true, false, [], [], [], "") { IsComputeBlocker = true };
+        Assert.Equal(0, OverviewAttentionItems.Count(null, null, null, dashboard, issues: new([])));
+        Assert.Equal(1, OverviewAttentionItems.Count(null, null, null, dashboard, issues: new([issue])));
     }
 
     [Fact]

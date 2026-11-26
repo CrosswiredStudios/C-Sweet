@@ -21,6 +21,39 @@ namespace CSweet.UnitTests;
 
 public sealed class CompanyDashboardRealtimeTests
 {
+    [Fact]
+    public async Task NamedComputeBlockerRendersOnceAndClearsOnComputeChange()
+    {
+        var org = Guid.NewGuid();
+        var computeUri = $"/organizations/{org:D}/compute";
+        var card = new OverviewIssueCard("compute:qa", null, null, "Prism Breaker", "Waiting for a browser workspace",
+            "I need a Linux workspace to run the browser tests.", "Rohan Desai", "", true, false, [], [], [], "")
+        {
+            IsComputeBlocker = true, OwnerOrganizationUserId = Guid.NewGuid(),
+            Actions = [new(Guid.NewGuid(), "Open Compute", computeUri)]
+        };
+        var handler = new Handler { ItemCount = 0, Issues = new([]) };
+        await using var fixture = new Fixture(handler);
+        var output = await fixture.RenderAsync(org);
+        Assert.Contains("Nothing needs your attention", await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString));
+        handler.Issues = new([card]);
+        handler.Setup = new("Failed", "Checking the compute service", null, null, "compute_checks_build_failed");
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => fixture.Publish(org, AppRealtimeEvents.WorkBoardChanged));
+        var html = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
+        Assert.Contains("Compute from Rohan Desai", html);
+        Assert.Contains("I need a Linux workspace to run the browser tests.", html);
+        Assert.Contains($"href=\"{computeUri}\"", html);
+        Assert.Contains("1 pending", html);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(html, "attention-request compute"));
+
+        handler.Issues = new([]);
+        handler.Setup = handler.Setup with { State = "Ready", FailureCode = null };
+        await fixture.Renderer.Dispatcher.InvokeAsync(() => fixture.Publish(org, AppRealtimeEvents.ComputeChanged));
+        var recovered = await fixture.Renderer.Dispatcher.InvokeAsync(output.ToHtmlString);
+        Assert.DoesNotContain("Compute from Rohan Desai", recovered);
+        Assert.Contains("Nothing needs your attention", recovered);
+    }
+
     [Theory]
     [InlineData("compute_checks_build_failed", "Stopped", "Linux compute preparation failed", "compile the checks")]
     [InlineData("administrator_approval_required", "NeedsPermission", "Linux compute needs administrator approval", "administrator permission")]

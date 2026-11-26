@@ -30,6 +30,7 @@ public static class OfficeComputePlacement
     public const string ProviderId = "office-hyperv";
     public const string AppleProviderId = "office-apple-virtualization";
     internal static readonly string[] OfficeProviders = [ProviderId, AppleProviderId];
+    internal static readonly TimeSpan MaximumHeartbeatAge = TimeSpan.FromSeconds(30);
     public static bool IsOfficeProvider(string? id) => id is ProviderId or AppleProviderId;
     private const string TemplatePrefix = "office-linux-";
     internal static readonly ComputeResources WorkspaceResources = new(2, 2048, 20480);
@@ -151,11 +152,22 @@ public static class OfficeComputePlacement
         }
     }
 
+    internal static async Task<ComputeTemplateRegistration?> FindProjectTemplateAsync(CSweetDbContext db, Guid business,
+        Guid installation, Guid project, DateTimeOffset now, CancellationToken token)
+    {
+        var held = await db.ComputeEnvironments.AsNoTracking().Where(x => x.OrganizationId == business &&
+                x.InstallationId == installation && x.WorkstreamId == project && x.TeardownConfirmedAt == null &&
+                OfficeProviders.Contains(x.ProviderId))
+            .OrderBy(x => x.CreatedAt).Select(x => new { x.ProviderNodeId, x.SpecificationJson }).FirstOrDefaultAsync(token);
+        var heldTemplate = held is null ? null : JsonSerializer.Deserialize<ComputeSpecification>(held.SpecificationJson, ComputeProtocol.Json)?.TemplateId;
+        return (await FindAsync(db, business, now, token, heldTemplate, held?.ProviderNodeId))?.Template;
+    }
+
     public static async Task<(ComputeTemplateRegistration Template, ComputeNodeRegistration Node)?> FindAsync(
         CSweetDbContext db, Guid business, DateTimeOffset now, CancellationToken token, string? templateId = null,
         Guid? officeId = null, ComputeResources? requested = null, Guid? activatingEnvironment = null)
     {
-        var earliest = now.AddSeconds(-30);
+        var earliest = now - MaximumHeartbeatAge;
         var query = from office in db.OfficesForPlacement(now).AsNoTracking()
                     join node in db.ComputeNodes on office.Id equals node.Id
                     join place in db.ComputeTemplatePlacements on node.Id equals place.NodeId

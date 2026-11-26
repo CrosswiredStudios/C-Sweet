@@ -7,7 +7,7 @@
 }
 else
 {
-    <AttentionRequestCard Kind="@(Item.RequiresUserAction ? "Issue" : "Status")" Name="@Item.OwnerName" EmployeeId="Item.OwnerOrganizationUserId"
+    <AttentionRequestCard Kind="@(Item.IsComputeBlocker ? "Compute" : Item.RequiresUserAction ? "Issue" : "Status")" Name="@Item.OwnerName" EmployeeId="Item.OwnerOrganizationUserId"
         Context="@Item.ProjectName" Prompt="@Item.Title">
         <BodyContent>
             @if (!string.IsNullOrWhiteSpace(Summary)) { <p class="blocker-summary">@Summary</p> }

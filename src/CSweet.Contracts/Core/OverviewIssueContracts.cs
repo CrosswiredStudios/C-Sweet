@@ -11,6 +11,7 @@ public sealed record OverviewIssueCard(string Key, Guid? IssueId, Guid? Workstre
     public IReadOnlyList<OverviewAffectedWork> AffectedWork { get; init; } = [];
     public IReadOnlyList<OverviewIssueAction> Actions { get; init; } = [];
     public Guid? OwnerOrganizationUserId { get; init; }
+    public bool IsComputeBlocker { get; init; }
 }
 
 public sealed record OverviewAffectedWork(Guid ItemId, string Title, string ActionUri);
