@@ -14,6 +14,7 @@ using CSweet.Infrastructure.Llm;
 using CSweet.WorkManagement.Contracts;
 using Microsoft.Extensions.AI;
 using OpenAI;
+using Xunit.Abstractions;
 using GameEngineer = Engineer::CSweet.Agent.Engineer.VideoGame.GameEngineerAgent;
 using SoftwareDeveloper = Developer::CSweet.Agents.SoftwareDeveloper.SoftwareDeveloperAgent;
 
@@ -23,17 +24,44 @@ namespace CSweet.GameRoleWorkflow.Tests;
 public sealed class DeepSeekAssignedWorkspaceCollection;
 
 [Collection("DeepSeek assigned workspace")]
-public sealed class DeepSeekExecutionJourneyTests
+public sealed class DeepSeekExecutionJourneyTests(ITestOutputHelper output)
 {
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
+    private const string SourceFile = "index.html";
     private const string VerifyCanvas = "node verify.cjs";
+    private const string VerifyControls = "node verify-controls.cjs";
+    private static readonly string[] Inputs = ["old-0.txt", "old-1.txt", "old-2.txt", "old-3.txt", "old-4.txt"];
 
     [Theory, Trait("Category", "AgentHarness")]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Prism_Breaker_execution_keeps_DeepSeek_reasoning_through_tool_history_compaction(bool useSoftwareDeveloper)
     {
-        const string sourceFile = "index.html";
+        var execution = await RunExecutionAsync(useSoftwareDeveloper, ExecutionScript(targeted: false, [VerifyCanvas]), [VerifyCanvas]);
+        Assert.True(execution.Compacted, "The test must exercise the request after tool history compaction.");
+    }
+
+    [Theory, Trait("Category", "AgentHarness")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Prism_Breaker_targeted_reads_and_batched_checks_reduce_requests_and_input_without_losing_validation(bool useSoftwareDeveloper)
+    {
+        string[] checks = [VerifyCanvas, VerifyControls];
+        var baseline = await RunExecutionAsync(useSoftwareDeveloper, ExecutionScript(targeted: false, checks), checks);
+        var targeted = await RunExecutionAsync(useSoftwareDeveloper, ExecutionScript(targeted: true, checks), checks);
+
+        Assert.Equal(11, baseline.Requests);
+        Assert.Equal(6, targeted.Requests);
+        Assert.True(targeted.MessageCharacters < baseline.MessageCharacters / 2,
+            $"Cumulative serialized messages: {baseline.MessageCharacters:N0} → {targeted.MessageCharacters:N0} characters.");
+        Assert.True(targeted.PeakMessageCharacters < baseline.PeakMessageCharacters);
+        output.WriteLine($"Provider requests: {baseline.Requests} → {targeted.Requests}; cumulative message characters: " +
+            $"{baseline.MessageCharacters:N0} → {targeted.MessageCharacters:N0}; peak request message characters: " +
+            $"{baseline.PeakMessageCharacters:N0} → {targeted.PeakMessageCharacters:N0}. Both runs published with both executed checks.");
+    }
+
+    private static async Task<ExecutionMeasurements> RunExecutionAsync(bool useSoftwareDeveloper, IReadOnlyList<ToolStep> script, string[] checks)
+    {
         var workspace = Guid.NewGuid();
         var root = PlatformGitWorkspaceClient.LocalWorkspacePath(workspace);
         var item = Empty<WorkItem>() with
@@ -51,13 +79,23 @@ public sealed class DeepSeekExecutionJourneyTests
         using var source = new MemoryStream();
         using (var zip = new ZipArchive(source, ZipArchiveMode.Create, true))
         {
-            for (var i = 0; i < 5; i++)
+            for (var i = 0; i < Inputs.Length; i++)
             {
-                using var writer = new StreamWriter(zip.CreateEntry($"old-{i}.txt").Open());
+                using var writer = new StreamWriter(zip.CreateEntry(Inputs[i]).Open());
                 await writer.WriteAsync(string.Concat(Enumerable.Range(0, 1200).Select(n => $"Record {i}-{n} from the workspace.\n")));
             }
-            using var validation = new StreamWriter(zip.CreateEntry("verify.cjs").Open());
-            await validation.WriteAsync("if (!require('node:fs').readFileSync('index.html', 'utf8').includes('<canvas>')) process.exit(1);");
+            await WriteFixture("inspect.cjs", """
+                const fs = require('node:fs');
+                for (let i = 0; i < 5; i++) console.log(fs.readFileSync(`old-${i}.txt`, 'utf8').split('\n', 1)[0]);
+                """);
+            await WriteFixture("verify.cjs", "if (!require('node:fs').readFileSync('index.html', 'utf8').includes('<canvas>')) process.exit(1);");
+            await WriteFixture("verify-controls.cjs", "if (!require('node:fs').readFileSync('index.html', 'utf8').includes('ArrowLeft')) process.exit(1);");
+
+            async Task WriteFixture(string name, string contents)
+            {
+                using var writer = new StreamWriter(zip.CreateEntry(name).Open());
+                await writer.WriteAsync(contents);
+            }
         }
 
         var publications = new List<PublishGitWorkspaceRequest>();
@@ -75,7 +113,7 @@ public sealed class DeepSeekExecutionJourneyTests
                 Task.FromResult(r.Direction == "pull" ? new GitWorkspaceSyncResult(source.ToArray()) :
                     new GitWorkspaceSyncResult { Checkpoint = new(workspace, 1, Convert.ToHexStringLower(SHA256.HashData(r.Archive!))) }))
             .RegisterCapability<InspectGitWorkspaceRequest, GitWorkspaceInspection>(GitWorkspaceCapabilities.Inspect,
-                (_, _) => Task.FromResult(new GitWorkspaceInspection(workspace, "Modified", true, [sourceFile], [])))
+                (_, _) => Task.FromResult(new GitWorkspaceInspection(workspace, "Modified", true, [SourceFile], [])))
             .RegisterCapability<PublishGitWorkspaceRequest, GitWorkspacePublication>(GitWorkspaceCapabilities.Publish, (r, _) =>
             {
                 publications.Add(r);
@@ -87,7 +125,7 @@ public sealed class DeepSeekExecutionJourneyTests
                 (_, _) => Task.FromResult(new GitWorkspaceCleanupResult(workspace, false, null)));
         _ = new OperatingStateFixture(runtime);
 
-        using var endpoint = new DeepSeekStream(sourceFile);
+        using var endpoint = new DeepSeekStream(script);
         using var http = new HttpClient(endpoint);
         var sdk = new OpenAI.Chat.ChatClient("deepseek-flash", new ApiKeyCredential("fixture"),
             new OpenAIClientOptions { Endpoint = new Uri("https://provider.invalid/v1/"), Transport = new HttpClientPipelineTransport(http) });
@@ -121,9 +159,9 @@ public sealed class DeepSeekExecutionJourneyTests
             Assert.True(outcome.Disposition == WorkExecutionDispositions.Completed, outcome.Summary);
             var publication = Assert.Single(publications);
             Assert.Equal(workspace, publication.WorkspaceId);
-            var validation = Assert.Single(publication.Validations!);
-            Assert.True(validation.Command == VerifyCanvas && validation.Succeeded && validation.ExitCode == 0);
-            Assert.True(endpoint.Compacted, "The test must exercise the request after tool history compaction.");
+            Assert.Equal(checks, publication.Validations!.Select(validation => validation.Command));
+            Assert.All(publication.Validations!, validation => Assert.True(validation.Succeeded && validation.ExitCode == 0));
+            return endpoint.Measurements;
         }
         finally
         {
@@ -133,6 +171,36 @@ public sealed class DeepSeekExecutionJourneyTests
     }
 
     private static T Empty<T>() => JsonSerializer.Deserialize<T>("{}", Web)!;
+
+    private static IReadOnlyList<ToolStep> ExecutionScript(bool targeted, string[] checks)
+    {
+        List<ToolStep> steps = [new("record_execution_plan", new { steps = new[] {
+            new { requirement = "Inspect the source", verification = "Read the workspace records" },
+            new { requirement = "Preserve the canvas", verification = VerifyCanvas },
+            new { requirement = "Publish the slice", verification = "Record the result" }
+        } })];
+        if (targeted)
+            steps.Add(new("execute_workspace_command", new { command = "node inspect.cjs" }));
+        else
+            steps.AddRange(Inputs.Select(fileName => new ToolStep("file_access_read", new { fileName })));
+        steps.Add(new("file_access_write", new { fileName = SourceFile, content = "<canvas></canvas><script>const left = 'ArrowLeft';</script>", overwrite = true })
+            { RequiresInspection = true });
+        if (targeted)
+            steps.Add(new("execute_workspace_commands", new { commands = checks }));
+        else
+            steps.AddRange(checks.Select(command => new ToolStep("execute_workspace_command", new { command })));
+        steps.Add(new("file_access_write", new { fileName = ".csweet/outcome.json", overwrite = true, content = JsonSerializer.Serialize(new
+            { summary = "Canvas slice complete", changedFiles = new[] { SourceFile },
+                validations = checks.Select(command => new { command, succeeded = true, exitCode = 0 }) }) }));
+        return steps;
+    }
+
+    private sealed record ToolStep(string Name, object Arguments)
+    {
+        public bool RequiresInspection { get; init; }
+    }
+
+    private sealed record ExecutionMeasurements(int Requests, long MessageCharacters, int PeakMessageCharacters, bool Compacted);
 
     private sealed class ChatFactory(OpenAI.Chat.ChatClient client) : IAgentLlmClientFactory
     {
@@ -147,16 +215,23 @@ public sealed class DeepSeekExecutionJourneyTests
             CancellationToken cancellationToken = default) => GetStreamingResponseAsync(messages, options, cancellationToken).ToChatResponseAsync(cancellationToken);
     }
 
-    private sealed class DeepSeekStream(string sourceFile) : HttpMessageHandler
+    private sealed class DeepSeekStream(IReadOnlyList<ToolStep> script) : HttpMessageHandler
     {
         private int requests;
+        private long messageCharacters;
+        private int peakMessageCharacters;
+        private bool compacted;
         public string? Rejection { get; private set; }
-        public bool Compacted { get; private set; }
+        public ExecutionMeasurements Measurements => new(requests, messageCharacters, peakMessageCharacters, compacted);
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             using var body = JsonDocument.Parse(await request.Content!.ReadAsStreamAsync(cancellationToken));
-            var messages = body.RootElement.GetProperty("messages").EnumerateArray().ToArray();
+            var history = body.RootElement.GetProperty("messages");
+            var characters = history.GetRawText().Length;
+            messageCharacters += characters;
+            peakMessageCharacters = Math.Max(peakMessageCharacters, characters);
+            var messages = history.EnumerateArray().ToArray();
             var toolCalls = new List<string>();
             foreach (var message in messages.Where(message => message.GetProperty("role").GetString() == "assistant"))
             {
@@ -179,24 +254,18 @@ public sealed class DeepSeekExecutionJourneyTests
             Assert.Equal(Enumerable.Range(1, requests).Select(step => $"call-{step}"), toolCalls);
             var toolResults = messages.Where(message => message.GetProperty("role").GetString() == "tool").ToArray();
             Assert.Equal(toolCalls, toolResults.Select(message => message.GetProperty("tool_call_id").GetString()));
-            Compacted |= toolResults.Any(message =>
+            compacted |= toolResults.Any(message =>
                 message.GetProperty("content").ToString().Contains("Older tool detail abbreviated", StringComparison.Ordinal));
             requests++;
-
-            return requests switch
+            if (requests == script.Count + 1) return Stream(new { content = "Canvas slice complete" }, "stop");
+            Assert.InRange(requests, 1, script.Count);
+            var step = script[requests - 1];
+            if (step.RequiresInspection)
             {
-                1 => Tool("record_execution_plan", new { steps = new[] {
-                    new { requirement = "Inspect the source", verification = "Read the workspace records" },
-                    new { requirement = "Preserve the canvas", verification = VerifyCanvas },
-                    new { requirement = "Publish the slice", verification = "Record the result" } } }),
-                >= 2 and <= 6 => Tool("file_access_read", new { fileName = $"old-{requests - 2}.txt" }),
-                7 => Tool("file_access_write", new { fileName = sourceFile, content = "<canvas></canvas>", overwrite = true }),
-                8 => Tool("execute_workspace_command", new { command = VerifyCanvas }),
-                9 => Tool("file_access_write", new { fileName = ".csweet/outcome.json", overwrite = true, content = JsonSerializer.Serialize(new
-                    { summary = "Canvas slice complete", changedFiles = new[] { sourceFile }, validations = new[] { new { command = VerifyCanvas, succeeded = true, exitCode = 0 } } }) }),
-                10 => Stream(new { content = "Canvas slice complete" }, "stop"),
-                _ => throw new InvalidOperationException($"Unexpected model request {requests}.")
-            };
+                for (var i = 0; i < Inputs.Length; i++)
+                    Assert.Contains(toolResults, message => message.GetProperty("content").ToString().Contains($"Record {i}-0 from the workspace.", StringComparison.Ordinal));
+            }
+            return Tool(step.Name, step.Arguments);
         }
 
         private HttpResponseMessage Tool(string name, object arguments) => Stream(new

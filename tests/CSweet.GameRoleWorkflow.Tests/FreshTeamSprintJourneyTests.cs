@@ -330,15 +330,18 @@ public sealed partial class FreshTeamSprintJourneyTests
             Assert.True(result.Succeeded, result.Error);
         }
 
-        public async Task PlanAsync(Func<Task<(PersonalTodoAvailableEvent, Guid)>>? nextWake = null, Func<bool>? reachedWait = null)
+        public async Task PlanAsync(Func<Task<(PersonalTodoAvailableEvent, Guid)>>? nextWake = null, Func<bool>? reachedWait = null,
+            Func<AgentCoordinationSession, bool>? deliverSession = null)
         {
+            var existingWork = await platform.Db.CoreWorkTasks.Where(t => t.BoardId == platform.Board && t.IsExecutable)
+                .Select(t => t.Id).ToListAsync();
             for (var step = 0; step < 16; step++)
             {
                 var (wake, deliveryId) = nextWake is null ? (queue.NextWake(), Guid.NewGuid()) : await nextWake();
                 if (firstWake is null) { firstWake = wake; deliveryId = firstEvent; }
                 var result = await hosts[platform.Gabriel.OrganizationUserId].DeliverEventAsync(PersonalTodoEvents.Available, wake, deliveryId);
                 Assert.True(result.Succeeded, result.Error);
-                foreach (var session in sessions.Values.Where(s => s.Status == "Active").ToArray())
+                foreach (var session in sessions.Values.Where(s => s.Status == "Active" && deliverSession?.Invoke(s) != false).ToArray())
                 {
                     var turn = new AgentCoordinationTurnRequest(session.Id, session.Revision, session.NextTurnOrdinal, session.Subject,
                         session.Objective, session.SuccessCriteria, session.Target, session.Initiator, false, session.Turns)
@@ -351,7 +354,8 @@ public sealed partial class FreshTeamSprintJourneyTests
                         request.GetProperty("phase").GetString() == "Story")
                     {
                         // Crash after the authoritative return, before the Producer can read or publish it.
-                        Assert.Empty(await platform.Db.CoreWorkTasks.Where(t => t.BoardId == platform.Board && t.IsExecutable).ToListAsync());
+                        Assert.Empty(await platform.Db.CoreWorkTasks.Where(t => t.BoardId == platform.Board && t.IsExecutable &&
+                            !existingWork.Contains(t.Id)).ToListAsync());
                         await StartHostsAsync();
                         var duplicate = await hosts[session.Target.OrganizationUserId].DeliverCoordinationTurnAsync(turn, eventId);
                         Assert.True(duplicate.Succeeded, duplicate.Error);
