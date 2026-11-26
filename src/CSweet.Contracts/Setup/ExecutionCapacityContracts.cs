@@ -61,7 +61,8 @@ public sealed record CreateLocalOfficeSetupSessionRequest(
     string? TargetVersion = null,
     bool UseLocalSource = false,
     string? StorageVolumeId = null,
-    OfficeWorkspaceBudget? WorkspaceBudget = null);
+    OfficeWorkspaceBudget? WorkspaceBudget = null,
+    Guid? RecoverComputeForBusinessId = null);
 
 public sealed record OfficeWorkspaceBudget(int CpuCount, int MemoryMiB, int DiskMiB)
 {

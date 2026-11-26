@@ -96,6 +96,18 @@ public sealed class OrganizationDataPurgeService(
 
         try
         {
+            // Keep the installed business identity on the setup record for authenticated
+            // reassignment. Remove its current offer before deleting the tenant registry.
+            var offices = await dbContext.ExecutionNodes.Where(node =>
+                dbContext.ComputeNodes.Any(registration => registration.Id == node.Id && registration.OrganizationId == organizationId) ||
+                dbContext.LocalOfficeSetupSessions.Any(session => session.ExecutionNodeId == node.Id &&
+                    session.ComputeReservationBusinessId == organizationId)).ToListAsync(cancellationToken);
+            foreach (var office in offices)
+            {
+                office.ComputeTemplateId = null;
+                office.ComputeCapacityJson = null;
+            }
+            if (offices.Count > 0) await dbContext.SaveChangesAsync(cancellationToken);
             if (dbContext.Database.IsRelational())
             {
                 await DeleteScopedRelationalRowsAsync(organizationId, cancellationToken);

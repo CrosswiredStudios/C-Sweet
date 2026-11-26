@@ -2,10 +2,12 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using CSweet.Compute.Contracts;
+using CSweet.Contracts.Compute;
 using CSweet.Contracts.Setup;
 using CSweet.Domain.Compute;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Setup;
 using CSweet.Office.Contracts.ControlPlane;
 using Microsoft.EntityFrameworkCore;
 
@@ -30,7 +32,7 @@ public static class OfficeComputePlacement
     public const string ProviderId = "office-hyperv";
     public const string AppleProviderId = "office-apple-virtualization";
     internal static readonly string[] OfficeProviders = [ProviderId, AppleProviderId];
-    internal static readonly TimeSpan MaximumHeartbeatAge = TimeSpan.FromSeconds(30);
+    public static readonly TimeSpan MaximumHeartbeatAge = TimeSpan.FromSeconds(30);
     public static bool IsOfficeProvider(string? id) => id is ProviderId or AppleProviderId;
     private const string TemplatePrefix = "office-linux-";
     internal static readonly ComputeResources WorkspaceResources = new(2, 2048, 20480);
@@ -67,19 +69,21 @@ public static class OfficeComputePlacement
             !apple && office.OperatingSystem is not ("windows" or "")) return;
         var pool = await db.ExecutionPools.AsNoTracking().SingleAsync(x => x.Id == office.ExecutionPoolId, token);
         if (!Allows(pool, business)) return;
+        if (await db.LocalOfficeSetupSessions.AsNoTracking().AnyAsync(s => s.ExecutionNodeId == office.Id &&
+            s.ComputeReservationBusinessId != null && s.ComputeReservationBusinessId != business, token)) return;
         if (db.Database.IsNpgsql())
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({BitConverter.ToInt64(business.ToByteArray(), 0)})", token);
         var template = await db.ComputeTemplates.SingleOrDefaultAsync(x => x.OrganizationId == business &&
             x.TemplateId == offer.TemplateId, token);
         var approvals = catalog?.ForBusiness(business).ToArray() ?? [];
-        if (template is null && approvals.Length == 0 && await db.LocalOfficeSetupSessions.AsNoTracking().AnyAsync(x =>
+        if (template is null && approvals.Length == 0 && await db.LocalOfficeSetupSessions.AsNoTracking().SingleOrDefaultAsync(x =>
                 x.ExecutionNodeId == office.Id && x.ComputeReservationBusinessId == business &&
                 x.ComputeReservationImageDigest == offer.ImageDigest &&
                 (x.Status == LocalOfficeSetupSessionStatus.Ready || x.Status == LocalOfficeSetupSessionStatus.Connected) &&
                 db.CoreOrganizationUsers.Any(u => u.OrganizationId == business && u.ApplicationUserId == x.CreatedByUserId &&
                     u.IsActive && u.ArchivedAt == null && u.EmployeeType == CSweet.Domain.Core.EmployeeType.Human &&
-                    u.PermissionLevel == CSweet.Domain.Core.OrganizationPermissionLevel.Owner), token))
-            approvals = [new(business, offer.ImageDigest, ["docker", "docker-apps-v1"])];
+                    u.PermissionLevel == CSweet.Domain.Core.OrganizationPermissionLevel.Owner), token) is { } reserved)
+            approvals = [new(business, offer.ImageDigest, ExecutionFleetService.ReservedComputeFeatures(reserved))];
         if (template is null && approvals.FirstOrDefault(x =>
             x.ImageDigest == offer.ImageDigest && x.Features is { Length: > 0 and <= 64 } &&
             x.Features.Contains("docker") && x.Features.All(ComputeSpecification.Identifier) &&
@@ -199,23 +203,33 @@ public static class OfficeComputePlacement
 
     private static async Task<bool> HasRoomAsync(CSweetDbContext db, Guid node, string? json, string? budgetJson, ComputeResources requested, Guid? activatingEnvironment, CancellationToken token)
     {
-        if (json is null || JsonSerializer.Deserialize<Capacity>(json, ComputeProtocol.Json) is not { } capacity) return false;
+        var capacity = await ReadWorkspaceCapacityAsync(db, node, json, budgetJson, token, activatingEnvironment);
+        return capacity is { Free: { } free } && free.Slots > 0 && requested.CpuCount <= free.CpuCount &&
+            requested.MemoryMiB <= free.MemoryMiB && requested.DiskMiB <= free.DiskMiB && requested.GpuCount == 0;
+    }
+
+    public static async Task<(ComputeWorkspaceCapacity Total, ComputeWorkspaceCapacity Free)?> ReadWorkspaceCapacityAsync(
+        CSweetDbContext db, Guid node, string? json, string? budgetJson, CancellationToken token, Guid? activatingEnvironment = null)
+    {
+        if (json is null || JsonSerializer.Deserialize<Capacity>(json, ComputeProtocol.Json) is not { } capacity) return null;
         var budget = budgetJson is null ? null : JsonSerializer.Deserialize<OfficeWorkspaceBudget>(budgetJson);
-        long cpu = requested.CpuCount, memory = requested.MemoryMiB, disk = requested.DiskMiB;
-        var count = 1;
+        var total = new ComputeWorkspaceCapacity(capacity.Slots, Math.Min(capacity.Resources.CpuCount, budget?.CpuCount ?? int.MaxValue),
+            Math.Min(capacity.Resources.MemoryMiB, (long?)budget?.MemoryMiB ?? long.MaxValue),
+            Math.Min(capacity.Resources.DiskMiB, (long?)budget?.DiskMiB ?? long.MaxValue));
+        long cpu = 0, memory = 0, disk = 0;
+        var count = 0;
         var held = db.ComputeEnvironments.AsNoTracking().Where(x => x.ProviderNodeId == node && x.TeardownConfirmedAt == null && (activatingEnvironment == null || x.Id != activatingEnvironment));
         await foreach (var spec in held.Select(x => new { x.State, x.DesiredState, x.SpecificationJson }).AsAsyncEnumerable().WithCancellation(token))
         {
-            if (JsonSerializer.Deserialize<ComputeSpecification>(spec.SpecificationJson, ComputeProtocol.Json)?.Resources is not { } used) return false;
+            if (JsonSerializer.Deserialize<ComputeSpecification>(spec.SpecificationJson, ComputeProtocol.Json)?.Resources is not { } used) return null;
             disk = checked(disk + used.DiskMiB);
             if (spec.State == ComputeLifecycleState.Stopped && spec.DesiredState != ComputeDesiredState.Running) continue;
             count++;
             cpu += used.CpuCount;
             memory = checked(memory + used.MemoryMiB);
         }
-        return count <= capacity.Slots && cpu <= capacity.Resources.CpuCount && memory <= capacity.Resources.MemoryMiB &&
-            disk <= capacity.Resources.DiskMiB && requested.GpuCount == 0 &&
-            (budget == null || cpu <= budget.CpuCount && memory <= budget.MemoryMiB && disk <= budget.DiskMiB);
+        return (total, new(Math.Max(0, total.Slots - count), (int)Math.Max(0, total.CpuCount - cpu),
+            Math.Max(0, total.MemoryMiB - memory), Math.Max(0, total.DiskMiB - disk)));
     }
 
     internal static async Task TrackDemandAsync(CSweetDbContext db, Guid organization, Guid installation, Guid project,
@@ -231,7 +245,7 @@ public static class OfficeComputePlacement
             db.Remove(demand);
     }
 
-    internal static bool Allows(ExecutionPool pool, Guid? business)
+    public static bool Allows(ExecutionPool pool, Guid? business)
     {
         if (!pool.IsEnabled) return false;
         try

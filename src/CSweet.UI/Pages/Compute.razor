@@ -26,21 +26,77 @@
     {
         <MudAlert Severity="Severity.Error" Class="mb-4">@_error <MudButton OnClick="LoadAsync" Disabled="_loading" Color="Color.Inherit">@L["Compute.TryAgain"]</MudButton></MudAlert>
     }
+    @if (_actionNotice is not null)
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-4" role="status">@_actionNotice</MudAlert>
+    }
     @if (_dashboard is null && _loading)
     {
         <MudProgressLinear Indeterminate="true" aria-label="@L["Compute.LoadingCompute"]" />
     }
     @if (_dashboard is { } dashboard)
     {
-        <div class="compute-heading compute-section-heading">
-            <MudText Typo="Typo.h6">@L["Compute.ComputeTypes"]</MudText>
-            @if (dashboard.LegacyLocalSetupEnabled)
-            {
-                <span class="compute-secondary">@L["Compute.SetUpOnceReuseAcross"]</span>
-            }
-        </div>
+        <MudTabs @bind-ActivePanelIndex="_tab" KeepPanelsAlive="true" Elevation="0" Class="compute-tabs">
+        <MudTabPanel Text="@L["Compute.ComputeTypes"]">
+        @if (!dashboard.LegacyLocalSetupEnabled && dashboard.Offices.Count > 0)
+        {
+            <section class="compute-create" aria-label="Office workspace capacity">
+                <div class="compute-heading">
+                    <div>
+                        <h3>Linux workspace capacity</h3>
+                        <p class="compute-secondary">Standard workspace · 2 vCPU · 2 GiB RAM · 20 GiB disk</p>
+                    </div>
+                    <strong>@dashboard.Offices.Sum(o => o.Free?.StandardWorkspaces ?? 0) standard workspaces available</strong>
+                </div>
+                @foreach (var office in dashboard.Offices)
+                {
+                    <div class="compute-office" @key="office.Id">
+                        <div class="compute-heading">
+                            <strong>@office.Name</strong>
+                            <MudChip T="string" Color="@(office.State == "Online" ? Color.Success : Color.Warning)" Size="Size.Small">@office.State</MudChip>
+                        </div>
+                        @if (office.Total is { } total)
+                        {
+                            <dl class="compute-metrics">
+                                <div><dt>Free slots</dt><dd>@Quantity(office.Free?.Slots, total.Slots)</dd></div>
+                                <div><dt>Free CPU</dt><dd>@Quantity(office.Free?.CpuCount, total.CpuCount)</dd></div>
+                                <div><dt>Free memory</dt><dd>@Quantity(office.Free?.MemoryMiB / 1024d, total.MemoryMiB / 1024d) GiB</dd></div>
+                                <div><dt>Free disk</dt><dd>@Quantity(office.Free?.DiskMiB / 1024d, total.DiskMiB / 1024d) GiB</dd></div>
+                            </dl>
+                            <p class="compute-secondary">@(office.Features.Contains("browser-testing-v1") ? "Browser testing supported" : "Browser testing unavailable")</p>
+                        }
+                        else
+                        {
+                            <p class="compute-secondary">@(office.MayReassign
+                                ? "This Office’s workspace reservation belongs to a deleted business."
+                                : "This Office has no usable Linux capacity offer.")</p>
+                        }
+                        @if (office.LastHeartbeatAt is { } lastSeen)
+                        {
+                            <div class="compute-secondary">Last seen @lastSeen.ToLocalTime().ToString("g")</div>
+                        }
+                        @if (office.MayReassign)
+                        {
+                            <div class="compute-office-actions">
+                                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@(_officeBusy != null)"
+                                    OnClick="@(() => _confirmOffice = office.Id)">Reassign Office compute</MudButton>
+                                @if (_confirmOffice == office.Id)
+                                {
+                                    <span>Assign this Office’s workspace reservation to this business?</span>
+                                    <MudButton Color="Color.Primary" Disabled="@(_officeBusy != null)" OnClick="@(() => ReassignOfficeAsync(office))">Confirm reassignment</MudButton>
+                                    <MudButton OnClick="@(() => _confirmOffice = null)">@L["Common.Cancel"]</MudButton>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+                <MudLink Href="/settings/offices">Manage Office workspace limits</MudLink>
+            </section>
+        }
         <ComputePreparation @key="OrganizationId" Setup="dashboard.Setup" CheckedAt="dashboard.CheckedAt" CanManage="dashboard.CanManageNetwork" LegacyLocalSetupEnabled="dashboard.LegacyLocalSetupEnabled"
                             Busy="@(_repairingSetup || _loading)" OnSetup="StartSetupAsync" OnRetry="RepairSetupAsync" OnUpdate="UpdateServiceAsync" OnRefresh="LoadAsync" OnCreate="OpenCreateAsync" />
+        </MudTabPanel>
+        <MudTabPanel Text="@L["Compute.Instances"]">
         @if (_showCreate && dashboard.CanManageNetwork && dashboard.Setup?.State == "Ready")
         {
             <section class="compute-create" aria-labelledby="create-instance-title">
@@ -77,7 +133,13 @@
             </section>
         }
         @if (_creationNotice is not null) { <MudAlert Severity="Severity.Success" Class="mt-4">@_creationNotice</MudAlert> }
-        <MudText Typo="Typo.h6" Class="compute-instances-heading">@L["Compute.Instances"] <span class="compute-count">@dashboard.Resources.Count</span></MudText>
+        <div class="compute-heading compute-instances-heading">
+            <span class="compute-secondary">@dashboard.Resources.Count instance@(dashboard.Resources.Count == 1 ? "" : "s")</span>
+            @if (!_showCreate && dashboard.CanManageNetwork && dashboard.Setup?.State == "Ready")
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="OpenCreateAsync">@L["Compute.CreateLinuxInstance"]</MudButton>
+            }
+        </div>
         @if (dashboard.Resources.Count == 0)
         {
             <MudPaper Outlined="true" Elevation="0" Class="compute-empty pa-8">
@@ -86,6 +148,10 @@
                 <MudText Class="mt-2">@(dashboard.Setup?.State == "Ready" ? "Linux is ready. Create an instance, or let an agent request one when it needs to build or test." :
                     dashboard.LegacyLocalSetupEnabled ? "Prepare Linux to make instances available. Existing requests continue automatically when compute is ready." :
                     "A workspace appears here once Headquarters places the request with an Office.")</MudText>
+                @if (dashboard.Requests.Count > 0)
+                {
+                    <MudButton OnClick="@(() => _tab = 2)" Color="Color.Primary" Class="mt-2">View requests</MudButton>
+                }
             </MudPaper>
         }
         else
@@ -100,6 +166,24 @@
                     <MudTd DataLabel="State">
                         <MudChip T="string" Color="@StateColor(context.State)" Size="Size.Small">@context.State</MudChip>
                         @if (context.FailureCode is not null) { <div class="compute-failure">@context.FailureCode</div> }
+                        @if (context.LatestOperation is { } operation)
+                        {
+                            <details class="compute-operation">
+                                <summary>Operation details</summary>
+                                <div>@OperationName(operation.Action) · @operation.State</div>
+                                <div>@operation.Attempts dispatch attempt@(operation.Attempts == 1 ? "" : "s")</div>
+                                <div>@operation.UpdatedAt.ToLocalTime().ToString("g")</div>
+                                @if (operation.FailureCode is { } code && code != context.FailureCode)
+                                {
+                                    <code class="compute-failure">@(code)</code>
+                                }
+                                @if (operation.CanRecheck)
+                                {
+                                    <MudButton Size="Size.Small" Color="Color.Primary" Disabled="@(_grantBusy.HasValue)"
+                                        OnClick="@(() => RecheckProvisioningAsync(context, operation))">Recheck provisioning</MudButton>
+                                }
+                            </details>
+                        }
                         @if (context.State is "Requested" or "Provisioning" or "Bootstrapping" && dashboard.CheckedAt - context.UpdatedAt > TimeSpan.FromMinutes(2))
                         {
                             <div class="compute-secondary">@L["Compute.WaitingForAProviderUpdate"]</div>
@@ -168,11 +252,62 @@
             </MudTable>
             @if (dashboard.HasMore) { <MudText Typo="Typo.caption">@L["Compute.ShowingThe100MostRecent"]</MudText> }
         }
+        </MudTabPanel>
+        <MudTabPanel Text="Requests and Info">
+            @if (!dashboard.CanManageNetwork)
+            {
+                <MudPaper Outlined="true" Elevation="0" Class="pa-5">A business owner can review compute requests and retry eligible work.</MudPaper>
+            }
+            else if (dashboard.Requests.Count == 0)
+            {
+                <MudPaper Outlined="true" Elevation="0" Class="pa-5">No pending compute requests.</MudPaper>
+            }
+            @foreach (var request in dashboard.Requests)
+            {
+                <article class="compute-create compute-request" @key="request.Id">
+                    <div class="compute-heading">
+                        <div>
+                            <h3>@request.Employee</h3>
+                            <span class="compute-secondary">@request.Project</span>
+                        </div>
+                        <MudChip T="string" Size="Size.Small" Color="@(request.DiagnosticCode == null ? Color.Success : Color.Warning)">
+                            @(request.DiagnosticCode == null ? "Compute ready" : "Waiting for compute")
+                        </MudChip>
+                    </div>
+                    <p>@(request.RequiresBrowser ? "Linux x64 · Browser testing · 2 vCPU · 2 GiB RAM · 20 GiB disk" : "Office workspace · Resources are set by the requesting agent")</p>
+                    @foreach (var work in request.Work)
+                    {
+                        <MudLink Href="@work.Uri">@(work.Identifier is { } id ? $"{id} · {work.Title}" : work.Title)</MudLink>
+                    }
+                    <p>@request.Reason</p>
+                    <details class="compute-operation">
+                        <summary>View diagnostics</summary>
+                        <div>Last check @request.LastCheckedAt.ToLocalTime().ToString("g")</div>
+                        @if (request.RetryAt is { } next) { <div>Next automatic check @next.ToLocalTime().ToString("g")</div> }
+                        @if (request.DiagnosticCode is { } diagnostic) { <code>@diagnostic</code> }
+                    </details>
+                    @if (request.CanRecheck)
+                    {
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-3" Disabled="@(_requestBusy != null)"
+                            OnClick="@(() => RecheckRequestAsync(request))">Recheck now</MudButton>
+                    }
+                    else if (request.DiagnosticCode is not null)
+                    {
+                        <MudButton OnClick="@(() => _tab = 0)" Color="Color.Primary" Class="mt-2">Review Compute Types</MudButton>
+                    }
+                </article>
+            }
+        </MudTabPanel>
+        </MudTabs>
     }
 </MudContainer>
 
 @code {
     [Parameter] public Guid OrganizationId { get; set; }
+    [SupplyParameterFromQuery(Name = "tab")] public string? Tab { get; set; }
+    private int _tab;
+    private string? _openedTab;
+    private Guid? _requestBusy, _officeBusy, _confirmOffice;
     private readonly CancellationTokenSource _stop = new();
     private ComputeDashboard? _dashboard;
     private Guid _loadedOrganization;
@@ -196,6 +331,7 @@
     private void CloseCreate() { _showCreate = false; _createGeneration++; }
     private async Task OpenCreateAsync()
     {
+        _tab = 1;
         _showCreate = true;
         _creationOptions = null;
         _creationOption = null;
@@ -353,6 +489,11 @@
     protected override void OnInitialized() => _ = RefreshLoopAsync();
     protected override async Task OnParametersSetAsync()
     {
+        if (_loadedOrganization != OrganizationId || _openedTab != Tab)
+        {
+            _tab = Tab switch { "instances" => 1, "requests" => 2, _ => 0 };
+            _openedTab = Tab;
+        }
         if (_loadedOrganization == OrganizationId) return;
         _loadedOrganization = OrganizationId;
         _dashboard = null;
@@ -363,6 +504,8 @@
         _pendingCreation = null;
         _creationNotice = null;
         _creationError = null;
+        _requestBusy = _officeBusy = _confirmOffice = null;
+        _actionNotice = null;
         _createGeneration++;
         await LoadAsync();
     }
@@ -373,7 +516,7 @@
         _loading = true;
         try
         {
-            var result = await Http.GetFromJsonAsync<ComputeDashboard>($"api/organizations/{organization}/compute", _stop.Token);
+            var result = await Http.GetFromJsonAsync<ComputeDashboard>($"api/organizations/{organization}/compute?details=true", _stop.Token);
             if (organization != OrganizationId) return;
             _dashboard = result;
             _error = null;
@@ -382,6 +525,47 @@
         catch (Exception) { if (organization == OrganizationId) _error = L["Compute.CouldNotRefreshComputeDisplayed"]; }
         finally { _loading = false; }
     }
+    private async Task RecheckRequestAsync(ComputeRequestStatus request)
+    {
+        _requestBusy = request.Id;
+        try { await SendComputeActionAsync($"requests/{request.Id:D}/recheck"); }
+        finally { _requestBusy = null; }
+    }
+    private async Task RecheckProvisioningAsync(ComputeResourceStatus resource, ComputeOperationStatus operation)
+    {
+        _grantBusy = resource.Id;
+        try { await SendComputeActionAsync($"instances/{resource.Id:D}/provisioning/{operation.Id:D}/recheck"); }
+        finally { _grantBusy = null; }
+    }
+    private async Task ReassignOfficeAsync(ComputeOfficeStatus office)
+    {
+        _officeBusy = office.Id;
+        _confirmOffice = null;
+        try { await SendComputeActionAsync($"offices/{office.Id:D}/reassign"); }
+        finally { _officeBusy = null; }
+    }
+    private string? _actionNotice;
+    private async Task SendComputeActionAsync(string action)
+    {
+        var organization = OrganizationId;
+        _actionNotice = null;
+        try
+        {
+            using var response = await Http.PostAsync($"api/organizations/{organization:D}/compute/{action}", null, _stop.Token);
+            if (organization != OrganizationId) return;
+            if (response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.Conflict)
+                _actionNotice = (await response.Content.ReadFromJsonAsync<ComputeActionResult>(_stop.Token))?.Message;
+            else if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                _actionNotice = "You do not have permission to perform this compute action.";
+            else
+                _actionNotice = "The compute action could not be accepted.";
+            await LoadAsync();
+        }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+        catch (HttpRequestException) { if (OrganizationId == organization) _actionNotice = "The compute action could not be delivered."; }
+    }
+    private static string Quantity(double? free, double total) => free is double n ? $"{n:0.#} / {total:0.#}" : $"— / {total:0.#}";
+    private static string OperationName(string action) => action.Replace("infrastructure.", "").Replace(".v1", "");
     private async Task RefreshLoopAsync()
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));

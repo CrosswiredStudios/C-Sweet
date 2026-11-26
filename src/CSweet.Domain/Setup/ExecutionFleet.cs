@@ -169,6 +169,7 @@ public sealed class LocalOfficeSetupSession
     public string? WorkspaceBudgetJson { get; set; }
     [System.ComponentModel.DataAnnotations.MaxLength(71)]
     public string? ComputeReservationImageDigest { get; set; }
+    public string? ComputeReservationFeaturesJson { get; set; }
     public string? StorageVolumeId { get; set; }
     public string? InstallRoot { get; set; }
     public string? DataRoot { get; set; }

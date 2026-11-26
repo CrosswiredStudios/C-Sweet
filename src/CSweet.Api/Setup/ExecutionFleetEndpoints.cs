@@ -2,6 +2,7 @@ using System.Text.Json;
 using CSweet.Application.Setup;
 using CSweet.Contracts.Setup;
 using CSweet.Domain.Setup;
+using CSweet.Infrastructure.Compute;
 using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -240,6 +241,19 @@ public static class ExecutionFleetEndpoints
             .Where(x => x.RevisionStatus == PluginRevisionStatus.Active)
             .OrderBy(x => x.PackageVersion!.AgentName).ThenBy(x => x.BusinessId)
             .ToListAsync(cancellationToken);
+        var computeBusinesses = await db.ComputeNodes.AsNoTracking().Where(n => n.Enabled &&
+            (n.ProviderId == OfficeComputePlacement.ProviderId || n.ProviderId == OfficeComputePlacement.AppleProviderId))
+            .ToDictionaryAsync(n => n.Id, n => n.OrganizationId, cancellationToken);
+        var workspaces = new Dictionary<Guid, int>();
+        var now = DateTimeOffset.UtcNow;
+        foreach (var node in nodes)
+        {
+            if (!computeBusinesses.TryGetValue(node.Id, out var business) || node.ComputeTemplateId == null ||
+                await OfficeComputePlacement.FindAsync(db, business, now, cancellationToken, node.ComputeTemplateId, node.Id) == null) continue;
+            var capacity = await OfficeComputePlacement.ReadWorkspaceCapacityAsync(db, node.Id, node.ComputeCapacityJson,
+                node.WorkspaceBudgetJson, cancellationToken);
+            if (capacity is { } current) workspaces.Add(node.Id, current.Free.StandardWorkspaces);
+        }
         return new ExecutionFleetAdministrationResponse(
             pools.Select(pool => new ExecutionPoolResponse(
                 pool.Id, pool.Name, pool.IsDefaultBuildPool, pool.IsDefaultRuntimePool,
@@ -269,7 +283,10 @@ public static class ExecutionFleetEndpoints
                     effectivePoolId,
                     pools.Single(pool => pool.Id == effectivePoolId).Name);
             }).ToArray(),
-            nodes.ToDictionary(node => node.Id, node => nodeActivity.GetValueOrDefault(node.Id)));
+            nodes.ToDictionary(node => node.Id, node => nodeActivity.GetValueOrDefault(node.Id)))
+        {
+            StandardWorkspacesAvailableByOffice = workspaces
+        };
     }
 
     private static IQueryable<ExecutionWorkloadAssignment> ActiveOfficeAssignments(CSweetDbContext db) =>

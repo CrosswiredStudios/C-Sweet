@@ -7,6 +7,8 @@ using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Infrastructure.Persistence;
 using CSweet.Infrastructure.Compute;
+using CSweet.Infrastructure.Security;
+using CSweet.Infrastructure.WorkManagement;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Api.Compute;
@@ -17,7 +19,7 @@ public static class ComputeDashboardEndpoints
     {
         endpoints.MapComputeNetworkGrantEndpoints();
         endpoints.MapComputeManagementEndpoints();
-        endpoints.MapGet("/api/organizations/{organizationId:guid}/compute", async (Guid organizationId,
+        endpoints.MapGet("/api/organizations/{organizationId:guid}/compute", async (Guid organizationId, bool? details,
             HttpContext http, CSweetDbContext db, IConfiguration configuration, IWebHostEnvironment environment,
             ComputeDownloadProgress downloads, CancellationToken token) =>
         {
@@ -25,7 +27,7 @@ public static class ComputeDashboardEndpoints
             var root = configuration["CSweet:Compute:RepositoryRoot"] ?? Path.GetFullPath(Path.Combine(environment.ContentRootPath, "..", ".."));
             var result = await ReadAsync(db, organizationId, userId, root,
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), token, downloads,
-                ComputeLocalSetupWorker.InteractiveSetupEnabled(environment, configuration));
+                ComputeLocalSetupWorker.InteractiveSetupEnabled(environment, configuration), details == true);
             return result is null ? Results.Forbid() : Results.Ok(result);
         }).RequireAuthorization();
         endpoints.MapPost("/api/organizations/{organizationId:guid}/compute/setup/update", async (Guid organizationId,
@@ -102,10 +104,12 @@ public static class ComputeDashboardEndpoints
 
     internal static async Task<ComputeDashboard?> ReadAsync(CSweetDbContext db, Guid organizationId, Guid userId,
         string repositoryRoot, string localData, CancellationToken token, ComputeDownloadProgress? downloads = null,
-        bool legacyLocalSetupEnabled = false)
+        bool legacyLocalSetupEnabled = false, bool details = false)
     {
-        if (!await db.CoreOrganizationUsers.AsNoTracking().AnyAsync(x => x.OrganizationId == organizationId &&
-                x.ApplicationUserId == userId && x.EmployeeType == EmployeeType.Human && x.IsActive && x.ArchivedAt == null, token)) return null;
+        var member = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&
+            x.ApplicationUserId == userId && x.EmployeeType == EmployeeType.Human && x.IsActive && x.ArchivedAt == null, token);
+        if (member is null) return null;
+        var canManage = member.PermissionLevel == OrganizationPermissionLevel.Owner;
         var environments = await db.ComputeEnvironments.AsNoTracking().Where(x => x.OrganizationId == organizationId)
             .OrderByDescending(x => x.CreatedAt).ThenBy(x => x.Id).Take(101).ToListAsync(token);
         var installations = environments.Select(x => x.InstallationId).ToArray();
@@ -116,6 +120,12 @@ public static class ComputeDashboardEndpoints
             .Where(x => installations.Contains(x.Id) && x.BusinessId == organizationId.ToString("D")).ToDictionaryAsync(x => x.Id, token);
         var projects = await db.Workstreams.AsNoTracking().Where(x => x.OrganizationId == organizationId && workstreams.Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, x => x.Name, token);
+        var environmentIds = environments.Take(100).Select(x => x.Id).ToArray();
+        var operations = details && environmentIds.Length > 0
+            ? await db.ComputeOperations.AsNoTracking().Where(x => x.OrganizationId == organizationId && environmentIds.Contains(x.EnvironmentId))
+                .GroupBy(x => x.EnvironmentId).Select(group => group.OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id).First())
+                .ToDictionaryAsync(x => x.EnvironmentId, token)
+            : [];
         var networkGrants = await db.ScopedActionGrants.AsNoTracking().Where(x => x.OrganizationId == organizationId &&
             (x.Action == "network.inbound.v1" || x.Action == "network.publish-port.v1") && x.RevokedAt == null &&
             x.GrantedAt <= DateTimeOffset.UtcNow && x.ExpiresAt > DateTimeOffset.UtcNow).ToListAsync(token);
@@ -129,6 +139,7 @@ public static class ComputeDashboardEndpoints
             var employee = agents.FirstOrDefault(a => a.AgentInstallationId == x.InstallationId);
             var installation = installedAgents.GetValueOrDefault(x.InstallationId);
             var approved = JsonSerializer.Deserialize<string[]>(installation?.Grant?.RequiredCapabilitiesJson ?? "[]") ?? [];
+            var operation = operations.GetValueOrDefault(x.Id);
             return new ComputeResourceStatus(x.Id, employee?.DisplayName ?? "Former agent",
                 projects.GetValueOrDefault(x.WorkstreamId, "Application testing"), x.State.ToString(), x.DesiredState.ToString(),
                 spec?.OperatingSystem ?? "Unknown", spec?.Resources?.CpuCount ?? 0, spec?.Resources?.MemoryMiB ?? 0,
@@ -141,24 +152,83 @@ public static class ComputeDashboardEndpoints
                 CanPowerOff = x.State == ComputeLifecycleState.Ready && x.DesiredState == ComputeDesiredState.Running && approved.Contains(InfrastructureActions.Stop),
                 EmployeeId = employee?.Id,
                 Name = x.DesiredEnvironmentKey,
+                LatestOperation = operation == null ? null : new(operation.Id, operation.Action, operation.Status, operation.Attempts,
+                    operation.CompletedAt ?? operation.CreatedAt, operation.FailureCode,
+                    canManage && ComputeManagementEndpoints.CanRecheckProvisioning(x, operation, DateTimeOffset.UtcNow)),
                 LocalLinkRequested = installation is { IsEnabled: true } && employee is { IsActive: true, ArchivedAt: null } &&
                     ComputeLocalLinkGrants.Actions.All(approved.Contains)
             };
         }).ToArray();
-        var canManage = await db.CoreOrganizationUsers.AnyAsync(x => x.OrganizationId == organizationId && x.ApplicationUserId == userId &&
-            x.EmployeeType == EmployeeType.Human && x.IsActive && x.ArchivedAt == null && x.PermissionLevel == OrganizationPermissionLevel.Owner, token);
         var now = DateTimeOffset.UtcNow;
+        IReadOnlyList<ComputeRequestStatus> requests = [];
+        if (details && canManage)
+        {
+            var names = await db.Workstreams.AsNoTracking().Where(x => x.OrganizationId == organizationId)
+                .ToDictionaryAsync(x => x.Id, x => x.Name, token);
+            requests = await OverviewIssueReader.ReadComputeRequestsAsync(db, new(db, new ScopedActionAuthorizationService(db), TimeProvider.System),
+                organizationId, member.Id, names, legacyLocalSetupEnabled, now, token);
+        }
         if (!legacyLocalSetupEnabled)
         {
             var capacity = await ReadOfficeCapacityAsync(db, organizationId, now, token);
-            return new(now, capacity, resources, environments.Count > 100, canManage);
+            var offices = details ? await ReadOfficesAsync(db, organizationId, canManage ? userId : null, now, token) : [];
+            return new(now, capacity, resources, environments.Count > 100, canManage) { Offices = offices, Requests = requests };
         }
         var setup = await db.Set<ComputeLocalSetup>().AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId, token);
         string? downloadFile = null;
         var progress = setup is null ? null : ReadProgress(setup, repositoryRoot, localData, file => downloadFile = file);
         if (setup is not null && progress is not null && downloads is not null)
             progress = await downloads.EnrichAsync(setup.Id, setup.UpdatedAt, downloadFile, progress, token);
-        return new(now, progress, resources, environments.Count > 100, canManage, LegacyLocalSetupEnabled: true);
+        return new(now, progress, resources, environments.Count > 100, canManage, LegacyLocalSetupEnabled: true) { Requests = requests };
+    }
+
+    private static async Task<IReadOnlyList<ComputeOfficeStatus>> ReadOfficesAsync(CSweetDbContext db, Guid business,
+        Guid? setupUser, DateTimeOffset now, CancellationToken token)
+    {
+        var registrations = db.ComputeNodes.AsNoTracking().Where(n => n.OrganizationId == business &&
+            (n.ProviderId == OfficeComputePlacement.ProviderId || n.ProviderId == OfficeComputePlacement.AppleProviderId));
+        var reservations = db.LocalOfficeSetupSessions.AsNoTracking().Where(s => s.ExecutionNodeId != null &&
+            s.ComputeReservationBusinessId == business && s.ComputeReservationImageDigest != null);
+        var orphaned = db.LocalOfficeSetupSessions.AsNoTracking().Where(s => setupUser.HasValue && s.CreatedByUserId == setupUser &&
+            s.ExecutionNodeId != null && s.ComputeReservationBusinessId != null && s.ComputeReservationImageDigest != null &&
+            !db.CoreOrganizations.Any(o => o.Id == s.ComputeReservationBusinessId) &&
+            !db.SystemConfigurations.Any(c => c.FirstOfficeBusinessId == s.ComputeReservationBusinessId));
+        var nodes = await (from node in db.ExecutionNodes.AsNoTracking()
+                           join pool in db.ExecutionPools.AsNoTracking() on node.ExecutionPoolId equals pool.Id
+                           where registrations.Any(r => r.Id == node.Id) || reservations.Any(s => s.ExecutionNodeId == node.Id) ||
+                               orphaned.Any(s => s.ExecutionNodeId == node.Id)
+                           select new { Node = node, Pool = pool }).ToListAsync(token);
+        var offices = new List<ComputeOfficeStatus>();
+        foreach (var row in nodes)
+        {
+            var node = row.Node;
+            var registered = await registrations.AnyAsync(r => r.Id == node.Id, token);
+            var reserved = await reservations.AnyAsync(r => r.ExecutionNodeId == node.Id, token);
+            var reassigning = !registered && await db.LocalOfficeSetupSessions.AnyAsync(s => s.UpgradeOfficeId == node.Id &&
+                s.RecoveryAction == "repair" && s.ComputeReservationBusinessId == business &&
+                (s.Status == LocalOfficeSetupSessionStatus.Created || s.Status == LocalOfficeSetupSessionStatus.Redeemed ||
+                 s.Status == LocalOfficeSetupSessionStatus.Connected), token);
+            if (!registered && (!OfficeComputePlacement.Allows(row.Pool, business) ||
+                await db.ComputeNodes.AnyAsync(n => n.Id == node.Id, token))) continue;
+            var definition = !registered || node.ComputeTemplateId == null ? null : await db.ComputeTemplates.AsNoTracking()
+                .Where(t => t.OrganizationId == business && t.TemplateId == node.ComputeTemplateId && t.Enabled)
+                .Select(t => t.TemplateJson).SingleOrDefaultAsync(token);
+            var template = definition is null ? null : JsonSerializer.Deserialize<ComputeTemplate>(definition, ComputeProtocol.Json);
+            var eligible = template is { } && await OfficeComputePlacement.FindAsync(db, business, now, token, template.Id, node.Id) != null;
+            var capacity = !registered ? null : await OfficeComputePlacement.ReadWorkspaceCapacityAsync(db, node.Id,
+                node.ComputeCapacityJson, node.WorkspaceBudgetJson, token);
+            var state = node.RevokedAt != null ? "Revoked" : reassigning ? "Reassignment in progress" :
+                !registered && !reserved ? "Reassignment needed" :
+                node.LastHeartbeatAt is null || now - node.LastHeartbeatAt > OfficeComputePlacement.MaximumHeartbeatAge ? "Offline" :
+                !registered ? "Awaiting registration" :
+                node.DrainingAt != null || node.WorkPauseReason != null ? "Paused" :
+                eligible ? "Online" : "Compute unavailable";
+            offices.Add(new(node.Id, node.Name, state, node.LastHeartbeatAt, template?.Id,
+                template?.Features.Order(StringComparer.Ordinal).ToArray() ?? [], capacity?.Total, eligible ? capacity?.Free : null,
+                MayReassign: !registered && !reserved && !reassigning && node.RevokedAt == null && node.ApprovedAt != null &&
+                    node.OperatingSystem == "windows"));
+        }
+        return offices.OrderBy(o => o.Name).ToArray();
     }
 
     internal static async Task<ComputeSetupStatus> ReadOfficeCapacityAsync(CSweetDbContext db, Guid business,

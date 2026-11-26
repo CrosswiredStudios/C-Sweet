@@ -91,6 +91,27 @@ public sealed class ComputeDefaultsService(CSweetDbContext db, TimeProvider cloc
     public Task<ComputeDefaults> RequestProjectWorkspaceAsync(Guid organizationId, Guid installationId, Guid projectId, CancellationToken token)
         => ProjectDefaultsAsync(organizationId, installationId, projectId, true, token);
 
+    internal static async Task<string?> BrowserReadinessErrorAsync(CSweetDbContext db, Guid organization,
+        Guid installation, Guid project, DateTimeOffset now, bool legacy, CancellationToken token)
+    {
+        ComputeTemplateRegistration? template;
+        if (legacy)
+        {
+            var setup = await db.Set<ComputeLocalSetup>().AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organization, token);
+            if (setup is not { State: "Ready", TemplateId: not null }) return setup?.ErrorCode ?? "docker_preparation_pending";
+            template = await db.ComputeTemplates.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organization &&
+                x.TemplateId == setup.TemplateId, token);
+        }
+        else
+        {
+            template = await OfficeComputePlacement.FindProjectTemplateAsync(db, organization, installation, project, now, token);
+            if (template is null) return OfficeComputeCapacityRequest.WaitingReason;
+        }
+        if (template is null || JsonSerializer.Deserialize<ComputeTemplate>(template.TemplateJson, ComputeProtocol.Json) is not
+            { Features: { } features } || !features.Contains("docker")) return "docker_preparation_pending";
+        return features.Contains(ComputeBrowserTest.Feature) ? null : ComputeBrowserTest.Feature;
+    }
+
     private async Task<ComputeDefaults> ProjectDefaultsAsync(Guid organizationId, Guid installationId, Guid projectId, bool requestWorkspace, CancellationToken token)
     {
         var actor = await db.CoreOrganizationUsers.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId &&

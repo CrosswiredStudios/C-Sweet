@@ -84,7 +84,7 @@ public sealed partial class WorkDeliveryService
             {
                 // QA reported missing browser compute: re-request the same review after its bounded recheck time.
                 var wait = retained.Output.Deserialize<WorkOrchestrator.QaComputePreparationWait>(Json)!;
-                if (wait.RetryAt > clock.GetUtcNow()) return;
+                if ((CurrentDeliveryStage(execution).RetryAt ?? wait.RetryAt) > clock.GetUtcNow()) return;
                 await CreateReviewAsync(plan, execution, scope, execution.CurrentStageKey, ct);
             }
             else if (retained.OutcomeCode == "awaiting-compute")
@@ -155,6 +155,7 @@ public sealed partial class WorkDeliveryService
                     throw new InvalidOperationException("A compute preparation wait needs a reason and a retry time within 15 minutes.");
                 attempt.Status = WorkExecutionAttemptStatus.Completed; attempt.ResultJson = Encode(outcome); attempt.CompletedAt = now;
                 stage.Status = WorkStageExecutionStatus.Completed; stage.LastOutcomeCode = outcome.OutcomeCode; stage.LastSummary = outcome.Summary;
+                stage.RetryAt = wait.RetryAt; stage.UpdatedAt = now;
                 execution.Status = "WaitingForEvidence"; execution.BlockedReason = outcome.Summary; execution.Revision++;
                 return;
             }

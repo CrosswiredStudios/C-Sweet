@@ -162,6 +162,9 @@ public sealed class ComputeProgressRenderingTests
             Assert.DoesNotContain("Download image", html);
         }
         var ready = await Render(new("Ready", "Ready", null, null, null), true, false);
+        Assert.Contains("Compute Types", ready, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Instances", ready);
+        Assert.Contains("Requests and Info", ready);
         Assert.Contains("Create instance", ready);
         Assert.DoesNotContain("Update compute service", ready);
     }

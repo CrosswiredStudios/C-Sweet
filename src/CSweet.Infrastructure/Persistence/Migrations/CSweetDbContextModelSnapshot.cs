@@ -12257,6 +12257,9 @@ namespace CSweet.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("ComputeReservationBusinessId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("ComputeReservationFeaturesJson")
+                        .HasColumnType("text");
+
                     b.Property<string>("ComputeReservationImageDigest")
                         .HasMaxLength(71)
                         .HasColumnType("character varying(71)");

@@ -3,12 +3,34 @@ using CSweet.Contracts.Realtime;
 using CSweet.Domain.Compute;
 using CSweet.Domain.Core;
 using CSweet.Infrastructure.Persistence;
+using CSweet.Infrastructure.Compute;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.UnitTests;
 
 public sealed class ComputeDashboardTests
 {
+    [Fact]
+    public async Task StandardWorkspaceCountHonorsOfficeLimitsAndRetainedDisks()
+    {
+        await using var f = new ComputeBrokerTests.Fixture();
+        await f.SeedAsync();
+        var admitted = await f.Send();
+        var environment = await f.Db.ComputeEnvironments.SingleAsync(x => x.Id == admitted.Id);
+        var office = environment.ProviderNodeId!.Value;
+        environment.State = ComputeLifecycleState.Stopped;
+        environment.DesiredState = ComputeDesiredState.Stopped;
+        await f.Db.SaveChangesAsync();
+        var capacity = await OfficeComputePlacement.ReadWorkspaceCapacityAsync(f.Db, office,
+            """{"slots":12,"resources":{"cpuCount":24,"memoryMiB":65536,"diskMiB":245760}}""",
+            """{"CpuCount":9,"MemoryMiB":27136,"DiskMiB":81920}""", default);
+        Assert.NotNull(capacity);
+        Assert.Equal(4, capacity.Value.Total.StandardWorkspaces);
+        Assert.Equal(3, capacity.Value.Free.StandardWorkspaces);
+        Assert.Equal(9, capacity.Value.Free.CpuCount);
+        Assert.Equal(61440, capacity.Value.Free.DiskMiB);
+    }
+
     [Fact]
     public async Task InstallerFailurePublishesOneComputeChangeAndLateDeliveryCannotRestoreItAfterRetry()
     {

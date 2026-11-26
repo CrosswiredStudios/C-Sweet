@@ -69,6 +69,10 @@
     else if (_fleet is not null && OfficeId is null)
     {
         <div class="office-directory-summary">@_fleet.Nodes.Count Office@(_fleet.Nodes.Count == 1 ? "" : "s") · @_fleet.Nodes.Count(HasUpdate) update@(_fleet.Nodes.Count(HasUpdate) == 1 ? "" : "s") available</div>
+        <div class="office-directory-summary">
+            @_fleet.StandardWorkspacesAvailableByOffice.Values.Sum() standard Linux workspaces available across assigned businesses
+            <span> · 2 vCPU · 2 GiB RAM · 20 GiB disk each</span>
+        </div>
         @if (_showSetup)
         {
             <MudPaper Elevation="1" Class="surface-panel command-section-wide">
@@ -331,6 +335,7 @@
         <MudTabPanel Text="@L["ExecutionFleet.Settings"]">
         <MudPaper Elevation="1" Class="surface-panel command-section-wide">
             <MudText Typo="Typo.h5">@L["ExecutionFleet.OfficeSettings"]</MudText>
+            <MudText Typo="Typo.body2">@_fleet.StandardWorkspacesAvailableByOffice.GetValueOrDefault(node.Id) standard Linux workspaces available on this Office.</MudText>
             <MudTextField Label="@L["ExecutionFleet.OfficeName"]" @bind-Value="_officeName" Disabled="@(ActionsDisabled || _careInProgress)" MaxLength="200" />
             <MudSelect T="Guid" Label="@L["ExecutionFleet.WorkloadGroup"]" @bind-Value="_officePool" Disabled="@(ActionsDisabled || _careInProgress)">
                 @foreach (var pool in _fleet.Pools.Where(x => x.IsEnabled || x.Id == node.ExecutionPoolId))

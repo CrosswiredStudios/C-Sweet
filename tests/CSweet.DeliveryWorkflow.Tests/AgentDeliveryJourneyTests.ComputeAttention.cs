@@ -23,8 +23,8 @@ namespace CSweet.DeliveryWorkflow.Tests;
 
 public sealed partial class AgentDeliveryJourneyTests
 {
-    [Theory, InlineData(false), InlineData(true), Trait("Category", "AgentHarness")]
-    public async Task QaComputeWaitShowsOneNamedOwnerCardUntilBrowserWorkspaceIsReady(bool legacy)
+    [Theory, InlineData(false, false), InlineData(true, false), InlineData(false, true), Trait("Category", "AgentHarness")]
+    public async Task QaComputeWaitShowsOneNamedOwnerCardUntilBrowserWorkspaceIsReady(bool legacy, bool deletedBusiness)
     {
         await using var f = new ComputeBrokerTests.Fixture();
         await f.SeedAsync();
@@ -46,6 +46,7 @@ public sealed partial class AgentDeliveryJourneyTests
             f.Db.Add(new ComputeLocalSetup { Id = Guid.NewGuid(), OrganizationId = f.Organization, State = "Failed",
                 ErrorCode = "compute_checks_build_failed", PreparationAttemptId = Guid.NewGuid(), UpdatedAt = DateTimeOffset.UtcNow });
         await f.Db.SaveChangesAsync();
+        var retiredOffice = deletedBusiness ? await DeliveryWorkflowBridge.SeedRetiredOfficeAsync(f.Db, owner) : Guid.Empty;
         var changes = f.Db.ApplicationRealtimeOutbox.Where(x => x.OrganizationId == f.Organization && x.EventType == AppRealtimeEvents.ComputeChanged);
         Assert.Empty((await DeliveryWorkflowBridge.ReadOverviewAsync(f.Db, f.Organization, ownerEmployee, legacy)).UserActions);
 
@@ -115,13 +116,69 @@ public sealed partial class AgentDeliveryJourneyTests
                 Assert.Equal("Prism Breaker", card.ProjectName);
                 Assert.Equal("Waiting for a browser workspace", card.Title);
                 Assert.Contains("I need a Linux workspace to run the browser tests.", card.Summary);
-                Assert.Equal($"/organizations/{f.Organization:D}/compute", Assert.Single(card.Actions).ActionUri);
+                Assert.Equal($"/organizations/{f.Organization:D}/compute?tab=requests", Assert.Single(card.Actions).ActionUri);
                 Assert.Equal(item.Id, Assert.Single(card.AffectedWork).ItemId);
                 var dashboard = await DeliveryWorkflowBridge.ReadComputeAsync(db, f.Organization, owner, legacy);
                 Assert.Equal(1, OverviewAttentionItems.Count(null, null, null, dashboard, issues: overview));
+                var waiting = Assert.Single(dashboard!.Requests);
+                Assert.Equal(assignment.StageExecutionId, waiting.Id);
+                Assert.True(waiting.RequiresBrowser);
+                Assert.False(waiting.CanRecheck);
+                if (deletedBusiness)
+                {
+                    var office = Assert.Single(dashboard.Offices);
+                    Assert.True(office.MayReassign);
+                    Assert.Null(office.Free);
+                    Assert.False(await DeliveryWorkflowBridge.RecheckComputeAsync(db, f.Organization, owner, waiting.Id));
+                }
                 Assert.Empty((await DeliveryWorkflowBridge.ReadOverviewAsync(db, f.Organization, contributor, legacy)).UserActions);
             }
             await using var recovered = new CSweetDbContext(f.Options);
+            if (deletedBusiness)
+            {
+                var image = "sha256:" + new string('d', 64);
+                await DeliveryWorkflowBridge.RecoverRetiredOfficeAsync(recovered, retiredOffice, f.Organization, owner, image);
+                var available = await DeliveryWorkflowBridge.ReadComputeAsync(recovered, f.Organization, owner, false);
+                var request = Assert.Single(available!.Requests);
+                Assert.Equal(assignment.StageExecutionId, request.Id);
+                Assert.True(request.CanRecheck);
+                Assert.Equal(new CSweet.Contracts.Compute.ComputeWorkspaceCapacity(4, 4, 4096, 40960), Assert.Single(available.Offices).Free);
+                Assert.Empty((await DeliveryWorkflowBridge.ReadOverviewAsync(recovered, f.Organization, ownerEmployee, false)).UserActions);
+
+                await using var restarted = new CSweetDbContext(f.Options);
+                Assert.True(await DeliveryWorkflowBridge.RecheckComputeAsync(restarted, f.Organization, owner, request.Id));
+                Assert.False(await DeliveryWorkflowBridge.RecheckComputeAsync(restarted, f.Organization, owner, request.Id));
+                var stage = await restarted.WorkStageExecutions.AsNoTracking().SingleAsync();
+                Assert.Equal(f.Installation, stage.AgentInstallationId);
+                Assert.True(stage.RetryAt <= DateTimeOffset.UtcNow);
+                Assert.Equal(item.Id, (await restarted.WorkItemExecutions.AsNoTracking().SingleAsync()).WorkItemId);
+
+                var ready = await defaults.ReadProjectAsync(f.Organization, f.Installation, f.Workstream, default);
+                Assert.Equal("Ready", ready.State);
+                Assert.Contains(ComputeBrowserTest.Feature, ready.Features);
+                var broker = new ComputeBroker(restarted, new ComputeRegistry(restarted, TimeProvider.System, new AuditExecutionContextAccessor()),
+                    TimeProvider.System, f.Ledger);
+                var workspaceRequest = new CSweet.Application.Compute.RequestComputeEnvironment(f.Workstream,
+                    $"qa-browser:{f.Workstream:N}", $"qa-browser:{f.Workstream:N}",
+                    new("linux", "x64", ready.TemplateId!, new(2, 2048, 20480), ready.MaximumLifetimeSeconds));
+                var admitted = await broker.RequestAsync(f.Organization, f.Installation, workspaceRequest, default);
+                Assert.Equal(admitted.Id, (await broker.RequestAsync(f.Organization, f.Installation, workspaceRequest, default)).Id);
+                var environment = Assert.Single(await restarted.ComputeEnvironments.ToArrayAsync());
+                Assert.Equal(retiredOffice, environment.ProviderNodeId);
+                Assert.Equal(f.Installation, environment.InstallationId);
+                var operation = Assert.Single(await restarted.ComputeOperations.ToArrayAsync());
+                operation.Status = "Reconciling";
+                operation.Attempts = 1;
+                operation.NextAttemptAt = DateTimeOffset.UtcNow.AddMinutes(1);
+                await restarted.SaveChangesAsync();
+                Assert.True(await DeliveryWorkflowBridge.RecheckProvisioningAsync(restarted, f.Organization, owner, environment.Id, operation.Id));
+                Assert.False(await DeliveryWorkflowBridge.RecheckProvisioningAsync(restarted, f.Organization, owner, environment.Id, operation.Id));
+                var observed = Assert.Single(await restarted.ComputeOperations.ToArrayAsync());
+                Assert.Equal(operation.Id, observed.Id);
+                Assert.Equal(1, observed.Attempts);
+                Assert.Equal("Reconciling", observed.Status);
+                return;
+            }
             if (!legacy)
             {
                 var demand = await defaults.RequestProjectWorkspaceAsync(f.Organization, f.Installation, f.Workstream, default);

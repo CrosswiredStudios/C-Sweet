@@ -1,21 +1,45 @@
 using System.Text.Json;
 using CSweet.Compute.Contracts;
+using CSweet.Contracts.Compute;
 using CSweet.Contracts.Core;
 using CSweet.Domain.Compute;
 using CSweet.Domain.Core;
 using CSweet.Domain.Setup;
 using CSweet.Domain.WorkManagement;
 using CSweet.Infrastructure.Compute;
+using CSweet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace CSweet.Infrastructure.WorkManagement;
 
 public sealed partial class OverviewIssueReader
 {
-    private sealed record ComputeWait(Guid ProjectId, Guid InstallationId, Guid? BoardId, Guid? ItemId, bool Browser);
+    private sealed record ComputeWait(Guid Id, Guid ProjectId, Guid InstallationId, Guid? BoardId, Guid? ItemId, bool Browser,
+        DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, DateTimeOffset? RetryAt, bool Waiting);
 
     private async Task<IReadOnlyList<OverviewIssueCard>> ReadComputeBlockersAsync(Guid org, Guid actor,
         IReadOnlyDictionary<Guid, string> projects, CancellationToken ct)
+    {
+        var requests = await ReadComputeRequestsAsync(db, issues, org, actor, projects, preparation?.LegacyInteractive == true,
+            (clock ?? TimeProvider.System).GetUtcNow(), ct);
+        return requests.Where(request => !request.CanRecheck && request.DiagnosticCode != null).Select(request =>
+            new OverviewIssueCard($"compute:{request.ProjectId:N}:{request.EmployeeId:N}", null, request.ProjectId, request.Project,
+                request.RequiresBrowser ? "Waiting for a browser workspace" : "Waiting for an Office workspace",
+                request.RequiresBrowser
+                    ? "I need a Linux workspace to run the browser tests. I’ll continue when one is available."
+                    : "I need an Office workspace to continue my work. I’ll continue when one is available.",
+                request.Employee, "", true, false, [], [], [], "")
+            {
+                IsComputeBlocker = true,
+                OwnerOrganizationUserId = request.EmployeeId,
+                AffectedWork = request.Work.Select(w => new OverviewAffectedWork(w.ItemId, w.Title, w.Uri)).ToArray(),
+                Actions = [new(request.EmployeeId, "Open Compute", $"/organizations/{org:D}/compute?tab=requests")]
+            }).ToArray();
+    }
+
+    public static async Task<IReadOnlyList<ComputeRequestStatus>> ReadComputeRequestsAsync(CSweetDbContext db,
+        WorkIssueService issues, Guid org, Guid actor, IReadOnlyDictionary<Guid, string> projects,
+        bool legacy, DateTimeOffset now, CancellationToken ct)
     {
         if (!await db.CoreOrganizationUsers.AnyAsync(u => u.Id == actor && u.OrganizationId == org && u.IsActive &&
                 u.ArchivedAt == null && u.EmployeeType == EmployeeType.Human && u.PermissionLevel == OrganizationPermissionLevel.Owner, ct))
@@ -40,7 +64,8 @@ public sealed partial class OverviewIssueReader
                 (execution.Status == WorkItemExecutionStatus.Pending || execution.Status == WorkItemExecutionStatus.Running) &&
                 (stage.Status == WorkStageExecutionStatus.Backoff || stage.Status == WorkStageExecutionStatus.Pending ||
                     stage.Status == WorkStageExecutionStatus.Dispatching || stage.Status == WorkStageExecutionStatus.Running)
-            select new ComputeWait(project.Id, stage.AgentInstallationId!.Value, board.Id, task.Id, true)).ToListAsync(ct);
+            select new ComputeWait(stage.Id, project.Id, stage.AgentInstallationId!.Value, board.Id, task.Id, true,
+                stage.CreatedAt, stage.UpdatedAt, stage.RetryAt, stage.Status == WorkStageExecutionStatus.Backoff)).ToListAsync(ct);
 
         waits.AddRange(await (from stage in browserWaits
             join execution in db.WorkDeliveryExecutions on stage.DeliveryExecutionId equals (Guid?)execution.Id
@@ -50,12 +75,14 @@ public sealed partial class OverviewIssueReader
                 execution.Status == "WaitingForEvidence" && execution.CurrentStageKey == stage.StageKey &&
                 !execution.Stages.Any(s => s.StageKey == stage.StageKey && s.Traversal > stage.Traversal) &&
                 (execution.WorkItemId == null || tasks.Any(t => t.Id == execution.WorkItemId && t.BoardId == execution.BoardId))
-            select new ComputeWait(project.Id, stage.AgentInstallationId!.Value, execution.BoardId, execution.WorkItemId, true)).ToListAsync(ct));
+            select new ComputeWait(stage.Id, project.Id, stage.AgentInstallationId!.Value, execution.BoardId, execution.WorkItemId, true,
+                stage.CreatedAt, stage.UpdatedAt, stage.RetryAt, true)).ToListAsync(ct));
 
         waits.AddRange(await (from demand in db.Set<OfficeComputeCapacityRequest>().AsNoTracking()
             join project in activeProjects on demand.ProjectId equals project.Id
             where demand.OrganizationId == org
-            select new ComputeWait(project.Id, demand.InstallationId, null, null, false)).ToListAsync(ct));
+            select new ComputeWait(demand.RequestId, project.Id, demand.InstallationId, null, null, false,
+                demand.RequestedAt, demand.RequestedAt, null, true)).ToListAsync(ct));
         if (waits.Count == 0) return [];
 
         var businessId = org.ToString("D");
@@ -76,15 +103,10 @@ public sealed partial class OverviewIssueReader
         }
         var itemIds = waits.Where(w => w.BoardId is Guid board && authorizedBoards.Contains(board))
             .Select(w => w.ItemId).OfType<Guid>().ToArray();
-        var titles = await tasks.Where(t => itemIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id, t => t.Title, ct);
+        var work = await tasks.Where(t => itemIds.Contains(t.Id))
+            .Select(t => new { t.Id, t.Title, t.Identifier }).ToDictionaryAsync(t => t.Id, ct);
 
-        var legacy = preparation?.LegacyInteractive == true;
-        var legacyTemplate = legacy ? await (from setup in db.Set<ComputeLocalSetup>().AsNoTracking()
-            join template in db.ComputeTemplates.AsNoTracking() on setup.TemplateId equals template.TemplateId
-            where setup.OrganizationId == org && setup.State == "Ready" && template.OrganizationId == org
-            select template).SingleOrDefaultAsync(ct) : null;
-        var now = (clock ?? TimeProvider.System).GetUtcNow();
-        var cards = new List<OverviewIssueCard>();
+        var requests = new List<ComputeRequestStatus>();
         bool? hasOfficeCapacity = null;
         foreach (var group in waits.GroupBy(w => (w.ProjectId, w.InstallationId)))
         {
@@ -93,39 +115,36 @@ public sealed partial class OverviewIssueReader
 
             var visible = group.Where(w => w.BoardId is null || authorizedBoards.Contains(w.BoardId.Value)).ToArray();
             if (visible.Length == 0) continue;
-            var browser = visible.Any(w => w.Browser);
-            if (browser)
+            var browserWaitsForProject = visible.Where(w => w.Browser).OrderBy(w => w.CreatedAt).ThenBy(w => w.Id).ToArray();
+            if (browserWaitsForProject.Length > 0)
             {
-                var template = legacy ? legacyTemplate :
-                    await OfficeComputePlacement.FindProjectTemplateAsync(db, org, installation, project, now, ct);
-                browser = template is null ||
-                    JsonSerializer.Deserialize<ComputeTemplate>(template.TemplateJson, ComputeProtocol.Json) is not { } definition ||
-                    !definition.Features.Contains("docker") || !definition.Features.Contains("browser-testing-v1");
+                var browserError = await ComputeDefaultsService.BrowserReadinessErrorAsync(db, org, installation, project, now, legacy, ct);
+                foreach (var wait in browserWaitsForProject)
+                {
+                    var affected = wait.ItemId is Guid item && work.TryGetValue(item, out var ticket)
+                        ? new[] { new ComputeRequestWork(item, ticket.Title, ticket.Identifier,
+                            $"/organizations/{org:D}/projects/{project:D}?tab=work&board={wait.BoardId:D}&item={item:D}") }
+                        : [];
+                    requests.Add(new(wait.Id, project, employee.EmployeeId, employee.DisplayName, projects.GetValueOrDefault(project, "Project"),
+                        true, browserError == null && wait.Waiting && (wait.RetryAt == null || wait.RetryAt > now),
+                        wait.CreatedAt, wait.UpdatedAt, wait.RetryAt,
+                        browserError switch
+                        {
+                            null => "Browser compute is ready. The existing QA assignment can continue.",
+                            OfficeComputeCapacityRequest.WaitingReason => "No eligible Office can provide a Linux workspace.",
+                            "browser-testing-v1" => "The available Linux image does not support browser testing.",
+                            _ => "Linux workspace preparation is incomplete."
+                        }, browserError, affected));
+                }
+                continue;
             }
-            if (!browser)
-            {
-                if (!visible.Any(w => !w.Browser)) continue;
-                hasOfficeCapacity ??= await OfficeComputePlacement.FindAsync(db, org, now, ct) is not null;
-                if (hasOfficeCapacity.Value) continue;
-            }
-
-            var title = browser ? "Waiting for a browser workspace" : "Waiting for an Office workspace";
-            var summary = browser
-                ? "I need a Linux workspace to run the browser tests. I’ll continue when one is available."
-                : "I need an Office workspace to continue my work. I’ll continue when one is available.";
-            var affected = visible.Where(w => browser && w.ItemId is Guid item && titles.ContainsKey(item))
-                .Select(w => new OverviewAffectedWork(w.ItemId!.Value, titles[w.ItemId.Value],
-                    $"/organizations/{org:D}/projects/{project:D}?tab=work&board={w.BoardId:D}&item={w.ItemId:D}"))
-                .DistinctBy(w => w.ItemId).ToArray();
-            cards.Add(new($"compute:{project:N}:{installation:N}", null, project, projects.GetValueOrDefault(project, "Project"),
-                title, summary, employee.DisplayName, "", true, false, [], [], [], "")
-            {
-                OwnerOrganizationUserId = employee.EmployeeId,
-                IsComputeBlocker = true,
-                AffectedWork = affected,
-                Actions = [new(installation, "Open Compute", $"/organizations/{org:D}/compute")]
-            });
+            var demand = visible.Single();
+            hasOfficeCapacity ??= await OfficeComputePlacement.FindAsync(db, org, now, ct) is not null;
+            if (hasOfficeCapacity.Value) continue;
+            requests.Add(new(demand.Id, project, employee.EmployeeId, employee.DisplayName, projects.GetValueOrDefault(project, "Project"),
+                false, false, demand.CreatedAt, demand.UpdatedAt, null, "Waiting for Office workspace capacity.",
+                OfficeComputeCapacityRequest.WaitingReason, []));
         }
-        return cards;
+        return requests.OrderBy(r => r.RequestedAt).ThenBy(r => r.Id).ToArray();
     }
 }

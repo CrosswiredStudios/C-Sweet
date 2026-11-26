@@ -256,6 +256,9 @@ public sealed partial class ExecutionFleetService(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        var recoverCompute = request.RecoverComputeForBusinessId;
+        if (recoverCompute.HasValue && (!request.Repair || request.UpgradeOfficeId is null || request.AutomaticUpdate))
+            return await LocalFailureAsync("invalid_compute_recovery", "Choose an enrolled Office for compute reassignment.", cancellationToken);
         if (request.AutomaticUpdate && (request.UpgradeOfficeId is null || request.Repair))
             return await LocalFailureAsync("invalid_update", "Select an existing Office for an automatic update.", cancellationToken);
         if (request.UseLocalSource)
@@ -270,6 +273,15 @@ public sealed partial class ExecutionFleetService(
         ExecutionNode? upgradeOffice = null;
         if (request.UpgradeOfficeId is { } upgradeId)
         {
+            if (recoverCompute is Guid destination)
+            {
+                var recovery = await FindRetiredComputeReservationAsync(upgradeId, destination, createdByUserId, cancellationToken);
+                if (recovery is null)
+                    return await LocalFailureAsync("compute_reassignment_unavailable", "This Office has no retired compute reservation you can reassign to this business.", cancellationToken);
+                var existingNode = await dbContext.ExecutionNodes.AsNoTracking().SingleAsync(n => n.Id == upgradeId, cancellationToken);
+                if (!Version.TryParse(existingNode.NodeVersion, out var installedVersion) || installedVersion < ComputeReassignmentMinimumVersion)
+                    return await LocalFailureAsync("office_update_required", $"Update the Office to {ComputeReassignmentMinimumVersion} or later to reassign compute.", cancellationToken);
+            }
             if (!(request.AutomaticUpdate ? await CanStartAutomaticUpdateAsync(upgradeId, request, cancellationToken)
                 : request.Repair ? await CanRepairOfficeAsync(upgradeId, cancellationToken)
                 : await CanUpgradeOfficeAsync(upgradeId, cancellationToken)))
@@ -322,6 +334,9 @@ public sealed partial class ExecutionFleetService(
             return await LocalFailureAsync("local_setup_in_progress", "Finish the existing local setup before upgrading this Office.", cancellationToken);
         if (existing is not null)
         {
+            if (recoverCompute != existing.ComputeReservationBusinessId &&
+                (recoverCompute.HasValue || existing.RecoveryAction == "repair" && existing.ComputeReservationBusinessId.HasValue))
+                return await LocalFailureAsync("local_setup_in_progress", "Finish the existing Office operation before reassigning compute.", cancellationToken);
             var existingResponse = Map(existing, fleetOptions?.Value.WindowsPackageOverrideUrl, null,
                 LocalSetupLaunchMethod(existing));
             if (existingResponse.State != "failed")
@@ -417,9 +432,10 @@ public sealed partial class ExecutionFleetService(
             ControlPlaneCertificateSha256 = controlPlaneCertificateSha256,
             UpgradeOfficeId = upgradeOffice?.Id,
             RecoveryAction = upgradeOffice is null ? "none" : request.Repair ? "repair" : "upgrade",
+            ComputeReservationBusinessId = recoverCompute,
             AutomaticUpdate = request.AutomaticUpdate,
             TargetVersion = request.AutomaticUpdate ? request.TargetVersion : null,
-            ResumeAfterUpdate = request.AutomaticUpdate && upgradeOffice?.WorkPauseReason != OfficeWorkPauseReason.User &&
+            ResumeAfterUpdate = (request.AutomaticUpdate || recoverCompute.HasValue) && upgradeOffice?.WorkPauseReason != OfficeWorkPauseReason.User &&
                 (upgradeOffice?.WorkPauseReason == OfficeWorkPauseReason.Maintenance ||
                  (priorUpdate?.ResumeAfterUpdate ?? (upgradeOffice?.DrainingAt is null && upgradeOffice?.Status == ExecutionNodeStatus.Ready))),
             UseLocalUpdateSource = request.UseLocalSource,
@@ -1066,11 +1082,16 @@ public sealed partial class ExecutionFleetService(
         if (resultCode == "office_upgrade_completed")
         {
             if (session.RecoveryAction is not ("upgrade" or "repair") || session.Status != LocalOfficeSetupSessionStatus.Redeemed) return false;
+            await using var transaction = session.ComputeReservationBusinessId.HasValue && dbContext.Database.IsRelational()
+                ? await dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
+            if (session.ComputeReservationBusinessId is Guid destination && session.UpgradeOfficeId is Guid office &&
+                !await CompleteComputeReassignmentAsync(session, office, destination, cancellationToken)) return false;
             session.Status = LocalOfficeSetupSessionStatus.Connected;
             session.SetupReceiptHash = null;
             session.CompletedAt = timeProvider.GetUtcNow();
             session.UpdatedAt = timeProvider.GetUtcNow();
             await dbContext.SaveChangesAsync(cancellationToken);
+            if (transaction != null) await transaction.CommitAsync(cancellationToken);
             await auditWriter.WriteAsync("office.upgrade.completed", nameof(LocalOfficeSetupSession), session.Id,
                 $"Installer completed for Office {session.UpgradeOfficeId}; verify health before resuming work.", cancellationToken: cancellationToken);
             return true;
@@ -2310,7 +2331,8 @@ public sealed partial class ExecutionFleetService(
         var bootstrapOrigin = LocalSetupLaunchMethod(session) == "server" ? LocalSetupBootstrapOrigin(session.ControlPlaneOrigin) : session.ControlPlaneOrigin;
         var automatic = session.AutomaticUpdate
             ? $"&automatic=true&version={Uri.EscapeDataString(session.TargetVersion!)}&localSource={session.UseLocalUpdateSource.ToString().ToLowerInvariant()}" : "";
-        return $"csweet-office://enroll/v1?session={session.Id:D}&origin={Uri.EscapeDataString(bootstrapOrigin)}{certificateParameter}{(session.UpgradeOfficeId is not null && session.RecoveryAction is "upgrade" or "repair" or "remove" ? $"&office={session.UpgradeOfficeId:D}&operation={session.RecoveryAction}" : "")}{automatic}#handoff={handoff}";
+        var compute = session.RecoveryAction == "repair" && session.ComputeReservationBusinessId != null ? "&reassignCompute=true" : "";
+        return $"csweet-office://enroll/v1?session={session.Id:D}&origin={Uri.EscapeDataString(bootstrapOrigin)}{certificateParameter}{(session.UpgradeOfficeId is not null && session.RecoveryAction is "upgrade" or "repair" or "remove" ? $"&office={session.UpgradeOfficeId:D}&operation={session.RecoveryAction}" : "")}{automatic}{compute}#handoff={handoff}";
     }
 
     private string LocalSetupBootstrapOrigin(string fallback)

@@ -95,6 +95,25 @@ public sealed partial class OfficeGatewayService(
                     node.Status = ExecutionNodeStatus.Ready;
                 await OfficeComputePlacement.ApplyOfferAsync(db, node,
                     message.Heartbeat.ComputeOffer, timeProvider.GetUtcNow(), context.CancellationToken, computeCatalog?.Value);
+                if (node.ComputeTemplateId is not null && assistedSession?.ComputeReservationBusinessId is Guid destination &&
+                    message.Heartbeat.ComputeOffer?.ImageDigest == assistedSession.ComputeReservationImageDigest)
+                {
+                    var recovery = await db.LocalOfficeSetupSessions.SingleOrDefaultAsync(s => s.UpgradeOfficeId == node.Id &&
+                        s.Status == LocalOfficeSetupSessionStatus.Connected && s.RecoveryAction == "repair" &&
+                        s.ComputeReservationBusinessId == destination && s.ComputeReservationImageDigest == assistedSession.ComputeReservationImageDigest,
+                        context.CancellationToken);
+                    if (recovery != null)
+                    {
+                        if (recovery.ResumeAfterUpdate && node.WorkPauseReason == OfficeWorkPauseReason.Maintenance)
+                        {
+                            node.DrainingAt = null;
+                            node.WorkPauseReason = null;
+                            node.Status = ExecutionNodeStatus.Ready;
+                        }
+                        recovery.Status = LocalOfficeSetupSessionStatus.Ready;
+                        recovery.UpdatedAt = timeProvider.GetUtcNow();
+                    }
+                }
                 if (node.ComputeTemplateId is { } offered && node.Status == ExecutionNodeStatus.Ready && node.DrainingAt is null &&
                     Guid.TryParse(message.Heartbeat.ComputeOffer.OrganizationId, out var business))
                     await OfficeComputePlacement.WakeWaitingAsync(db, business, node.Id, sessionEpoch,

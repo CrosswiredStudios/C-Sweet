@@ -5,7 +5,10 @@ public sealed record ExecutionFleetAdministrationResponse(
     IReadOnlyList<ExecutionNodeSummaryResponse> Nodes,
     IReadOnlyList<ExecutionAssignmentSummaryResponse> RecentAssignments,
     IReadOnlyList<AgentExecutionPoolOverrideResponse> InstallationOverrides,
-    IReadOnlyDictionary<Guid, int>? ActiveAssignmentsByOffice = null);
+    IReadOnlyDictionary<Guid, int>? ActiveAssignmentsByOffice = null)
+{
+    public IReadOnlyDictionary<Guid, int> StandardWorkspacesAvailableByOffice { get; init; } = new Dictionary<Guid, int>();
+}
 
 public sealed record CreateExecutionPoolRequest(
     string Name,

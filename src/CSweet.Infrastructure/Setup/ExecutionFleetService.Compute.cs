@@ -15,6 +15,7 @@ namespace CSweet.Infrastructure.Setup;
 public sealed partial class ExecutionFleetService
 {
     private static readonly string[] HostedComputeFeatures = ["docker", "docker-apps-v1"];
+    internal static readonly Version ComputeReassignmentMinimumVersion = new(0, 19, 2);
 
     public async Task<OfficeComputeSetupPlan?> PrepareHostedComputeAsync(OfficeComputeSetupRequest request, CancellationToken token)
     {
@@ -30,7 +31,7 @@ public sealed partial class ExecutionFleetService
             x.SetupReceiptHash == receipt && x.MachineBindingHash == machine && x.ExpiresAt > now && x.Status == LocalOfficeSetupSessionStatus.Redeemed &&
             x.RecoveryAction == "none" && x.ExecutionNodeEnrollment != null && x.ExecutionNodeEnrollment.Status == ExecutionEnrollmentStatus.Available);
         var initial = await sessions.AsNoTracking().SingleOrDefaultAsync(token);
-        if (initial is null) return null;
+        if (initial is null) return await PrepareComputeReassignmentAsync(request, receipt, machine, now, token);
         if (initial.AllocatableCpuCount < 3 || initial.AllocatableMemoryMb < 2176 || initial.AllocatableDiskMb < 20544 || initial.MaximumConcurrentWorkloads < 2)
             return new(false, "Office capacity is too small to reserve a compute workspace.");
         var developmentImages = fleetOptions?.Value.AllowUnpinnedDevelopmentImages == true;
@@ -41,8 +42,8 @@ public sealed partial class ExecutionFleetService
         var hasLocalPolicy = configuredScopes.Count > 0 && await dbContext.CoreOrganizationUsers.AnyAsync(x =>
             x.ApplicationUserId == initial.CreatedByUserId && configuredScopes.Contains(x.OrganizationId) &&
             x.EmployeeType == EmployeeType.Human && x.PermissionLevel == OrganizationPermissionLevel.Owner && x.IsActive && x.ArchivedAt == null, token);
-        var releaseMatches = developmentImages && !hasLocalPolicy && initial.ComputeReservationImageDigest is null &&
-            await CurrentHostedReleaseApprovesAsync(request, token);
+        var releaseFeatures = developmentImages && !hasLocalPolicy && initial.ComputeReservationImageDigest is null
+            ? await ReadHostedComputeFeaturesAsync(request, token) : null;
         await using var tx = dbContext.Database.IsRelational() ? await dbContext.Database.BeginTransactionAsync(token) : null;
         var locks = new ProjectWorkPolicy(dbContext, timeProvider);
         await locks.LockAsync(initial.Id, token);
@@ -61,13 +62,14 @@ public sealed partial class ExecutionFleetService
             .Select(x => x.OrganizationId).Distinct().ToListAsync(token);
         var eligible = owners.Where(id => (!session.ComputeReservationBusinessId.HasValue || session.ComputeReservationBusinessId == id) &&
             OfficeComputePlacement.Allows(pool, id)).Take(2).ToArray();
-        if (eligible.Length == 0 && releaseMatches && OfficeComputePlacement.Allows(pool, null))
+        if (eligible.Length == 0 && releaseFeatures != null && OfficeComputePlacement.Allows(pool, null))
         {
             var future = await FirstOfficeBusiness.ReserveAsync(dbContext, session.CreatedByUserId, token);
             if (future.HasValue && OfficeComputePlacement.Allows(pool, future.Value))
             {
                 session.ComputeReservationBusinessId = future;
                 session.ComputeReservationImageDigest = request.ImageDigest;
+                session.ComputeReservationFeaturesJson = JsonSerializer.Serialize(releaseFeatures);
                 await dbContext.SaveChangesAsync(token);
                 if (tx is not null) await tx.CommitAsync(token);
                 return WorkspacePlan(session, future.Value);
@@ -79,21 +81,24 @@ public sealed partial class ExecutionFleetService
         var matchingReplay = session.ComputeReservationBusinessId == business && session.ComputeReservationImageDigest == request.ImageDigest;
         if (session.ComputeReservationBusinessId.HasValue && !matchingReplay) return null;
         var approvals = catalog.ForBusiness(business).ToArray();
-        var approved = approvals.Length > 0 ? approvals.Any(x => x.ImageDigest == request.ImageDigest && x.Features is not null &&
-            HostedComputeFeatures.ToHashSet(StringComparer.Ordinal).SetEquals(x.Features)) : matchingReplay || releaseMatches;
-        if (!approved) return new(false, "Headquarters could not verify this compute image against its release catalog.");
+        var features = approvals.Length > 0 ? approvals.FirstOrDefault(x => x.ImageDigest == request.ImageDigest)?.Features
+            : matchingReplay ? ReservedComputeFeatures(session) : releaseFeatures;
+        if (features is not { Length: > 0 and <= 64 } || !HostedComputeFeatures.All(features.Contains) ||
+            !features.All(ComputeSpecification.Identifier))
+            return new(false, "Headquarters could not verify this compute image against its release catalog.");
         var id = OfficeComputePlacement.TemplateId(request.ImageDigest);
-        var template = new ComputeTemplate(id, "linux", "x64", request.ImageDigest, HostedComputeFeatures.ToHashSet(StringComparer.Ordinal));
+        var template = new ComputeTemplate(id, "linux", "x64", request.ImageDigest, features.ToHashSet(StringComparer.Ordinal));
         var registration = await dbContext.ComputeTemplates.SingleOrDefaultAsync(x => x.OrganizationId == business && x.TemplateId == id, token);
         if (registration is null)
             dbContext.ComputeTemplates.Add(new() { Id = Guid.NewGuid(), OrganizationId = business, TemplateId = id, Enabled = true,
                 TemplateJson = JsonSerializer.Serialize(template, ComputeProtocol.Json), UpdatedAt = now });
         else if (!registration.Enabled || JsonSerializer.Deserialize<ComputeTemplate>(registration.TemplateJson, ComputeProtocol.Json) is not { Enabled: true } existing ||
             existing.Id != id || existing.ImageDigest != request.ImageDigest || existing.OperatingSystem != "linux" ||
-            existing.Architecture != "x64" || !existing.Features.SetEquals(HostedComputeFeatures))
+            existing.Architecture != "x64" || !existing.Features.SetEquals(features))
             return new(false, "The registered compute template is disabled or differs from this release.");
         session.ComputeReservationBusinessId = business;
         session.ComputeReservationImageDigest = request.ImageDigest;
+        session.ComputeReservationFeaturesJson = JsonSerializer.Serialize(features);
         await dbContext.SaveChangesAsync(token);
         if (tx is not null) await tx.CommitAsync(token);
         return WorkspacePlan(session, business);
@@ -107,26 +112,115 @@ public sealed partial class ExecutionFleetService
         return new(true, null, business, budget.CpuCount, budget.CpuCount, budget.MemoryMiB, budget.DiskMiB);
     }
 
-    private async Task<bool> CurrentHostedReleaseApprovesAsync(OfficeComputeSetupRequest request, CancellationToken token)
+    internal static string[] ReservedComputeFeatures(LocalOfficeSetupSession session) => session.ComputeReservationFeaturesJson is { } json
+        ? JsonSerializer.Deserialize<string[]>(json) ?? [] : HostedComputeFeatures;
+
+    internal async Task<LocalOfficeSetupSession?> FindRetiredComputeReservationAsync(Guid officeId, Guid destination, Guid user,
+        CancellationToken token)
     {
-        if (services?.GetService<IHttpClientFactory>() is not { } factory) return false;
+        var original = await dbContext.LocalOfficeSetupSessions.SingleOrDefaultAsync(s => s.ExecutionNodeId == officeId &&
+            s.CreatedByUserId == user && s.ComputeReservationBusinessId != null && s.ComputeReservationImageDigest != null, token);
+        if (original?.ComputeReservationBusinessId is not Guid previous || previous == destination ||
+            await dbContext.CoreOrganizations.AnyAsync(o => o.Id == previous, token) ||
+            await dbContext.SystemConfigurations.AnyAsync(c => c.FirstOfficeBusinessId == previous, token) ||
+            !await dbContext.CoreOrganizations.AnyAsync(o => o.Id == destination && o.Status != OrganizationStatus.Deleting &&
+                o.Status != OrganizationStatus.DeletionFailed, token) ||
+            !await dbContext.CoreOrganizationUsers.AnyAsync(u => u.OrganizationId == destination && u.ApplicationUserId == user &&
+                u.EmployeeType == EmployeeType.Human && u.PermissionLevel == OrganizationPermissionLevel.Owner && u.IsActive && u.ArchivedAt == null, token) ||
+            await dbContext.ComputeNodes.AnyAsync(n => n.Id == officeId, token) ||
+            await dbContext.ComputeEnvironments.AnyAsync(e => e.ProviderNodeId == officeId && e.TeardownConfirmedAt == null, token)) return null;
+        var pool = await (from node in dbContext.ExecutionNodes
+                          join entry in dbContext.ExecutionPools on node.ExecutionPoolId equals entry.Id
+                          where node.Id == officeId && node.ApprovedAt != null && node.RevokedAt == null
+                          select entry).SingleOrDefaultAsync(token);
+        return pool != null && OfficeComputePlacement.Allows(pool, destination) ? original : null;
+    }
+
+    private async Task<OfficeComputeSetupPlan?> PrepareComputeReassignmentAsync(OfficeComputeSetupRequest request, string receipt,
+        string machine, DateTimeOffset now, CancellationToken token)
+    {
+        var sessions = dbContext.LocalOfficeSetupSessions.Where(x => x.Id == request.AssistedSetupSessionId &&
+            x.SetupReceiptHash == receipt && x.MachineBindingHash == machine && x.ExpiresAt > now &&
+            x.Status == LocalOfficeSetupSessionStatus.Redeemed && x.RecoveryAction == "repair" && !x.AutomaticUpdate &&
+            x.UpgradeOfficeId != null && x.ComputeReservationBusinessId != null);
+        var initial = await sessions.AsNoTracking().SingleOrDefaultAsync(token);
+        if (initial?.UpgradeOfficeId is not Guid office || initial.ComputeReservationBusinessId is not Guid business) return null;
+
+        var configured = services?.GetService<IOptions<OfficeComputeCatalogOptions>>()?.Value.ForBusiness(business).ToArray() ?? [];
+        var features = configured.FirstOrDefault(a => a.ImageDigest == request.ImageDigest)?.Features;
+        if (configured.Length == 0 && fleetOptions?.Value.AllowUnpinnedDevelopmentImages == true)
+            features = await ReadHostedComputeFeaturesAsync(request, token);
+        if (features is not { Length: > 0 and <= 64 } || !features.Contains("docker") ||
+            !features.Contains(ComputeBrowserTest.Feature) || !features.All(ComputeSpecification.Identifier))
+            return new(false, "This reassignment requires a verified release image with browser testing.");
+
+        await using var tx = dbContext.Database.IsRelational() ? await dbContext.Database.BeginTransactionAsync(token) : null;
+        var locks = new ProjectWorkPolicy(dbContext, timeProvider);
+        await locks.LockAsync(office, token);
+        await locks.LockAsync(business, token);
+        var session = await sessions.SingleOrDefaultAsync(token);
+        var retired = await FindRetiredComputeReservationAsync(office, business, initial.CreatedByUserId, token);
+        if (session is null || retired is null || !await MaintenanceReadyAsync(session, token) ||
+            session.ComputeReservationImageDigest is { } prepared && prepared != request.ImageDigest) return null;
+
+        var id = OfficeComputePlacement.TemplateId(request.ImageDigest);
+        var template = new ComputeTemplate(id, "linux", "x64", request.ImageDigest, features.ToHashSet(StringComparer.Ordinal));
+        var registration = await dbContext.ComputeTemplates.SingleOrDefaultAsync(x => x.OrganizationId == business && x.TemplateId == id, token);
+        if (registration is null)
+            dbContext.ComputeTemplates.Add(new() { Id = Guid.NewGuid(), OrganizationId = business, TemplateId = id, Enabled = true,
+                TemplateJson = JsonSerializer.Serialize(template, ComputeProtocol.Json), UpdatedAt = now });
+        else if (!registration.Enabled || JsonSerializer.Deserialize<ComputeTemplate>(registration.TemplateJson, ComputeProtocol.Json) is not
+            { Enabled: true, OperatingSystem: "linux", Architecture: "x64" } registered || registered.ImageDigest != request.ImageDigest ||
+            registered.Id != id || !registered.Features.SetEquals(features))
+            return new(false, "The registered browser image is disabled or differs from this release.");
+
+        session.ComputeReservationImageDigest = request.ImageDigest;
+        session.ComputeReservationFeaturesJson = JsonSerializer.Serialize(features);
+        await dbContext.SaveChangesAsync(token);
+        if (tx != null) await tx.CommitAsync(token);
+        return WorkspacePlan(retired, business) with { PreviousOrganizationId = retired.ComputeReservationBusinessId };
+    }
+
+    private async Task<bool> CompleteComputeReassignmentAsync(LocalOfficeSetupSession session, Guid office, Guid destination, CancellationToken token)
+    {
+        var locks = new ProjectWorkPolicy(dbContext, timeProvider);
+        await locks.LockAsync(office, token);
+        await locks.LockAsync(destination, token);
+        var retired = await FindRetiredComputeReservationAsync(office, destination, session.CreatedByUserId, token);
+        if (retired is null || session.ComputeReservationImageDigest is not { } approved || !await MaintenanceReadyAsync(session, token))
+            return false;
+        if (!await dbContext.ComputeTemplates.AnyAsync(t => t.OrganizationId == destination && t.Enabled &&
+            t.TemplateId == OfficeComputePlacement.TemplateId(approved), token)) return false;
+        retired.ComputeReservationBusinessId = destination;
+        retired.ComputeReservationImageDigest = approved;
+        retired.ComputeReservationFeaturesJson = session.ComputeReservationFeaturesJson;
+        retired.Status = LocalOfficeSetupSessionStatus.Ready;
+        retired.UpdatedAt = timeProvider.GetUtcNow();
+        return true;
+    }
+
+    private async Task<string[]?> ReadHostedComputeFeaturesAsync(OfficeComputeSetupRequest request, CancellationToken token)
+    {
+        if (services?.GetService<IHttpClientFactory>() is not { } factory) return null;
         const string official = "https://github.com/CrosswiredStudios/CSweet.Office/releases/latest/download/office-bootstrap.json";
         using var client = factory.CreateClient();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
         timeout.CancelAfter(TimeSpan.FromSeconds(15));
         using var response = await client.GetAsync(official, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
         if (!response.IsSuccessStatusCode || response.RequestMessage?.RequestUri is not { Scheme: "https", Port: 443, UserInfo: "" } origin ||
-            !(origin.Host == "github.com" || origin.Host.EndsWith(".githubusercontent.com", StringComparison.Ordinal))) return false;
+            !(origin.Host == "github.com" || origin.Host.EndsWith(".githubusercontent.com", StringComparison.Ordinal))) return null;
         await response.Content.LoadIntoBufferAsync(1024 * 1024, timeout.Token);
         try
         {
             var metadata = JsonSerializer.Deserialize<DevelopmentRelease>(await response.Content.ReadAsByteArrayAsync(timeout.Token),
                 JsonSerializerOptions.Web);
             return metadata is { Signing: "development", RequiresHostCertification: true, GuestBrokerProtocolVersion: "1.1",
-                ComputeImage.Features: { Length: 2 } features } && metadata.OfficeVersion == request.OfficeVersion &&
-                metadata.ComputeImage.ImageDigest == request.ImageDigest && features.ToHashSet(StringComparer.Ordinal).SetEquals(HostedComputeFeatures);
+                ComputeImage.Features: { Length: 2 or 3 } features } && metadata.OfficeVersion == request.OfficeVersion &&
+                metadata.ComputeImage.ImageDigest == request.ImageDigest && HostedComputeFeatures.All(features.Contains) &&
+                features.All(feature => HostedComputeFeatures.Contains(feature) || feature == ComputeBrowserTest.Feature)
+                ? features : null;
         }
-        catch (JsonException) { return false; }
+        catch (JsonException) { return null; }
     }
 
     private sealed record DevelopmentRelease(string OfficeVersion, string Signing, bool RequiresHostCertification,

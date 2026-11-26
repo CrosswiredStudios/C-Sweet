@@ -1,5 +1,6 @@
 using CSweet.Api.Compute;
 using CSweet.Application.Setup;
+using CSweet.Compute.Contracts;
 using CSweet.Contracts.Compute;
 using CSweet.Contracts.Setup;
 using CSweet.Domain.Core;
@@ -102,9 +103,10 @@ public sealed partial class ExecutionFleetServiceTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task AssistedInstallReservesOnceAndClaimsOnlyTheRemainingOfficeCapacity(bool installBeforeBusiness)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task AssistedInstallReservesOnceAndClaimsOnlyTheRemainingOfficeCapacity(bool installBeforeBusiness, bool browserImage)
     {
         if (!OperatingSystem.IsWindows()) return;
         await using var db = CreateDb();
@@ -113,6 +115,7 @@ public sealed partial class ExecutionFleetServiceTests
         var user = Guid.NewGuid();
         var business = Guid.NewGuid();
         var image = "sha256:" + new string('a', 64);
+        var features = browserImage ? new[] { "docker", "docker-apps-v1", ComputeBrowserTest.Feature } : ["docker", "docker-apps-v1"];
         if (!installBeforeBusiness)
         {
             db.CoreOrganizations.Add(new() { Id = business, Name = "Inkling Games" });
@@ -121,8 +124,8 @@ public sealed partial class ExecutionFleetServiceTests
         }
         await db.SaveChangesAsync();
         var dependencies = new ServiceCollection().AddSingleton(Options.Create(new OfficeComputeCatalogOptions
-            { ApprovedImages = installBeforeBusiness ? [] : [new(business, image, ["docker", "docker-apps-v1"])] }));
-        dependencies.AddHttpClient(string.Empty).ConfigurePrimaryHttpMessageHandler(() => new OfficeReleaseFixture(image));
+            { ApprovedImages = installBeforeBusiness ? [] : [new(business, image, features)] }));
+        dependencies.AddHttpClient(string.Empty).ConfigurePrimaryHttpMessageHandler(() => new OfficeReleaseFixture(image, features));
         using var services = dependencies.BuildServiceProvider();
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
@@ -194,7 +197,7 @@ public sealed partial class ExecutionFleetServiceTests
             var offer = new CSweet.Office.Contracts.ControlPlane.OfficeComputeOffer { OrganizationId = business.ToString("D"),
                 TemplateId = OfficeComputePlacement.TemplateId(image), ImageDigest = image, MaximumEnvironments = 1,
                 CpuCount = 2, MemoryMib = 2048, DiskMib = 20480 };
-            offer.Features.Add(["docker", "docker-apps-v1"]);
+            offer.Features.Add(features);
             await OfficeComputePlacement.ApplyOfferAsync(db, office, offer, Now, default);
             await db.SaveChangesAsync();
             Assert.Equal(offer.TemplateId, office.ComputeTemplateId);
@@ -205,12 +208,12 @@ public sealed partial class ExecutionFleetServiceTests
         }
     }
 
-    private sealed class OfficeReleaseFixture(string image) : HttpMessageHandler
+    private sealed class OfficeReleaseFixture(string image, string[] features) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { RequestMessage = request,
                 Content = System.Net.Http.Json.JsonContent.Create(new { officeVersion = "0.17.1", signing = "development",
                     requiresHostCertification = true, guestBrokerProtocolVersion = "1.1",
-                    computeImage = new { imageDigest = image, features = new[] { "docker", "docker-apps-v1" } } }) });
+                    computeImage = new { imageDigest = image, features } }) });
     }
 }
